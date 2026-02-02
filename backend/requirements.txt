@@ -1,0 +1,6 @@
+SQLAlchemy ~= 2.0.46
+pydantic-settings ~= 2.12.0
+
+pytest
+pytest-asyncio
+psycopg2-binary
