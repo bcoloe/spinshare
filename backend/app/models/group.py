@@ -27,4 +27,4 @@ class Group(Base):
     # Relationships
     creator = relationship("User", foreign_keys=[created_by], back_populates="created_groups")
     members = relationship("User", secondary=group_members, back_populates="groups")
-    group_albums = relationship("GroupAlbum", back_populates="group")
+    albums = relationship("GroupAlbum", back_populates="group")

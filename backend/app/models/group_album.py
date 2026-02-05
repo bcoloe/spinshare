@@ -19,7 +19,7 @@ class GroupAlbum(Base):
     added_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
-    group = relationship("Group", back_populates="group_albums")
+    group = relationship("Group", back_populates="albums")
     albums = relationship("Album", back_populates="group_albums")
     added_by_user = relationship("User", foreign_keys=[added_by], back_populates="added_albums")
 
