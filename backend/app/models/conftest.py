@@ -46,7 +46,7 @@ def db_session(engine):
 
 
 @pytest.fixture
-def sample_user(db_session):
+def sample_user(db_session) -> User:
     """Create a sample user for testing"""
     user = User(email="test@example.com", username="testuser", password_hash="hashed_password")
     db_session.add(user)
@@ -56,7 +56,7 @@ def sample_user(db_session):
 
 
 @pytest.fixture
-def sample_album(db_session):
+def sample_album(db_session) -> Album:
     """Create a sample album for testing"""
     album = Album(
         spotify_album_id="abc123",

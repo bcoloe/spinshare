@@ -1,4 +1,8 @@
 """Unit tests of User model and its relationships."""
+
+import pytest
+from sqlalchemy.exc import IntegrityError
+
 from app.models import User
 
 
@@ -12,6 +16,40 @@ class TestUserModel:
         assert user.id is not None
         assert user.email == "alice@example.com"
         assert user.created_at is not None
+
+    def test_nonunique_username(self, db_session, sample_user: User):
+        """Test that usernames must be unique."""
+        user = User(
+            email="unique@example.com", username=sample_user.username, password_hash="hashed_pw"
+        )
+        db_session.add(user)
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+
+    def test_nonunique_username_ci(self, db_session, sample_user: User):
+        """Test that username uniqueness is not case sensitive."""
+        user = User(
+            email="unique@example.com",
+            username=sample_user.username.upper(),
+            password_hash="hashed_pw",
+        )
+        db_session.add(user)
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+
+    def test_nonunique_email(self, db_session, sample_user: User):
+        """Test that user emails must be unique."""
+        user = User(email=sample_user.email, username="unique", password_hash="hashed_pw")
+        db_session.add(user)
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+
+    def test_nonunique_email_ci(self, db_session, sample_user: User):
+        """Test that unique email condition is not case-sensitive."""
+        user = User(email=sample_user.email.upper(), username="unique", password_hash="hashed_pw")
+        db_session.add(user)
+        with pytest.raises(IntegrityError):
+            db_session.commit()
 
     def test_user_persists_to_database(self, db_session, sample_user):
         """Test that user data is actually saved to and retrievable from database"""
