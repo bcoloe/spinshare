@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     DATABASE_URL: str
-    # SECRET_KEY: str
+    SECRET_KEY: str
     # SPOTIFY_CLIENT_ID: str
     # SPOTIFY_CLIENT_SECRET: str
     # ... other settings
