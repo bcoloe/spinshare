@@ -1,0 +1,385 @@
+"""User interface service"""
+
+from datetime import datetime
+
+from app.models import Group, Review, SpotifyConnection, User
+from app.schemas.user import UserCreate, UserUpdate
+from app.utils import security
+from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+
+class UserService:
+    """Service layer for User operations"""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    # ==================== CREATE ====================
+
+    def create_user(self, user_data: UserCreate) -> User:
+        """
+        Create a new user with hashed password.
+
+        Raises:
+            HTTPException 409: If email or username already exists
+        """
+        # Check if email already exists
+        existing_user = self.db.query(User).filter(User.email == user_data.email.lower()).first()
+
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
+            )
+
+        # Check if username already exists
+        existing_username = (
+            self.db.query(User).filter(User.username == user_data.username.lower()).first()
+        )
+
+        if existing_username:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Username already taken"
+            )
+
+        # Create user with hashed password
+        user = User(
+            email=user_data.email.lower(),
+            username=user_data.username.lower(),
+            password_hash=security.hash_password(user_data.password),
+        )
+
+        try:
+            self.db.add(user)
+            self.db.commit()
+            self.db.refresh(user)
+            return user
+        except IntegrityError:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="User creation failed due to constraint violation",
+            ) from None
+
+    # ==================== READ ====================
+
+    def get_user_by_id(self, user_id: int) -> User:
+        """
+        Get user by ID.
+
+        Raises:
+            HTTPException 404: If user not found
+        """
+        user = self.db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        return user
+
+    def get_user_by_email(self, email: str) -> User | None:
+        """Get user by email (case-insensitive)"""
+        return self.db.query(User).filter(User.email == email.lower()).first()
+
+    def get_user_by_username(self, username: str) -> User | None:
+        """Get user by username (case-insensitive)"""
+        return self.db.query(User).filter(User.username == username.lower()).first()
+
+    def get_all_users(self, skip: int = 0, limit: int = 100) -> list[User]:
+        """Get all users with pagination"""
+        return self.db.query(User).offset(skip).limit(limit).all()
+
+    def search_users(self, query: str, limit: int = 10) -> list[User]:
+        """Search users by username or email"""
+        search_pattern = f"%{query.lower()}%"
+        return (
+            self.db.query(User)
+            .filter((User.username.ilike(search_pattern)) | (User.email.ilike(search_pattern)))
+            .limit(limit)
+            .all()
+        )
+
+    # ==================== UPDATE ====================
+
+    def update_user(self, user_id: int, user_data: UserUpdate) -> User:
+        """
+        Update user information.
+
+        Raises:
+            HTTPException 404: If user not found
+            HTTPException 409: If new email/username already exists
+        """
+        user = self.get_user_by_id(user_id)
+
+        # Update email if provided
+        if user_data.email and user_data.email != user.email:
+            existing = self.get_user_by_email(user_data.email)
+            if existing and existing.id != user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT, detail="Email already in use"
+                )
+            user.email = user_data.email.lower()
+
+        # Update username if provided
+        if user_data.username and user_data.username != user.username:
+            existing = self.get_user_by_username(user_data.username)
+            if existing and existing.id != user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT, detail="Username already taken"
+                )
+            user.username = user_data.username.lower()
+
+        # Update password if provided
+        if user_data.password:
+            user.password_hash = security.hash_password(user_data.password)
+
+        try:
+            self.db.commit()
+            self.db.refresh(user)
+            return user
+        except IntegrityError:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Update failed due to constraint violation",
+            ) from None
+
+    # ==================== DELETE ====================
+
+    def delete_user(self, user_id: int) -> None:
+        """
+        Delete a user.
+
+        Raises:
+            HTTPException 404: If user not found
+        """
+        user = self.get_user_by_id(user_id)
+
+        try:
+            self.db.delete(user)
+            self.db.commit()
+        except IntegrityError:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot delete user due to existing dependencies",
+            ) from None
+
+    # ==================== AUTHENTICATION ====================
+
+    def authenticate_user(self, email: str, password: str) -> User | None:
+        """
+        Authenticate user with email and password.
+
+        Returns None if authentication fails.
+        """
+        user = self.get_user_by_email(email)
+        if not user:
+            return None
+
+        if not security.verify_password(password, user.password_hash):
+            return None
+
+        return user
+
+    @staticmethod
+    def _access_token_data(user: User) -> dict:
+        return {"sub": str(user.id), "email": user.email}
+
+    @staticmethod
+    def _refresh_token_data(user: User) -> dict:
+        return {"sub": str(user.id)}
+
+    def login(self, email: str, password: str) -> dict:
+        """
+        Login user and return access token.
+
+        Raises:
+            HTTPException 401: If credentials are invalid
+        """
+        user = self.authenticate_user(email, password)
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect email or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        # Create tokens
+        access_token = security.create_access_token(data=self._access_token_data(user))
+        refresh_token = security.create_access_token(data=self._refresh_token_data(user))
+
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "user": user,
+        }
+
+    def refresh(self, refresh_token: str) -> dict:
+        payload = security.decode_refresh_token(refresh_token)
+        if payload is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
+            )
+        user_id = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload"
+            )
+
+        # Verify user existence
+        try:
+            user = self.get_user_by_id(int(user_id))
+        except HTTPException:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+            ) from None
+
+        # Create new access token
+        new_access_token = security.security.create_access_token(data=self._access_token_data(user))
+
+        return {
+            "access_token": new_access_token,
+            "refresh_token": refresh_token,  # passthrough
+            "token_type": "bearer",
+            "user": user,
+        }
+
+    # ==================== USER RELATIONSHIPS ====================
+
+    def get_user_groups(self, user_id: int) -> list[Group]:
+        """Get all groups user is a member of"""
+        user = self.get_user_by_id(user_id)
+        return user.groups
+
+    def get_user_created_groups(self, user_id: int) -> list[Group]:
+        """Get all groups created by user"""
+        user = self.get_user_by_id(user_id)
+        return user.created_groups
+
+    def get_user_reviews(self, user_id: int) -> list[Review]:
+        """Get all reviews by user"""
+        user = self.get_user_by_id(user_id)
+        return user.reviews
+
+    def get_user_albums_added(self, user_id: int) -> list[tuple]:
+        """Get all albums added by user across all groups"""
+        user = self.get_user_by_id(user_id)
+
+        # Return list of (group, album, added_at) tuples
+        result = []
+        for group_album in user.added_albums:
+            result.append(
+                {
+                    "group": group_album.group,
+                    "album": group_album.albums,
+                    "added_at": group_album.added_at,
+                    "status": group_album.status,
+                }
+            )
+        return result
+
+    # ==================== SPOTIFY ====================
+
+    def has_spotify_connected(self, user_id: int) -> bool:
+        """Check if user has Spotify connected"""
+        user = self.get_user_by_id(user_id)
+        return user.spotify_connection is not None
+
+    def get_spotify_connection(self, user_id: int) -> SpotifyConnection | None:
+        """Get user's Spotify connection"""
+        user = self.get_user_by_id(user_id)
+        return user.spotify_connection
+
+    def connect_spotify(
+        self,
+        user_id: int,
+        spotify_user_id: str,
+        access_token: str,
+        refresh_token: str,
+        expires_at: datetime,
+    ) -> SpotifyConnection:
+        """
+        Connect Spotify account to user.
+
+        Raises:
+            HTTPException 409: If Spotify account already connected to another user
+        """
+        # Check if Spotify account already connected to another user
+        existing = (
+            self.db.query(SpotifyConnection)
+            .filter(SpotifyConnection.spotify_user_id == spotify_user_id)
+            .first()
+        )
+
+        if existing and existing.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This Spotify account is already connected to another user",
+            )
+
+        # Check if user already has a connection
+        user = self.get_user_by_id(user_id)
+
+        if user.spotify_connection:
+            # Update existing connection
+            connection = user.spotify_connection
+            connection.spotify_user_id = spotify_user_id
+            connection.access_token = access_token  # Should be encrypted
+            connection.refresh_token = refresh_token  # Should be encrypted
+            connection.token_expires_at = expires_at
+            connection.last_refreshed_at = datetime.utcnow()
+        else:
+            # Create new connection
+            connection = SpotifyConnection(
+                user_id=user_id,
+                spotify_user_id=spotify_user_id,
+                access_token=access_token,  # Should be encrypted
+                refresh_token=refresh_token,  # Should be encrypted
+                token_expires_at=expires_at,
+                last_refreshed_at=datetime.utcnow(),
+            )
+            self.db.add(connection)
+
+        try:
+            self.db.commit()
+            self.db.refresh(connection)
+            return connection
+        except IntegrityError:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Failed to connect Spotify account"
+            ) from None
+
+    def disconnect_spotify(self, user_id: int) -> None:
+        """
+        Disconnect Spotify account from user.
+
+        Raises:
+            HTTPException 404: If user has no Spotify connection
+        """
+        user = self.get_user_by_id(user_id)
+
+        if not user.spotify_connection:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="No Spotify account connected"
+            )
+
+        self.db.delete(user.spotify_connection)
+        self.db.commit()
+
+    # ==================== STATS ====================
+
+    def get_user_stats(self, user_id: int) -> dict:
+        """Get user statistics"""
+        user = self.get_user_by_id(user_id)
+
+        return {
+            "total_groups": len(user.groups),
+            "created_groups": len(user.created_groups),
+            "total_reviews": len(user.reviews),
+            "albums_added": len(user.added_albums),
+            "has_spotify": user.spotify_connection is not None,
+            "member_since": user.created_at,
+        }
