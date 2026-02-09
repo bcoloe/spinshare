@@ -2,8 +2,8 @@
 
 from datetime import datetime
 
-from app.utils.security import MIN_PWD_LEN
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from app.utils.security import MAX_PWD_LEN, MIN_PWD_LEN, validate_password_strength
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class UserBase(BaseModel):
@@ -16,7 +16,16 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     """Schema for creating a user"""
 
-    password: str = Field(..., min_length=8)
+    password: str = Field(..., min_length=MIN_PWD_LEN, max_length=MAX_PWD_LEN)
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        is_valid, reasons = validate_password_strength(v)
+        if not is_valid:
+            reasons_str = "\n".join([" * " + x for x in reasons])
+            raise ValueError(reasons_str)
+        return v
 
 
 class UserUpdate(BaseModel):
@@ -24,7 +33,16 @@ class UserUpdate(BaseModel):
 
     email: EmailStr | None = None
     username: str | None = Field(None, min_length=3, max_length=50)
-    password: str | None = Field(None, min_length=MIN_PWD_LEN)
+    password: str | None = Field(None, min_length=MIN_PWD_LEN, max_length=MAX_PWD_LEN)
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        is_valid, reasons = validate_password_strength(v)
+        if not is_valid:
+            reasons_str = "\n".join([" * " + x for x in reasons])
+            raise ValueError(reasons_str)
+        return v
 
 
 class UserResponse(UserBase):
