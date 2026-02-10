@@ -5,7 +5,7 @@ import enum
 import re
 import secrets
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.config import get_settings
@@ -55,20 +55,22 @@ class PasswordStrengthConditions(enum.Enum):
         lambda x: len(x) >= MIN_PWD_LEN and len(x) <= MAX_PWD_LEN,
     )
     UppercaseLetter = TestCondition(
-        "Password must contain at least one uppercase letter", lambda x: bool(re.search("[A-Z]", x))
+        "Password must contain at least one uppercase letter",
+        lambda x: bool(re.search(r"[A-Z]", x)),
     )
     LowercaseLetter = TestCondition(
-        "Password must contain at least one lowercase letter", lambda x: bool(re.search("[a-z]", x))
+        "Password must contain at least one lowercase letter",
+        lambda x: bool(re.search(r"[a-z]", x)),
     )
     Number = TestCondition(
-        "Password must contain at least one number", lambda x: bool(re.search("\d", x))
+        "Password must contain at least one number", lambda x: bool(re.search(r"\d", x))
     )
     NoSpaces = TestCondition(
-        "Passwords may not contain spaces", lambda x: not bool(re.search("\s", x))
+        "Passwords may not contain spaces", lambda x: not bool(re.search(r"\s", x))
     )
     SpecialCharacters = TestCondition(
         "Password must contain at least one special character",
-        lambda x: bool(re.search('[!@#$%^&*(),.?":{}|<>]', x)),
+        lambda x: bool(re.search(r'[!@#$%^&*(),.?":{}|<>]', x)),
     )
 
 
@@ -94,7 +96,7 @@ REFRESH_TOKEN_EXPIRE_DAYS = 7
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     """Create a JWT access token"""
     to_encode = data.copy()
-    now = datetime.now(datetime.UTC)
+    now = datetime.now(UTC)
     expire = now + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update(
         {"exp": expire, "type": "access", "iat": now, "jti": secrets.token_urlsafe(16)}
@@ -106,7 +108,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
 def create_refresh_token(data: dict, expires_delta: timedelta | None = None) -> str:
     """Create a JWT refresh token"""
     to_encode = data.copy()
-    now = datetime.now(datetime.UTC)
+    now = datetime.now(UTC)
     expire = now + (expires_delta or timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
 
     to_encode.update(

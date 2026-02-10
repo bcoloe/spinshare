@@ -1,9 +1,9 @@
 """User interface service"""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from app.models import Group, Review, SpotifyConnection, User
-from app.schemas.user import LoginResponse, UserCreate, UserResponse, UserUpdate
+from app.schemas.user import LoginRequest, LoginResponse, UserCreate, UserResponse, UserUpdate
 from app.utils import security
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
@@ -23,6 +23,7 @@ class UserService:
 
         Raises:
             HTTPException 409: If email or username already exists
+            HTTPException 400: If password does not meet strength requirements
         """
         # Check if email already exists
         existing_user = self.db.query(User).filter(User.email == user_data.email.lower()).first()
@@ -110,6 +111,7 @@ class UserService:
         Raises:
             HTTPException 404: If user not found
             HTTPException 409: If new email/username already exists
+            HTTPException 400: If password does not meet strength requirements
         """
         user = self.get_user_by_id(user_id)
 
@@ -133,6 +135,12 @@ class UserService:
 
         # Update password if provided
         if user_data.password:
+            # Validate password
+            is_password_valid, reasons = security.validate_password_strength(user_data.password)
+            if not is_password_valid:
+                reasons_str = "\n".join([" * " + x for x in reasons])
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=reasons_str)
+
             user.password_hash = security.hash_password(user_data.password)
 
         try:
@@ -168,14 +176,30 @@ class UserService:
 
     # ==================== AUTHENTICATION ====================
 
-    def authenticate_user(self, email: str, password: str) -> User | None:
+    def authenticate_user(
+        self, password: str, email: str | None = None, username: str | None = None
+    ) -> User | None:
         """Authenticate user with email and password.
 
-        Returns None if authentication fails.
+        Returns:
+            None if authentication fails.
+
+        Raises:
+            HTTPException 404: If username or email are not associated with user.
         """
-        user = self.get_user_by_email(email)
+        if email:
+            user = self.get_user_by_email(email)
+        elif username:
+            user = self.get_user_by_username(username)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="email or username not provided."
+            )
+
         if not user:
-            return None
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Incorrect username or email"
+            )
 
         if not security.verify_password(password, user.password_hash):
             return None
@@ -190,19 +214,19 @@ class UserService:
     def _refresh_token_data(user: User) -> dict:
         return {"sub": str(user.id)}
 
-    def login(self, email: str, password: str) -> LoginResponse:
+    def login(self, request: LoginRequest) -> LoginResponse:
         """
         Login user and return access token.
 
         Raises:
             HTTPException 401: If credentials are invalid
         """
-        user = self.authenticate_user(email, password)
+        user = self.authenticate_user(request.password, email=request.email, username=request.email)
 
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Incorrect email or password",
+                detail="Incorrect password",
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
@@ -330,7 +354,7 @@ class UserService:
             connection.access_token = access_token  # Should be encrypted
             connection.refresh_token = refresh_token  # Should be encrypted
             connection.token_expires_at = expires_at
-            connection.last_refreshed_at = datetime.now(datetime.UTC)
+            connection.last_refreshed_at = datetime.now(UTC)
         else:
             # Create new connection
             connection = SpotifyConnection(
@@ -339,7 +363,7 @@ class UserService:
                 access_token=access_token,  # Should be encrypted
                 refresh_token=refresh_token,  # Should be encrypted
                 token_expires_at=expires_at,
-                last_refreshed_at=datetime.now(datetime.UTC),
+                last_refreshed_at=datetime.now(UTC),
             )
             self.db.add(connection)
 
