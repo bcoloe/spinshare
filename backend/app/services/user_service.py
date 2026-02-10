@@ -1,9 +1,9 @@
 """User interface service"""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from app.models import Group, Review, SpotifyConnection, User
-from app.schemas.user import UserCreate, UserUpdate
+from app.schemas.user import LoginRequest, LoginResponse, UserCreate, UserResponse, UserUpdate
 from app.utils import security
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
@@ -19,11 +19,11 @@ class UserService:
     # ==================== CREATE ====================
 
     def create_user(self, user_data: UserCreate) -> User:
-        """
-        Create a new user with hashed password.
+        """Create a new user with hashed password.
 
         Raises:
             HTTPException 409: If email or username already exists
+            HTTPException 400: If password does not meet strength requirements
         """
         # Check if email already exists
         existing_user = self.db.query(User).filter(User.email == user_data.email.lower()).first()
@@ -42,6 +42,12 @@ class UserService:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail="Username already taken"
             )
+
+        # Validate password
+        is_password_valid, reasons = security.validate_password_strength(user_data.password)
+        if not is_password_valid:
+            reasons_str = "\n".join([" * " + x for x in reasons])
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=reasons_str)
 
         # Create user with hashed password
         user = User(
@@ -65,8 +71,7 @@ class UserService:
     # ==================== READ ====================
 
     def get_user_by_id(self, user_id: int) -> User:
-        """
-        Get user by ID.
+        """Get user by ID.
 
         Raises:
             HTTPException 404: If user not found
@@ -101,12 +106,12 @@ class UserService:
     # ==================== UPDATE ====================
 
     def update_user(self, user_id: int, user_data: UserUpdate) -> User:
-        """
-        Update user information.
+        """Update user information.
 
         Raises:
             HTTPException 404: If user not found
             HTTPException 409: If new email/username already exists
+            HTTPException 400: If password does not meet strength requirements
         """
         user = self.get_user_by_id(user_id)
 
@@ -130,6 +135,12 @@ class UserService:
 
         # Update password if provided
         if user_data.password:
+            # Validate password
+            is_password_valid, reasons = security.validate_password_strength(user_data.password)
+            if not is_password_valid:
+                reasons_str = "\n".join([" * " + x for x in reasons])
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=reasons_str)
+
             user.password_hash = security.hash_password(user_data.password)
 
         try:
@@ -145,9 +156,8 @@ class UserService:
 
     # ==================== DELETE ====================
 
-    def delete_user(self, user_id: int) -> None:
-        """
-        Delete a user.
+    def delete_user(self, user_id: int):
+        """Delete a user.
 
         Raises:
             HTTPException 404: If user not found
@@ -166,15 +176,30 @@ class UserService:
 
     # ==================== AUTHENTICATION ====================
 
-    def authenticate_user(self, email: str, password: str) -> User | None:
-        """
-        Authenticate user with email and password.
+    def authenticate_user(
+        self, password: str, email: str | None = None, username: str | None = None
+    ) -> User | None:
+        """Authenticate user with email and password.
 
-        Returns None if authentication fails.
+        Returns:
+            None if authentication fails.
+
+        Raises:
+            HTTPException 404: If username or email are not associated with user.
         """
-        user = self.get_user_by_email(email)
+        if email:
+            user = self.get_user_by_email(email)
+        elif username:
+            user = self.get_user_by_username(username)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="email or username not provided."
+            )
+
         if not user:
-            return None
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Incorrect username or email"
+            )
 
         if not security.verify_password(password, user.password_hash):
             return None
@@ -189,19 +214,19 @@ class UserService:
     def _refresh_token_data(user: User) -> dict:
         return {"sub": str(user.id)}
 
-    def login(self, email: str, password: str) -> dict:
+    def login(self, request: LoginRequest) -> LoginResponse:
         """
         Login user and return access token.
 
         Raises:
             HTTPException 401: If credentials are invalid
         """
-        user = self.authenticate_user(email, password)
+        user = self.authenticate_user(request.password, email=request.email, username=request.email)
 
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Incorrect email or password",
+                detail="Incorrect password",
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
@@ -209,14 +234,14 @@ class UserService:
         access_token = security.create_access_token(data=self._access_token_data(user))
         refresh_token = security.create_access_token(data=self._refresh_token_data(user))
 
-        return {
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "token_type": "bearer",
-            "user": user,
-        }
+        return LoginResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            token_type="bearer",
+            user=UserResponse.model_validate(user),
+        )
 
-    def refresh(self, refresh_token: str) -> dict:
+    def refresh(self, refresh_token: str) -> LoginResponse:
         payload = security.decode_refresh_token(refresh_token)
         if payload is None:
             raise HTTPException(
@@ -239,12 +264,12 @@ class UserService:
         # Create new access token
         new_access_token = security.security.create_access_token(data=self._access_token_data(user))
 
-        return {
-            "access_token": new_access_token,
-            "refresh_token": refresh_token,  # passthrough
-            "token_type": "bearer",
-            "user": user,
-        }
+        return LoginResponse(
+            access_token=new_access_token,
+            refresh_token=refresh_token,
+            token_type="bearer",
+            user=UserResponse.model_validate(user),
+        )
 
     # ==================== USER RELATIONSHIPS ====================
 
@@ -263,7 +288,7 @@ class UserService:
         user = self.get_user_by_id(user_id)
         return user.reviews
 
-    def get_user_albums_added(self, user_id: int) -> list[tuple]:
+    def get_user_albums_added(self, user_id: int) -> list[dict]:
         """Get all albums added by user across all groups"""
         user = self.get_user_by_id(user_id)
 
@@ -329,7 +354,7 @@ class UserService:
             connection.access_token = access_token  # Should be encrypted
             connection.refresh_token = refresh_token  # Should be encrypted
             connection.token_expires_at = expires_at
-            connection.last_refreshed_at = datetime.utcnow()
+            connection.last_refreshed_at = datetime.now(UTC)
         else:
             # Create new connection
             connection = SpotifyConnection(
@@ -338,7 +363,7 @@ class UserService:
                 access_token=access_token,  # Should be encrypted
                 refresh_token=refresh_token,  # Should be encrypted
                 token_expires_at=expires_at,
-                last_refreshed_at=datetime.utcnow(),
+                last_refreshed_at=datetime.now(UTC),
             )
             self.db.add(connection)
 

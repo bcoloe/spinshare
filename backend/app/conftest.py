@@ -1,5 +1,6 @@
 """Base application test configuration + figures"""
 
+import datetime
 import os
 
 import pytest
@@ -42,3 +43,14 @@ def db_session(engine):
     session.close()
     transaction.rollback()
     connection.close()
+
+
+@pytest.fixture(scope="function")
+def fake_now():
+    """Create a fake now response."""
+    return datetime.datetime(2016, 1, 13, tzinfo=datetime.UTC)
+
+
+@pytest.fixture(scope="function")
+def test_password() -> str:
+    return "a-Fine-Password123!"
