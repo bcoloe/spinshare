@@ -1,8 +1,10 @@
 import random
 
 import pytest
+from app.models.group import Group, GroupRole, group_members
 from app.schemas.group import GroupCreate
 from fastapi import HTTPException, status
+from sqlalchemy import update
 
 
 class TestGroupServiceCreate:
@@ -19,6 +21,7 @@ class TestGroupServiceCreate:
         assert group.created_at is not None
         assert group.creator == sample_user
         assert sample_user in group.members
+        assert sample_group_service.get_user_role(sample_user.id, group.id) == GroupRole.Owner
 
     @pytest.mark.parametrize(
         "group_name_case",
@@ -86,3 +89,62 @@ class TestGroupServiceAddUser:
         assert user_join_date == sample_group_service.get_group_join_date(
             new_user.id, sample_group.id
         )
+
+
+class TestGroupServiceDelete:
+    def test_delete_group_successful(
+        self, db_session, sample_group_service, sample_group, sample_user
+    ):
+        """Test that the group creator can delete the group."""
+        # Confirm user is the owners of the group.
+        group_id = sample_group.id
+        assert sample_user in sample_group.members
+        assert sample_user.id == sample_group.created_by
+        assert len(sample_user.created_groups) != 0
+        assert (
+            sample_group_service.get_user_role(sample_user.id, sample_group.id) == GroupRole.Owner
+        )
+
+        sample_group_service.delete_group(sample_group.id, sample_user.id)
+
+        assert db_session.query(Group).get(group_id) is None
+        assert len(sample_user.created_groups) == 0
+
+    @pytest.mark.parametrize(
+        "user_role",
+        [
+            GroupRole.Member,
+            GroupRole.Admin,
+        ],
+    )
+    def test_delete_group_non_permissive(
+        self, db_session, sample_group_service, sample_group, user_factory, user_role
+    ):
+        """Test that the group creator can delete the group."""
+        # Add user to the group.
+        group_id = sample_group.id
+        regular_user = user_factory(email="joe@test.com", username="joe_schmo")
+        sample_group_service.add_user(sample_group.id, regular_user.id)
+
+        # Update user role.
+        stmt = (
+            update(group_members)
+            .where(
+                group_members.c.user_id == regular_user.id,
+                group_members.c.group_id == sample_group.id,
+            )
+            .values(role=user_role.value)
+        )
+        db_session.execute(stmt)
+        db_session.commit()
+
+        assert regular_user in sample_group.members
+        assert sample_group_service.get_user_role(regular_user.id, sample_group.id) == user_role
+
+        with pytest.raises(HTTPException) as exc_info:
+            sample_group_service.delete_group(sample_group.id, regular_user.id)
+
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+        assert exc_info.value.detail == "Only owners may delete the group"
+        assert db_session.query(Group).get(group_id) is not None
+        assert sample_group is not None

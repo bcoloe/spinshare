@@ -75,11 +75,17 @@ class GroupService:
 
     # ==================== DELETE ====================
 
-    def delete_group(self, group_id: int) -> Group:
+    def delete_group(self, group_id: int, deleted_by_user_id: int) -> Group:
         """Delete an existing group.
 
         TODO: add notification hooks for all group members impacted to send email
         """
+        if not self.is_owner(deleted_by_user_id, group_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only owners may delete the group",
+            )
+
         group = self.get_group_by_id(group_id)
         try:
             self.db.delete(group)
