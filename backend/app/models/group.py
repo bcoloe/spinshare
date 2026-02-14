@@ -2,7 +2,8 @@
 
 from enum import StrEnum
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Table
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -15,6 +16,22 @@ class GroupRole(StrEnum):
     Owner = "owner"
     Admin = "admin"
     Member = "member"
+
+    def __lt__(self, other):
+        members = list(GroupRole.__members__.values())
+        return members.index(self) < members.index(other)
+
+    def __gt__(self, other):
+        members = list(GroupRole.__members__.values())
+        return members.index(self) > members.index(other)
+
+    def __ge__(self, other):
+        members = list(GroupRole.__members__.values())
+        return members.index(self) >= members.index(other)
+
+    def __le__(self, other):
+        members = list(GroupRole.__members__.values())
+        return members.index(self) <= members.index(other)
 
 
 # Association table for many-to-many relationship
@@ -32,10 +49,18 @@ class Group(Base):
     __tablename__ = "groups"
 
     id = Column(Integer, primary_key=True, index=True)
-    name_uniform = Column(String, index=True)
     name = Column(String, nullable=False)
+    is_public = Column(Boolean, nullable=False)
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    @hybrid_property
+    def name_uniform(self):
+        return self.name.lower()
+
+    @name_uniform.expression
+    def name_uniform(cls):
+        return func.lower(cls.name)
 
     # Relationships
     creator = relationship("User", foreign_keys=[created_by], back_populates="created_groups")

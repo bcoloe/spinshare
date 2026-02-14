@@ -4,7 +4,7 @@ from datetime import datetime
 
 from app.models import Group, User, group_members
 from app.models.group import GroupRole
-from app.schemas.group import GroupCreate
+from app.schemas.group import GroupCreate, GroupModifyRequest
 from app.services import user_service
 from fastapi import HTTPException, status
 from sqlalchemy import select, update
@@ -34,9 +34,7 @@ class GroupService:
             )
 
         # Create group
-        group = Group(
-            name=group_data.name, name_uniform=group_data.name.lower(), created_by=user.id
-        )
+        group = Group(name=group_data.name, created_by=user.id, is_public=group_data.is_public)
 
         try:
             self.db.add(group)
@@ -109,13 +107,27 @@ class GroupService:
             return None
 
         user = user_service.UserService(self.db).get_user_by_id(user_id)
+        remover_role = self.get_user_role(removed_by_user_id, group_id)
+        user_role = self.get_user_role(user_id, group_id)
 
         # Only allow removal by group creator OR member
-        if removed_by_user_id != user_id and self.is_admin_or_owner(removed_by_user_id, group_id):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only group admins, owners, or member themselves can remove members.",
-            )
+        if removed_by_user_id != user_id:
+            if remover_role > GroupRole.Admin:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Only group admins, owners, or member themselves can remove members.",
+                )
+            if remover_role > user_role:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Cannot remove users with higher permissions",
+                )
+        elif user_role == GroupRole.Owner:
+            if len(self.get_users_with_role(group_id, GroupRole.Owner)) == 1:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Cannot remove the only group owner -- nominate a replacement first",
+                )
 
         try:
             group.members.remove(user)
@@ -157,7 +169,17 @@ class GroupService:
         stmt = select(group_members.c.role).where(
             group_members.c.user_id == user_id, group_members.c.group_id == group_id
         )
-        return GroupRole(self.db.execute(stmt).scalar())
+        role = self.db.execute(stmt).scalar()
+        if role is not None:
+            return GroupRole(role)
+        return None
+
+    def get_users_with_role(self, group_id: int, role: GroupRole) -> list[int]:
+        stmt = select(group_members.c.user_id).where(
+            group_members.c.group_id == group_id,
+            group_members.c.role == role.value,
+        )
+        return list(self.db.execute(stmt).scalars().all())
 
     # ==================== ROLE MGMT ====================
 
@@ -196,10 +218,16 @@ class GroupService:
             HTTPException 403: If force=False and set_by_user_id is not an admin or owner.
             HTTPException 404: If the user_id is not in the group.
         """
-        if not force and not self.is_admin_or_owner(set_by_user_id, group_id):
+        if not force and not self.is_user_in_group(set_by_user_id, group_id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Setter not found in group"
+            )
+
+        setter_role = self.get_user_role(set_by_user_id, group_id)
+        if not force and setter_role > role:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only group admins and owners may modify user role",
+                detail="Users are not permitted to set roles greater than their own",
             )
 
         if not self.is_user_in_group(user_id, group_id):
@@ -221,6 +249,44 @@ class GroupService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Cannot update user role due to existing dependencies",
             ) from None
+
+    # ==================== MUTATION ====================
+    def update_group_settings(
+        self, group_id: int, modified_by_user_id: int, update_data: GroupModifyRequest
+    ):
+        if not self.is_admin_or_owner(modified_by_user_id, group_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only admins and owners may modify group settings",
+            )
+        group = self.get_group_by_id(group_id)
+
+        # Change name
+        if update_data.name is not None:
+            self._update_group_name(group, update_data.name)
+
+        # Change visibility
+        if update_data.is_public is not None:
+            group.is_public = update_data.is_public
+
+        try:
+            self.db.commit()
+        except IntegrityError:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot update group name due to existing dependencies.",
+            ) from None
+
+    def _update_group_name(self, group: Group, name: str):
+        """Update the group name."""
+        existing_group = self.get_group_by_name(name)
+        if existing_group:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Group name already registered"
+            )
+
+        group.name = name
 
     # ==================== UTILS ====================
     def is_user_in_group(self, user_id: int, group_id: int) -> bool:

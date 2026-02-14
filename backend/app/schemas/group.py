@@ -26,7 +26,7 @@ class GroupBase(BaseModel):
 class GroupCreate(GroupBase):
     """Group creation schema"""
 
-    pass
+    is_public: bool = True
 
 
 class GroupResponse(GroupBase):
@@ -36,6 +36,25 @@ class GroupResponse(GroupBase):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class GroupModifyRequest(BaseModel):
+    """Schema for modifying group metadata"""
+
+    name: str | None = None
+    is_public: bool | None = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v):
+        if v is None:
+            return v
+        if len(v) < MIN_GROUP_NAME or len(v) > MAX_GROUP_NAME:
+            raise ValueError(f"Character limit violation [{MIN_GROUP_NAME}, {MAX_GROUP_NAME}]")
+        pattern = re.compile(r"^[A-Za-z0-9_-]+$")
+        if not bool(pattern.fullmatch(v)):
+            raise ValueError("May only be alphanumeric with -_")
+        return v
 
 
 class JoinGroupRequest(BaseModel):
