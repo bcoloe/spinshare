@@ -1,142 +1,132 @@
 # spinshare
 
-music-groups/
-├── frontend/                   # React + TypeScript
-│   ├── public/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── auth/
-│   │   │   ├── groups/
-│   │   │   ├── albums/
-│   │   │   └── common/
-│   │   ├── pages/
-│   │   │   ├── Login.tsx
-│   │   │   ├── Register.tsx
-│   │   │   ├── Dashboard.tsx
-│   │   │   ├── GroupDetail.tsx
-│   │   │   └── Profile.tsx
-│   │   ├── hooks/
-│   │   ├── services/           # API client code
-│   │   │   ├── api.ts
-│   │   │   ├── auth.ts
-│   │   │   └── spotify.ts
-│   │   ├── types/              # TypeScript interfaces
-│   │   ├── utils/
-│   │   ├── context/            # React context (auth state, etc)
-│   │   ├── App.tsx
-│   │   └── main.tsx
-│   ├── package.json
-│   ├── tsconfig.json
-│   └── vite.config.ts          # or webpack config
-│
-├── backend/                    # FastAPI + Python
+`spinshare` is a group-based music sharing web application with a randomized twist.
+
+## Manifest
+
+Music is fundamentally a shared experience. Not only between creator and listener, but also crucially between peer listeners. In this era of streaming, music is extremely accessible, but the turn towards data-driven recommendation algorithms removes a crucial component of the listening experience. While these algorithms are indeed quite good at offering recommendations, they are faceless and do not offer any grounding or means for discourse around the recommended albums. Instead of getting mixtapes that form a sort of window into someone's soul, we are getting bombarded with cold advertisement...
+
+The goal of this project is to bring some of the soul back into the listening experience by enabling people to connect through thoughtful music sharing that encourages discussion and discovery.
+
+## How it works?
+
+_Listening groups_ are the core foundational unit of `spinshare` where users can join other users in sharing albums that they think are worth a spin. Each user within a given listening group is encouraged to review their personally curated music catalogs and nominate albums to share with the rest of the group. The nominated albums from all form a common group catalog, that can update over time as users nominate more albums. Each day, a random selection will be made from this group catalog and presented to all members of the group. This album is the spin of the day that each of the group members are to listen to, review, and guess who within the group nominated it.
+
+As time goes on, users may nominate additional albums, update earlier reviews, and review stats to discover listening preferences.
+
+---
+
+## Development
+
+### Prerequisites
+
+- Python 3.11+
+- PostgreSQL 14+
+- Node.js 18+ (for frontend)
+
+### Getting Started
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/bcoloe/spinshare.git
+   cd spinshare
+   ```
+
+2. **Backend setup**
+   ```bash
+   cd backend
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
+
+3. **Configure environment**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your database URL and secret key:
+   #   DATABASE_URL=postgresql://user:pass@localhost/spinshare
+   #   SECRET_KEY=<32+ character secret>
+   ```
+
+4. **Initialize database**
+   ```bash
+   alembic upgrade head
+   ```
+
+5. **Run tests**
+   ```bash
+   pytest
+   ```
+
+### Project Structure
+
+```
+spinshare/
+├── backend/                # FastAPI + Python
 │   ├── app/
-│   │   ├── __init__.py
-│   │   ├── main.py            # FastAPI app entry point
-│   │   ├── config.py          # Environment variables, settings
-│   │   ├── database.py        # Database connection setup
-│   │   ├── dependencies.py    # Dependency injection (get_current_user, etc)
-│   │   │
-│   │   ├── models/            # SQLAlchemy ORM models
-│   │   │   ├── __init__.py
-│   │   │   ├── user.py
-│   │   │   ├── group.py
-│   │   │   ├── album.py
-│   │   │   └── spotify_connection.py
-│   │   │
-│   │   ├── schemas/           # Pydantic schemas for request/response
-│   │   │   ├── __init__.py
-│   │   │   ├── user.py
-│   │   │   ├── auth.py
-│   │   │   ├── group.py
-│   │   │   └── album.py
-│   │   │
-│   │   ├── routers/           # API route handlers
-│   │   │   ├── __init__.py
-│   │   │   ├── auth.py
-│   │   │   ├── spotify.py
-│   │   │   ├── groups.py
-│   │   │   ├── albums.py
-│   │   │   └── users.py
-│   │   │
-│   │   ├── services/          # Business logic
-│   │   │   ├── __init__.py
-│   │   │   ├── auth_service.py
-│   │   │   ├── spotify_service.py
-│   │   │   ├── group_service.py
-│   │   │   └── album_service.py
-│   │   │
-│   │   └── utils/
-│   │       ├── __init__.py
-│   │       ├── security.py    # Password hashing, JWT, encryption
-│   │       └── spotify.py     # Spotify API helpers
-│   │
-│   ├── alembic/               # Database migrations
-│   │   ├── versions/
-│   │   └── env.py
-│   ├── tests/
-│   ├── requirements.txt       # or pyproject.toml
-│   └── alembic.ini
-│
-├── scripts/                   # Utility scripts
-│   └── daily_album_selector.py  # Cron job for daily selection
-│
-├── .env.example               # Template for environment variables
-├── .gitignore
-├── docker-compose.yml         # Optional: local dev environment
-└── README.md
+│   │   ├── models/         # SQLAlchemy ORM models
+│   │   ├── schemas/        # Pydantic request/response schemas
+│   │   ├── services/       # Business logic layer
+│   │   ├── routers/        # API route handlers
+│   │   └── utils/          # Shared utilities
+│   ├── alembic/            # Database migrations
+│   └── requirements.txt
+├── frontend/               # React + TypeScript (planned)
+└── DESIGN.md               # Architecture decisions
+```
 
+### Tech Stack
 
-users
-- id (primary key)
-- email (unique)
-- password_hash
-- username
-- created_at
+| Layer | Technology |
+|-------|------------|
+| Backend API | FastAPI |
+| Database ORM | SQLAlchemy |
+| Validation | Pydantic |
+| Auth | JWT (python-jose) + bcrypt |
+| Database | PostgreSQL |
+| Frontend | React + TypeScript + Vite (planned) |
+| UI Components | Mantine UI (planned) |
 
-spotify_connections
-- id (primary key)
-- user_id (foreign key to users)
-- spotify_user_id (Spotify's ID)
-- access_token (encrypted)
-- refresh_token (encrypted)
-- token_expires_at
-- last_refreshed_at
+### Running the Development Server
 
-groups
-- id
-- name
-- created_by (foreign key to users)
-- created_at
+```bash
+cd backend
+uvicorn app.main:app --reload
+```
 
-group_members
-- id
-- group_id (foreign key)
-- user_id (foreign key)
-- joined_at
+API documentation available at `http://localhost:8000/docs`
 
-albums
-- id
-- spotify_album_id (unique)
-- title
-- artist
-- cover_url
-- cached metadata from Spotify
-- added_at
+### Testing
 
-group_albums
-- id
-- group_id
-- album_id
-- added_by (user_id)
-- status (pending/selected/reviewed)
-- selected_date (nullable)
-- added_at
+Tests are co-located with source files using a `_test.py` suffix:
 
-reviews
-- id
-- group_album_id
-- user_id
-- rating (optional)
-- comment (optional)
-- reviewed_at
+```bash
+# Run all tests
+pytest
+
+# Run with verbose output
+pytest -v
+
+# Run specific test file
+pytest app/services/user_service_test.py
+
+# Run with coverage
+pytest --cov=app
+```
+
+### Database Migrations
+
+```bash
+# Apply all migrations
+alembic upgrade head
+
+# Create a new migration
+alembic revision --autogenerate -m "Add new table"
+
+# Rollback one migration
+alembic downgrade -1
+```
+
+### Contributing
+
+See [CLAUDE.md](CLAUDE.md) for coding conventions and patterns used in this project.
