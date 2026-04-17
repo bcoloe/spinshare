@@ -78,11 +78,7 @@ class GroupService:
 
         TODO: add notification hooks for all group members impacted to send email
         """
-        if not self.is_owner(deleted_by_user_id, group_id):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only owners may delete the group",
-            )
+        self.require_permission(deleted_by_user_id, group_id, GroupRole.Owner)
 
         group = self.get_group_by_id(group_id)
         try:
@@ -107,21 +103,11 @@ class GroupService:
             return None
 
         user = user_service.UserService(self.db).get_user_by_id(user_id)
-        remover_role = self.get_user_role(removed_by_user_id, group_id)
         user_role = self.get_user_role(user_id, group_id)
 
         # Only allow removal by group creator OR member
         if removed_by_user_id != user_id:
-            if remover_role > GroupRole.Admin:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Only group admins, owners, or member themselves can remove members.",
-                )
-            if remover_role > user_role:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Cannot remove users with higher permissions",
-                )
+            self.require_permission(removed_by_user_id, group_id, min(GroupRole.Admin, user_role))
         elif user_role == GroupRole.Owner:
             if len(self.get_users_with_role(group_id, GroupRole.Owner)) == 1:
                 raise HTTPException(
@@ -218,22 +204,12 @@ class GroupService:
             HTTPException 403: If force=False and set_by_user_id is not an admin or owner.
             HTTPException 404: If the user_id is not in the group.
         """
-        if not force and not self.is_user_in_group(set_by_user_id, group_id):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Setter not found in group"
-            )
+        if not force:
+            self.require_membership(set_by_user_id, group_id)
+        self.require_membership(user_id, group_id)
 
-        setter_role = self.get_user_role(set_by_user_id, group_id)
-        if not force and setter_role > role:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Users are not permitted to set roles greater than their own",
-            )
-
-        if not self.is_user_in_group(user_id, group_id):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="User not found in group"
-            )
+        if not force:
+            self.require_permission(set_by_user_id, group_id, role)
 
         try:
             stmt = (
@@ -250,15 +226,40 @@ class GroupService:
                 detail="Cannot update user role due to existing dependencies",
             ) from None
 
+
+    # ==================== HELPERS ====================
+    def require_permission(self, user_id: int, group_id: int, min_role: GroupRole):
+        """
+        Require user to have at least the specified role.
+        
+        Raises:
+            HTTPException 403: If user doesn't have sufficient permissions
+        """
+        user_role = self.get_user_role(user_id, group_id)
+        if user_role is None or user_role > min_role:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Requires at least {min_role.value} role"
+            )
+    
+    def require_membership(self, user_id: int, group_id: int) -> None:
+        """
+        Require user to be a member of the group.
+        
+        Raises:
+            HTTPException 403: If user is not a member
+        """
+        if not self.is_user_in_group(user_id, group_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You must be a member of this group"
+            )
+
     # ==================== MUTATION ====================
     def update_group_settings(
         self, group_id: int, modified_by_user_id: int, update_data: GroupModifyRequest
     ):
-        if not self.is_admin_or_owner(modified_by_user_id, group_id):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only admins and owners may modify group settings",
-            )
+        self.require_permission(modified_by_user_id, group_id, GroupRole.Admin)
         group = self.get_group_by_id(group_id)
 
         # Change name

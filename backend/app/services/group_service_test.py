@@ -150,7 +150,7 @@ class TestGroupServiceDelete:
             sample_group_service.delete_group(sample_group.id, regular_user.id)
 
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
-        assert exc_info.value.detail == "Only owners may delete the group"
+        assert exc_info.value.detail == f"Requires at least {GroupRole.Owner} role"
         assert db_session.query(Group).get(group_id) is not None
         assert sample_group is not None
 
@@ -245,7 +245,7 @@ class TestGroupServiceDelete:
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
         assert (
             exc_info.value.detail
-            == "Only group admins, owners, or member themselves can remove members."
+            == f"Requires at least {GroupRole.Admin} role"
         )
 
 
@@ -317,7 +317,7 @@ class TestGroupServiceMutators:
 
         for role in GroupRole:
             user_role_before = sample_group_service.get_user_role(user_to_set.id, sample_group.id)
-            if role > user_role:
+            if user_role > role:
                 with pytest.raises(HTTPException) as exc_info:
                     sample_group_service.set_user_role(
                         user_to_set.id, user_modifying.id, sample_group.id, role=role
@@ -325,7 +325,7 @@ class TestGroupServiceMutators:
                 assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
                 assert (
                     exc_info.value.detail
-                    == "Users are not permitted to set roles greater than their own"
+                    == f"Requires at least {role} role"
                 )
                 assert (
                     sample_group_service.get_user_role(user_to_set.id, sample_group.id)
@@ -376,8 +376,8 @@ class TestGroupServiceMutators:
                 user_to_set.id, user_modifying.id, sample_group.id, role=GroupRole.Member
             )
 
-        assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
-        assert exc_info.value.detail == "Setter not found in group"
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+        assert exc_info.value.detail == "You must be a member of this group"
 
     def test_set_user_role_user_not_in_group(
         self, sample_group_service, sample_group, sample_user, user_factory
@@ -390,8 +390,8 @@ class TestGroupServiceMutators:
                 user_to_set.id, sample_user.id, sample_group.id, role=GroupRole.Member
             )
 
-        assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
-        assert exc_info.value.detail == "User not found in group"
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+        assert exc_info.value.detail == "You must be a member of this group"
 
     @pytest.mark.parametrize(
         "user_role",
@@ -434,7 +434,7 @@ class TestGroupServiceMutators:
         with pytest.raises(HTTPException) as exc_info:
             sample_group_service.update_group_settings(sample_group.id, user_modifying.id, request)
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
-        assert exc_info.value.detail == "Only admins and owners may modify group settings"
+        assert exc_info.value.detail == f"Requires at least {GroupRole.Admin} role"
 
     def test_update_group_settings_name_conflict(
         self, sample_group, sample_group_service, sample_user, group_factory
