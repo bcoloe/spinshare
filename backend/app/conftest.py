@@ -20,13 +20,13 @@ def test_settings():
     return get_settings(env_file=".env.test")
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def engine(test_settings):
-    """Create a test database engine"""
+    """Create a test database engine — tables created once per session, isolation via db_session rollback."""
     engine = create_engine(test_settings.DATABASE_URL)
-    Base.metadata.create_all(bind=engine)  # Create all tables
+    Base.metadata.create_all(bind=engine)
     yield engine
-    Base.metadata.drop_all(bind=engine)  # Clean up after test
+    Base.metadata.drop_all(bind=engine)
     engine.dispose()
 
 

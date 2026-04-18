@@ -57,6 +57,54 @@ class GroupModifyRequest(BaseModel):
         return v
 
 
+class GroupDetailResponse(GroupResponse):
+    """Extended group response with visibility and member count"""
+
+    is_public: bool
+    member_count: int
+    current_user_role: str | None = None
+
+
+class GroupMemberResponse(BaseModel):
+    """Schema for a single group member"""
+
+    user_id: int
+    username: str
+    role: str
+    joined_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GroupStatsResponse(BaseModel):
+    """Aggregate statistics for a group"""
+
+    member_count: int
+    albums_added: int
+    albums_reviewed: int
+    formed_at: datetime
+
+
+class RoleUpdateRequest(BaseModel):
+    """Schema for updating a member's role"""
+
+    role: str
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v):
+        valid = {"owner", "admin", "member"}
+        if v.lower() not in valid:
+            raise ValueError(f"Must be one of: {', '.join(sorted(valid))}")
+        return v.lower()
+
+
+class AddMemberRequest(BaseModel):
+    """Schema for adding a user to a group by admin"""
+
+    user_id: int
+
+
 class JoinGroupRequest(BaseModel):
     """Join group request schema"""
 

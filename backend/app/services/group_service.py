@@ -7,7 +7,7 @@ from app.models.group import GroupRole
 from app.schemas.group import GroupCreate, GroupModifyRequest
 from app.services import user_service
 from fastapi import HTTPException, status
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -288,6 +288,56 @@ class GroupService:
             )
 
         group.name = name
+
+    # ==================== SEARCH ====================
+
+    def search_groups(
+        self, query: str | None = None, username: str | None = None, limit: int = 10
+    ) -> list[Group]:
+        """Search public groups by partial name and/or member username."""
+        q = self.db.query(Group).filter(Group.is_public == True)  # noqa: E712
+        if query:
+            q = q.filter(Group.name_uniform.contains(query.lower()))
+        if username:
+            q = q.join(Group.members).filter(func.lower(User.username) == username.lower())
+        return q.limit(limit).all()
+
+    # ==================== STATS ====================
+
+    def get_group_stats(self, group_id: int) -> dict:
+        """Return aggregate statistics for a group.
+
+        Raises:
+            HTTPException 404: If group not found.
+        """
+        group = self.get_group_by_id(group_id)
+        albums_reviewed = sum(1 for a in group.albums if a.status == "reviewed")
+        return {
+            "member_count": len(group.members),
+            "albums_added": len(group.albums),
+            "albums_reviewed": albums_reviewed,
+            "formed_at": group.created_at,
+        }
+
+    # ==================== MEMBERS ====================
+
+    def get_group_members(self, group_id: int) -> list[dict]:
+        """Return members of a group with their role and join date."""
+        stmt = (
+            select(
+                group_members.c.user_id,
+                User.username,
+                group_members.c.role,
+                group_members.c.joined_at,
+            )
+            .join(User, group_members.c.user_id == User.id)
+            .where(group_members.c.group_id == group_id)
+        )
+        rows = self.db.execute(stmt).all()
+        return [
+            {"user_id": r.user_id, "username": r.username, "role": r.role, "joined_at": r.joined_at}
+            for r in rows
+        ]
 
     # ==================== UTILS ====================
     def is_user_in_group(self, user_id: int, group_id: int) -> bool:

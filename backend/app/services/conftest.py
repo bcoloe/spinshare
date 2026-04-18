@@ -6,6 +6,18 @@ from app.schemas.user import UserCreate
 from app.services import group_service, user_service
 from sqlalchemy import update
 
+# Placeholder hash — GroupService never verifies passwords, so bcrypt is unnecessary.
+_DUMMY_HASH = "dummy_hash_for_testing"
+
+
+def _insert_user(db_session, *, email: str, username: str) -> User:
+    """Insert a User directly, bypassing bcrypt for fast test setup."""
+    user = User(email=email, username=username, password_hash=_DUMMY_HASH)
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
 
 @pytest.fixture(scope="function")
 def sample_user_service(db_session):
@@ -13,18 +25,16 @@ def sample_user_service(db_session):
 
 
 @pytest.fixture(scope="function")
-def sample_user(sample_user_service, test_password) -> User:
-    user_data = UserCreate(email="user@test.com", username="test_user", password=test_password)
-    return sample_user_service.create_user(user_data)
+def sample_user(db_session) -> User:
+    return _insert_user(db_session, email="user@test.com", username="test_user")
 
 
 @pytest.fixture(scope="function")
-def user_factory(sample_user_service, test_password):
-    """User creation factory"""
+def user_factory(db_session):
+    """User creation factory — inserts rows directly to avoid bcrypt overhead."""
 
-    def _create_user(*, email="user@test.com", username="test_user", password=test_password):
-        user_data = UserCreate(email=email, username=username, password=password)
-        return sample_user_service.create_user(user_data)
+    def _create_user(*, email="user@test.com", username="test_user", **_):
+        return _insert_user(db_session, email=email, username=username)
 
     return _create_user
 
