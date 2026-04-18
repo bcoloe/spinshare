@@ -1,9 +1,12 @@
 import pytest
+from app.models import Album, GroupAlbum
 from app.models.group import Group, GroupRole, group_members
 from app.models.user import User
 from app.schemas.group import GroupCreate
 from app.schemas.user import UserCreate
 from app.services import group_service, user_service
+from app.services.album_service import AlbumService
+from app.services.review_service import ReviewService
 from sqlalchemy import update
 
 # Placeholder hash — GroupService never verifies passwords, so bcrypt is unnecessary.
@@ -83,3 +86,42 @@ def set_user_role(db_session):
 def sample_group(sample_group_service, sample_user, sample_group_name) -> Group:
     group_data = GroupCreate(name=sample_group_name)
     return sample_group_service.create_group(group_data, sample_user)
+
+
+@pytest.fixture(scope="function")
+def album_service(db_session) -> AlbumService:
+    return AlbumService(db_session)
+
+
+@pytest.fixture(scope="function")
+def review_service(db_session) -> ReviewService:
+    return ReviewService(db_session)
+
+
+@pytest.fixture(scope="function")
+def sample_album(db_session) -> Album:
+    album = Album(
+        spotify_album_id="spotify_abc123",
+        title="OK Computer",
+        artist="Radiohead",
+        release_date="1997-05",
+        cover_url="https://example.com/cover.jpg",
+    )
+    db_session.add(album)
+    db_session.commit()
+    db_session.refresh(album)
+    return album
+
+
+@pytest.fixture(scope="function")
+def sample_group_album(db_session, sample_group, sample_album, sample_user) -> GroupAlbum:
+    ga = GroupAlbum(
+        group_id=sample_group.id,
+        album_id=sample_album.id,
+        added_by=sample_user.id,
+        status="pending",
+    )
+    db_session.add(ga)
+    db_session.commit()
+    db_session.refresh(ga)
+    return ga
