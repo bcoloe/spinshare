@@ -9,21 +9,44 @@
 
 ## Running Tests
 
+**Always use the `scripts/test.sh` wrapper** — never call `pytest` directly. It ensures the correct venv Python is used. Always run as a **foreground command** (never background/async).
+
 ```bash
 # All tests
-pytest
+scripts/test.sh
 
-# Specific test file
-pytest app/services/user_service_test.py -v
+# Specific file
+scripts/test.sh app/routers/groups_test.py -v
 
-# Specific test class
-pytest app/services/user_service_test.py::TestUserServiceCreate -v
+# Specific class
+scripts/test.sh app/routers/groups_test.py::TestGroupCreate -v
+
+# Keyword filter
+scripts/test.sh -k "test_create" -v
+
+# Short output (faster feedback loop)
+scripts/test.sh app/routers/groups_test.py -q --tb=short
 
 # With coverage
-pytest --cov=app
+scripts/test.sh --cov=app
 ```
 
 Tests require `.env.test` with a test database URL.
+
+### Router Test Fixtures
+
+Router tests live in `app/routers/` and use `app/routers/conftest.py`:
+
+| Fixture | Provides |
+|---------|----------|
+| `client` | `TestClient` with `get_db` overridden to use the test `db_session` |
+| `registered_user` | A pre-created `User` object in the test DB |
+| `auth_headers` | Bearer token headers for `registered_user` (generated via `create_access_token`, not the login endpoint) |
+| `sample_group` | A public group owned by `registered_user` |
+
+To authenticate as a different user in a test, call `_auth_headers_for(user)` from `app.routers.conftest`.
+
+Do **not** call the `/users/login` HTTP endpoint in test fixtures — generate tokens directly.
 
 ## Service Layer Patterns
 
@@ -59,6 +82,63 @@ raise HTTPException(
     status_code=status.HTTP_409_CONFLICT,
     detail="Email already registered"
 )
+```
+
+## Testing Philosophy
+
+Each layer has a distinct testing focus — use mocks liberally to isolate the layer under test:
+
+| Layer | What to test | What to mock |
+|-------|-------------|--------------|
+| **Router** | HTTP status codes, request/response shapes, auth enforcement | The entire service (inject a `MagicMock`) |
+| **Service** | Business logic, permission rules, DB mutations | External services (e.g. `user_service` calls from within `group_service`) |
+| **Model** | ORM relationships, hybrid properties, constraints | Nothing — hit the test DB |
+
+### Router tests — mock the service
+
+Router tests should verify HTTP behaviour, not re-test business logic. Mock the service dependency so tests run fast and stay decoupled:
+
+```python
+from unittest.mock import MagicMock, patch
+from fastapi.testclient import TestClient
+from app.main import app
+from app.dependencies import get_group_service
+
+def test_create_group_success(client, auth_headers):
+    mock_service = MagicMock()
+    mock_service.create_group.return_value = MagicMock(id=1, name="Bees", created_at=...)
+
+    app.dependency_overrides[get_group_service] = lambda: mock_service
+    resp = client.post("/groups/", json={"name": "Bees"}, headers=auth_headers)
+
+    assert resp.status_code == 201
+    mock_service.create_group.assert_called_once()
+    app.dependency_overrides.pop(get_group_service)
+```
+
+For tests that need the real service (e.g. integration-style router tests), use the `client` fixture from `app/routers/conftest.py` which wires the real service against the test DB.
+
+### Service tests — use the real DB, mock external calls
+
+Service tests run against the test DB (via `db_session`). Mock only calls to *other* services or external APIs:
+
+```python
+from unittest.mock import patch
+
+def test_something(sample_group_service, sample_group):
+    with patch.object(sample_group_service, "some_external_call", return_value=...) as mock:
+        result = sample_group_service.do_thing(sample_group.id)
+    mock.assert_called_once()
+```
+
+### Avoid slow operations in router fixtures
+
+User creation via `UserService.create_user` runs bcrypt (slow). In router tests that only need an authenticated user for the headers, generate the token directly:
+
+```python
+from app.routers.conftest import _auth_headers_for
+# instead of creating a full user + calling login endpoint
+headers = _auth_headers_for(some_user)
 ```
 
 ## Test Fixtures

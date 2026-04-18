@@ -210,12 +210,12 @@ class TestUserServiceRead:
 class TestUserServiceUpdate:
     """Unit tests for update endpoints of UserService."""
 
-    def test_update_user_email(self, sample_user_service, add_sample_user):
+    def test_update_user_email(self, sample_user_service, sample_user):
         """Test that updating the email of a user works."""
         update_data = UserUpdate(email="new@test.com")
-        sample_user_dict = add_sample_user.__dict__.copy()
+        sample_user_dict = sample_user.__dict__.copy()
         updated_user = sample_user_service.update_user(
-            user_id=add_sample_user.id, user_data=update_data
+            user_id=sample_user.id, user_data=update_data
         )
         assert updated_user.email != sample_user_dict.get("email")
         assert updated_user.email == "new@test.com"
@@ -223,7 +223,7 @@ class TestUserServiceUpdate:
         assert updated_user.username == sample_user_dict.get("username")
         assert updated_user.password_hash == sample_user_dict.get("password_hash")
 
-    def test_update_user_email_conflict(self, sample_user_service, add_sample_user):
+    def test_update_user_email_conflict(self, sample_user_service, sample_user):
         """Test that updating the email to that of existing user throws"""
         other_user = sample_user_service.create_user(
             UserCreate(email="new@test.com", username="updated_name", password="a-Fine-pwd123455!")
@@ -232,16 +232,16 @@ class TestUserServiceUpdate:
         # Attempt to update to same email as other_user
         update_data = UserUpdate(email=other_user.email)
         with pytest.raises(HTTPException) as exc_info:
-            sample_user_service.update_user(user_id=add_sample_user.id, user_data=update_data)
+            sample_user_service.update_user(user_id=sample_user.id, user_data=update_data)
         assert exc_info.value.status_code == status.HTTP_409_CONFLICT
         assert exc_info.value.detail == "Email already in use"
 
-    def test_update_username(self, sample_user_service, add_sample_user):
+    def test_update_username(self, sample_user_service, sample_user):
         """Test that updating the username of a user works."""
         update_data = UserUpdate(username="updated_name")
-        sample_user_dict = add_sample_user.__dict__.copy()
+        sample_user_dict = sample_user.__dict__.copy()
         updated_user = sample_user_service.update_user(
-            user_id=add_sample_user.id, user_data=update_data
+            user_id=sample_user.id, user_data=update_data
         )
         assert updated_user.email == sample_user_dict.get("email")
         assert updated_user.id == sample_user_dict.get("id")
@@ -250,7 +250,7 @@ class TestUserServiceUpdate:
         assert updated_user.password_hash == sample_user_dict.get("password_hash")
 
     @pytest.mark.parametrize("casing", [("exact", "lower", "upper", "title")])
-    def test_update_user_username_conflict(self, sample_user_service, add_sample_user, casing):
+    def test_update_user_username_conflict(self, sample_user_service, sample_user, casing):
         """Test that updating the email to that of existing user throws"""
         other_user = sample_user_service.create_user(
             UserCreate(email="new@test.com", username="updated_name", password="a-Fine-pwd123455!")
@@ -267,16 +267,16 @@ class TestUserServiceUpdate:
 
         update_data = UserUpdate(username=new_username)
         with pytest.raises(HTTPException) as exc_info:
-            sample_user_service.update_user(user_id=add_sample_user.id, user_data=update_data)
+            sample_user_service.update_user(user_id=sample_user.id, user_data=update_data)
         assert exc_info.value.status_code == status.HTTP_409_CONFLICT
         assert exc_info.value.detail == "Username already taken"
 
-    def test_update_password(self, sample_user_service, add_sample_user):
+    def test_update_password(self, sample_user_service, sample_user):
         """Test that updating the password of a user works."""
         update_data = UserUpdate(password="Good-and-new345?")
-        sample_user_dict = add_sample_user.__dict__.copy()
+        sample_user_dict = sample_user.__dict__.copy()
         updated_user = sample_user_service.update_user(
-            user_id=add_sample_user.id, user_data=update_data
+            user_id=sample_user.id, user_data=update_data
         )
         assert updated_user.email == sample_user_dict.get("email")
         assert updated_user.id == sample_user_dict.get("id")
@@ -287,12 +287,12 @@ class TestUserServiceUpdate:
 class TestUserServiceDelete:
     """Unit tests for delete endpoints of UserService."""
 
-    def test_delete_valid_user(self, sample_user_service, add_sample_user):
+    def test_delete_valid_user(self, sample_user_service, sample_user):
         """Test that user deletion works."""
-        assert sample_user_service.get_user_by_email(add_sample_user.email) is not None
+        assert sample_user_service.get_user_by_email(sample_user.email) is not None
 
-        sample_user_service.delete_user(add_sample_user.id)
-        assert sample_user_service.get_user_by_email(add_sample_user.email) is None
+        sample_user_service.delete_user(sample_user.id)
+        assert sample_user_service.get_user_by_email(sample_user.email) is None
 
     def test_delete_invalid_user(self, sample_user_service):
         """Test that user deletion works."""
@@ -306,18 +306,16 @@ class TestUserServiceDelete:
 class TestUserServiceAuthentication:
     """Unit tests for authentication endpoints of UserService"""
 
-    def test_authenticate_user_success(self, sample_user_service, add_sample_user):
+    def test_authenticate_user_success(self, sample_user_service, sample_user):
         """Test user auth with valid credentials"""
-        user = sample_user_service.authenticate_user(
-            "a-Fine-Password123!", email=add_sample_user.email
-        )
+        user = sample_user_service.authenticate_user("a-Fine-Password123!", email=sample_user.email)
         assert user is not None
-        assert user == add_sample_user
+        assert user == sample_user
 
-    def test_authenticate_user_fail(self, sample_user_service, add_sample_user):
+    def test_authenticate_user_fail(self, sample_user_service, sample_user):
         """Test user auth with valid credentials"""
         user = sample_user_service.authenticate_user(
-            "wrong-password_WOMP123", email=add_sample_user.email
+            "wrong-password_WOMP123", email=sample_user.email
         )
         assert user is None
 
@@ -342,19 +340,19 @@ class TestUserServiceAuthentication:
         assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
         assert exc_info.value.detail == "email or username not provided."
 
-    def test_login_successful(self, sample_user_service, add_sample_user, test_password):
+    def test_login_successful(self, sample_user_service, sample_user, test_password):
         request = LoginRequest(
-            email=add_sample_user.email, username=add_sample_user.username, password=test_password
+            email=sample_user.email, username=sample_user.username, password=test_password
         )
         response = sample_user_service.login(request)
 
         assert response.access_token is not None
         assert response.refresh_token is not None
         assert response.token_type == "bearer"
-        assert response.user.id == add_sample_user.id
-        assert response.user.email == add_sample_user.email
-        assert response.user.username == add_sample_user.username
-        assert response.user.created_at == add_sample_user.created_at
+        assert response.user.id == sample_user.id
+        assert response.user.email == sample_user.email
+        assert response.user.username == sample_user.username
+        assert response.user.created_at == sample_user.created_at
 
     def test_login_invalid_user(self, sample_user_service, test_password):
         request = LoginRequest(email="bad@test.com", username="bad", password=test_password)
@@ -363,10 +361,10 @@ class TestUserServiceAuthentication:
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
         assert exc_info.value.detail == "Incorrect username or email"
 
-    def test_login_bad_password(self, sample_user_service, add_sample_user, test_password):
+    def test_login_bad_password(self, sample_user_service, sample_user, test_password):
         request = LoginRequest(
-            email=add_sample_user.email,
-            username=add_sample_user.username,
+            email=sample_user.email,
+            username=sample_user.username,
             password=test_password + "bad",
         )
         with pytest.raises(HTTPException) as exc_info:

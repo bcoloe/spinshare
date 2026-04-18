@@ -5,10 +5,16 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import User
+from app.services.group_service import GroupService
 from app.services.user_service import UserService
 from app.utils.security import decode_access_token
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="user/login")
+
+
+def get_group_service(db: Session = Depends(get_db)) -> GroupService:
+    """Dependency to get GroupService"""
+    return GroupService(db)
 
 
 def get_user_service(db: Session = Depends(get_db)) -> UserService:

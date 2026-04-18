@@ -2,15 +2,13 @@
 
 This document captures various design decisions, project layout, and guiding principles for designing `spinshare`.
 
-## Tools
+## Structure
 
-### Backend
-The backend logic is implemented with python leaning on `sqlalchemy` for database definitions and interactions, `fastapi` for endpoint routing definitions, `pydantic` for schema definition, and `passlib` + `jose` for security. The application uses a postgres database for maintaining all relevant data. Unit tests are written using `pytest`.
+`spinshare` adheres to a standard web 
 
-### Frontend
-The frontend logic is implemented in typescript using a React framework built via Vite. Components are pulled from Mantine UI.
 
-## Repo Structure
+### Repo Structure
+```
 spinshare/
 ├── frontend/                   # React + TypeScript
 │   ├── public/
@@ -96,6 +94,16 @@ spinshare/
 ├── .gitignore
 ├── docker-compose.yml         # Optional: local dev environment
 └── README.md
+```
 
 
+
+
+## Tools
+
+### Backend
+The backend logic is implemented with python leaning on `sqlalchemy` for database definitions and interactions, `fastapi` for endpoint routing definitions, `pydantic` for schema definition, and `passlib` + `jose` for security. The application uses a postgres database for maintaining all relevant data. Unit tests are written using `pytest`.
+
+### Frontend
+The frontend logic is implemented in typescript using a React framework built via Vite. Components are pulled from Mantine UI.
 
