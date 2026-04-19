@@ -1,155 +1,101 @@
+from datetime import datetime, timezone
+
 import pytest
-from app.models import GroupAlbum, NominationGuess
-from app.models.group import GroupRole
-from app.schemas.group_album import NominationGuessCreate, SelectAlbumRequest
+from app.models import GroupAlbum
+from app.schemas.group_album import NominationGuessCreate
 from fastapi import HTTPException, status
 
 
-# ==================== HELPERS ====================
-
-
-def _set_status(db_session, group_album: GroupAlbum, new_status: str):
-    group_album.status = new_status
+def _mark_selected(db_session, group_album: GroupAlbum):
+    """Set selected_date to simulate cron having selected this album."""
+    group_album.selected_date = datetime.now(tz=timezone.utc)
     db_session.commit()
     db_session.refresh(group_album)
 
 
-# ==================== SELECTION ====================
+# ==================== DAILY SELECTION ====================
 
 
-class TestSelectAlbum:
-    def test_select_random_pending(
-        self, group_album_service, sample_group, sample_group_album, sample_user
+class TestSelectDailyAlbums:
+    def test_select_one_album(
+        self, group_album_service, sample_group, sample_group_album
     ):
-        request = SelectAlbumRequest()
-        result = group_album_service.select_album(sample_group.id, sample_user, request)
+        results = group_album_service.select_daily_albums(sample_group.id, n=1)
 
-        assert result.status == "selected"
-        assert result.id == sample_group_album.id
+        assert len(results) == 1
+        assert results[0].id == sample_group_album.id
+        assert results[0].selected_date is not None
 
-    def test_select_specific_album(
-        self, group_album_service, sample_group, sample_group_album, sample_user
-    ):
-        request = SelectAlbumRequest(group_album_id=sample_group_album.id)
-        result = group_album_service.select_album(sample_group.id, sample_user, request)
-
-        assert result.status == "selected"
-        assert result.id == sample_group_album.id
-
-    def test_select_demotes_previous_selected(
-        self,
-        group_album_service,
-        sample_group,
-        sample_group_album,
-        sample_user,
-        db_session,
-        sample_album,
+    def test_select_multiple_albums(
+        self, group_album_service, sample_group, sample_group_album, sample_user, db_session
     ):
         from app.models import Album
 
-        album2 = Album(
-            spotify_album_id="spotify_second",
-            title="Kid A",
-            artist="Radiohead",
-        )
+        album2 = Album(spotify_album_id="spotify_2", title="Kid A", artist="Radiohead")
         db_session.add(album2)
         db_session.commit()
         db_session.refresh(album2)
 
         ga2 = GroupAlbum(
-            group_id=sample_group.id,
-            album_id=album2.id,
-            added_by=sample_user.id,
-            status="pending",
+            group_id=sample_group.id, album_id=album2.id, added_by=sample_user.id
         )
         db_session.add(ga2)
         db_session.commit()
-        db_session.refresh(ga2)
 
-        # Select first album
-        group_album_service.select_album(
-            sample_group.id, sample_user, SelectAlbumRequest(group_album_id=sample_group_album.id)
-        )
+        results = group_album_service.select_daily_albums(sample_group.id, n=2)
+        assert len(results) == 2
+        assert all(ga.selected_date is not None for ga in results)
 
-        # Select second album — first should be returned to pending
-        group_album_service.select_album(
-            sample_group.id, sample_user, SelectAlbumRequest(group_album_id=ga2.id)
-        )
-
-        db_session.refresh(sample_group_album)
-        assert sample_group_album.status == "pending"
-
-    def test_select_no_pending_raises(self, group_album_service, sample_group, sample_user):
-        request = SelectAlbumRequest()
+    def test_select_skips_already_selected(
+        self, group_album_service, sample_group, sample_group_album, db_session
+    ):
+        _mark_selected(db_session, sample_group_album)
         with pytest.raises(HTTPException) as exc_info:
-            group_album_service.select_album(sample_group.id, sample_user, request)
+            group_album_service.select_daily_albums(sample_group.id, n=1)
         assert exc_info.value.status_code == status.HTTP_409_CONFLICT
 
-    def test_select_non_pending_specific_raises(
-        self,
-        group_album_service,
-        sample_group,
-        sample_group_album,
-        sample_user,
-        db_session,
+    def test_select_not_enough_available(
+        self, group_album_service, sample_group, sample_group_album
     ):
-        _set_status(db_session, sample_group_album, "reviewed")
-        request = SelectAlbumRequest(group_album_id=sample_group_album.id)
         with pytest.raises(HTTPException) as exc_info:
-            group_album_service.select_album(sample_group.id, sample_user, request)
+            group_album_service.select_daily_albums(sample_group.id, n=5)
         assert exc_info.value.status_code == status.HTTP_409_CONFLICT
 
-    def test_select_non_admin_forbidden(
-        self,
-        group_album_service,
-        sample_group,
-        sample_group_album,
-        sample_group_service,
-        user_factory,
-    ):
-        member = user_factory(email="member@test.com", username="member_user")
-        sample_group_service.add_user(sample_group.id, member.id)
-        request = SelectAlbumRequest()
+    def test_select_empty_group_raises(self, group_album_service, sample_group):
         with pytest.raises(HTTPException) as exc_info:
-            group_album_service.select_album(sample_group.id, member, request)
-        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+            group_album_service.select_daily_albums(sample_group.id, n=1)
+        assert exc_info.value.status_code == status.HTTP_409_CONFLICT
 
 
-class TestGetSelectedAlbum:
-    def test_get_selected_success(
-        self,
-        group_album_service,
-        sample_group,
-        sample_group_album,
-        sample_user,
-        db_session,
+class TestGetTodaysAlbums:
+    def test_returns_todays_selections(
+        self, group_album_service, sample_group, sample_group_album, sample_user, db_session
     ):
-        _set_status(db_session, sample_group_album, "selected")
-        result = group_album_service.get_selected_album(sample_group.id, sample_user)
-        assert result.id == sample_group_album.id
-        assert result.status == "selected"
+        _mark_selected(db_session, sample_group_album)
+        results = group_album_service.get_todays_albums(sample_group.id, sample_user)
+        assert len(results) == 1
+        assert results[0].id == sample_group_album.id
 
-    def test_get_selected_none_raises(
-        self, group_album_service, sample_group, sample_user
+    def test_excludes_unselected(
+        self, group_album_service, sample_group, sample_group_album, sample_user
     ):
-        with pytest.raises(HTTPException) as exc_info:
-            group_album_service.get_selected_album(sample_group.id, sample_user)
-        assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
+        results = group_album_service.get_todays_albums(sample_group.id, sample_user)
+        assert results == []
 
-    def test_get_selected_non_member_forbidden(
+    def test_non_member_forbidden(
         self, group_album_service, sample_group, user_factory
     ):
         outsider = user_factory(email="out@test.com", username="outsider")
         with pytest.raises(HTTPException) as exc_info:
-            group_album_service.get_selected_album(sample_group.id, outsider)
+            group_album_service.get_todays_albums(sample_group.id, outsider)
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
 
 
 # ==================== GUESSING ====================
 
 
-class TestSubmitGuess:
-    def test_submit_guess_success(
+class TestCheckGuess:
+    def test_correct_guess(
         self,
         group_album_service,
         sample_group,
@@ -161,20 +107,68 @@ class TestSubmitGuess:
     ):
         other = user_factory(email="other@test.com", username="other_user")
         sample_group_service.add_user(sample_group.id, other.id)
-        _set_status(db_session, sample_group_album, "selected")
+        _mark_selected(db_session, sample_group_album)
 
-        guess = group_album_service.submit_guess(
+        # other guesses sample_user (the actual nominator)
+        result = group_album_service.check_guess(
             sample_group.id,
             sample_group_album.id,
             other,
             NominationGuessCreate(guessed_user_id=sample_user.id),
         )
 
-        assert guess.id is not None
-        assert guess.guessing_user_id == other.id
-        assert guess.guessed_user_id == sample_user.id
+        assert result.correct is True
+        assert result.nominator_user_id == sample_user.id
+        assert result.nominator_username == sample_user.username
+        assert result.guess.guessing_user_id == other.id
 
-    def test_submit_guess_self_forbidden(
+    def test_incorrect_guess(
+        self,
+        group_album_service,
+        sample_group,
+        sample_group_album,
+        sample_user,
+        sample_group_service,
+        user_factory,
+        db_session,
+    ):
+        other = user_factory(email="other@test.com", username="other_user")
+        third = user_factory(email="third@test.com", username="third_user")
+        sample_group_service.add_user(sample_group.id, other.id)
+        sample_group_service.add_user(sample_group.id, third.id)
+        _mark_selected(db_session, sample_group_album)
+
+        result = group_album_service.check_guess(
+            sample_group.id,
+            sample_group_album.id,
+            other,
+            NominationGuessCreate(guessed_user_id=third.id),  # wrong guess
+        )
+
+        assert result.correct is False
+        assert result.nominator_user_id == sample_user.id  # actual nominator revealed anyway
+
+    def test_not_selected_raises(
+        self,
+        group_album_service,
+        sample_group,
+        sample_group_album,
+        sample_user,
+        sample_group_service,
+        user_factory,
+    ):
+        other = user_factory(email="other@test.com", username="other_user")
+        sample_group_service.add_user(sample_group.id, other.id)
+        with pytest.raises(HTTPException) as exc_info:
+            group_album_service.check_guess(
+                sample_group.id,
+                sample_group_album.id,
+                other,
+                NominationGuessCreate(guessed_user_id=sample_user.id),
+            )
+        assert exc_info.value.status_code == status.HTTP_409_CONFLICT
+
+    def test_self_guess_forbidden(
         self,
         group_album_service,
         sample_group,
@@ -182,9 +176,9 @@ class TestSubmitGuess:
         sample_user,
         db_session,
     ):
-        _set_status(db_session, sample_group_album, "selected")
+        _mark_selected(db_session, sample_group_album)
         with pytest.raises(HTTPException) as exc_info:
-            group_album_service.submit_guess(
+            group_album_service.check_guess(
                 sample_group.id,
                 sample_group_album.id,
                 sample_user,
@@ -192,28 +186,7 @@ class TestSubmitGuess:
             )
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_submit_guess_not_selected_raises(
-        self,
-        group_album_service,
-        sample_group,
-        sample_group_album,
-        sample_user,
-        sample_group_service,
-        user_factory,
-    ):
-        other = user_factory(email="other@test.com", username="other_user")
-        sample_group_service.add_user(sample_group.id, other.id)
-        # album is still pending
-        with pytest.raises(HTTPException) as exc_info:
-            group_album_service.submit_guess(
-                sample_group.id,
-                sample_group_album.id,
-                other,
-                NominationGuessCreate(guessed_user_id=sample_user.id),
-            )
-        assert exc_info.value.status_code == status.HTTP_409_CONFLICT
-
-    def test_submit_guess_duplicate_conflict(
+    def test_duplicate_guess_conflict(
         self,
         group_album_service,
         sample_group,
@@ -225,16 +198,16 @@ class TestSubmitGuess:
     ):
         other = user_factory(email="other@test.com", username="other_user")
         sample_group_service.add_user(sample_group.id, other.id)
-        _set_status(db_session, sample_group_album, "selected")
+        _mark_selected(db_session, sample_group_album)
 
-        group_album_service.submit_guess(
+        group_album_service.check_guess(
             sample_group.id,
             sample_group_album.id,
             other,
             NominationGuessCreate(guessed_user_id=sample_user.id),
         )
         with pytest.raises(HTTPException) as exc_info:
-            group_album_service.submit_guess(
+            group_album_service.check_guess(
                 sample_group.id,
                 sample_group_album.id,
                 other,
@@ -242,7 +215,7 @@ class TestSubmitGuess:
             )
         assert exc_info.value.status_code == status.HTTP_409_CONFLICT
 
-    def test_submit_guess_non_member_forbidden(
+    def test_non_member_forbidden(
         self,
         group_album_service,
         sample_group,
@@ -252,90 +225,15 @@ class TestSubmitGuess:
         db_session,
     ):
         outsider = user_factory(email="out@test.com", username="outsider")
-        _set_status(db_session, sample_group_album, "selected")
+        _mark_selected(db_session, sample_group_album)
         with pytest.raises(HTTPException) as exc_info:
-            group_album_service.submit_guess(
+            group_album_service.check_guess(
                 sample_group.id,
                 sample_group_album.id,
                 outsider,
                 NominationGuessCreate(guessed_user_id=sample_user.id),
             )
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
-
-
-class TestUpdateGuess:
-    def _setup_guess(
-        self,
-        group_album_service,
-        sample_group,
-        sample_group_album,
-        sample_user,
-        sample_group_service,
-        user_factory,
-        db_session,
-    ):
-        other = user_factory(email="other@test.com", username="other_user")
-        sample_group_service.add_user(sample_group.id, other.id)
-        _set_status(db_session, sample_group_album, "selected")
-        group_album_service.submit_guess(
-            sample_group.id,
-            sample_group_album.id,
-            other,
-            NominationGuessCreate(guessed_user_id=sample_user.id),
-        )
-        return other
-
-    def test_update_guess_success(
-        self,
-        group_album_service,
-        sample_group,
-        sample_group_album,
-        sample_user,
-        sample_group_service,
-        user_factory,
-        db_session,
-    ):
-        other = self._setup_guess(
-            group_album_service,
-            sample_group,
-            sample_group_album,
-            sample_user,
-            sample_group_service,
-            user_factory,
-            db_session,
-        )
-        third = user_factory(email="third@test.com", username="third_user")
-        sample_group_service.add_user(sample_group.id, third.id)
-
-        updated = group_album_service.update_guess(
-            sample_group.id,
-            sample_group_album.id,
-            other,
-            NominationGuessCreate(guessed_user_id=third.id),
-        )
-        assert updated.guessed_user_id == third.id
-
-    def test_update_guess_not_selected_raises(
-        self,
-        group_album_service,
-        sample_group,
-        sample_group_album,
-        sample_user,
-        sample_group_service,
-        user_factory,
-        db_session,
-    ):
-        other = user_factory(email="other@test.com", username="other_user")
-        sample_group_service.add_user(sample_group.id, other.id)
-        _set_status(db_session, sample_group_album, "reviewed")
-        with pytest.raises(HTTPException) as exc_info:
-            group_album_service.update_guess(
-                sample_group.id,
-                sample_group_album.id,
-                other,
-                NominationGuessCreate(guessed_user_id=sample_user.id),
-            )
-        assert exc_info.value.status_code == status.HTTP_409_CONFLICT
 
 
 class TestGetMyGuess:
@@ -351,8 +249,8 @@ class TestGetMyGuess:
     ):
         other = user_factory(email="other@test.com", username="other_user")
         sample_group_service.add_user(sample_group.id, other.id)
-        _set_status(db_session, sample_group_album, "selected")
-        group_album_service.submit_guess(
+        _mark_selected(db_session, sample_group_album)
+        group_album_service.check_guess(
             sample_group.id,
             sample_group_album.id,
             other,
@@ -371,170 +269,12 @@ class TestGetMyGuess:
             )
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
 
-
-# ==================== REVIEW PHASE ====================
-
-
-class TestCompleteReviewPhase:
-    def test_complete_review_phase_success(
-        self,
-        group_album_service,
-        sample_group,
-        sample_group_album,
-        sample_user,
-        db_session,
-    ):
-        _set_status(db_session, sample_group_album, "selected")
-        result = group_album_service.complete_review_phase(
-            sample_group.id, sample_group_album.id, sample_user
-        )
-        assert result.status == "reviewed"
-
-    def test_complete_review_phase_not_selected_raises(
-        self,
-        group_album_service,
-        sample_group,
-        sample_group_album,
-        sample_user,
-    ):
-        # album is still pending
-        with pytest.raises(HTTPException) as exc_info:
-            group_album_service.complete_review_phase(
-                sample_group.id, sample_group_album.id, sample_user
-            )
-        assert exc_info.value.status_code == status.HTTP_409_CONFLICT
-
-    def test_complete_review_phase_non_admin_forbidden(
-        self,
-        group_album_service,
-        sample_group,
-        sample_group_album,
-        sample_group_service,
-        user_factory,
-        db_session,
-    ):
-        member = user_factory(email="member@test.com", username="member_user")
-        sample_group_service.add_user(sample_group.id, member.id)
-        _set_status(db_session, sample_group_album, "selected")
-        with pytest.raises(HTTPException) as exc_info:
-            group_album_service.complete_review_phase(
-                sample_group.id, sample_group_album.id, member
-            )
-        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
-
-
-# ==================== REVEAL ====================
-
-
-class TestRevealNominator:
-    def _setup_reviewed_album_with_guess(
-        self,
-        group_album_service,
-        sample_group,
-        sample_group_album,
-        sample_user,
-        sample_group_service,
-        user_factory,
-        db_session,
-    ):
-        other = user_factory(email="other@test.com", username="other_user")
-        sample_group_service.add_user(sample_group.id, other.id)
-        _set_status(db_session, sample_group_album, "selected")
-        group_album_service.submit_guess(
-            sample_group.id,
-            sample_group_album.id,
-            other,
-            NominationGuessCreate(guessed_user_id=sample_user.id),
-        )
-        _set_status(db_session, sample_group_album, "reviewed")
-        return other
-
-    def test_reveal_nominator_success(
-        self,
-        group_album_service,
-        sample_group,
-        sample_group_album,
-        sample_user,
-        sample_group_service,
-        user_factory,
-        db_session,
-    ):
-        other = self._setup_reviewed_album_with_guess(
-            group_album_service,
-            sample_group,
-            sample_group_album,
-            sample_user,
-            sample_group_service,
-            user_factory,
-            db_session,
-        )
-
-        result = group_album_service.reveal_nominator(
-            sample_group.id, sample_group_album.id, sample_user
-        )
-
-        assert result.nominator_user_id == sample_user.id
-        assert result.nominator_username == sample_user.username
-        assert len(result.guesses) == 1
-        assert result.guesses[0].guessing_user_id == other.id
-        assert result.guesses[0].correct is True
-
-    def test_reveal_guess_incorrect(
-        self,
-        group_album_service,
-        sample_group,
-        sample_group_album,
-        sample_user,
-        sample_group_service,
-        user_factory,
-        db_session,
-    ):
-        other = user_factory(email="other@test.com", username="other_user")
-        third = user_factory(email="third@test.com", username="third_user")
-        sample_group_service.add_user(sample_group.id, other.id)
-        sample_group_service.add_user(sample_group.id, third.id)
-        _set_status(db_session, sample_group_album, "selected")
-        # other guesses third, but actual nominator is sample_user
-        group_album_service.submit_guess(
-            sample_group.id,
-            sample_group_album.id,
-            other,
-            NominationGuessCreate(guessed_user_id=third.id),
-        )
-        _set_status(db_session, sample_group_album, "reviewed")
-
-        result = group_album_service.reveal_nominator(
-            sample_group.id, sample_group_album.id, sample_user
-        )
-        assert result.guesses[0].correct is False
-
-    def test_reveal_not_reviewed_raises(
-        self,
-        group_album_service,
-        sample_group,
-        sample_group_album,
-        sample_user,
-        db_session,
-    ):
-        _set_status(db_session, sample_group_album, "selected")
-        with pytest.raises(HTTPException) as exc_info:
-            group_album_service.reveal_nominator(
-                sample_group.id, sample_group_album.id, sample_user
-            )
-        assert exc_info.value.status_code == status.HTTP_409_CONFLICT
-
-    def test_reveal_non_member_forbidden(
-        self,
-        group_album_service,
-        sample_group,
-        sample_group_album,
-        user_factory,
-        db_session,
+    def test_non_member_forbidden(
+        self, group_album_service, sample_group, sample_group_album, user_factory
     ):
         outsider = user_factory(email="out@test.com", username="outsider")
-        _set_status(db_session, sample_group_album, "reviewed")
         with pytest.raises(HTTPException) as exc_info:
-            group_album_service.reveal_nominator(
+            group_album_service.get_my_guess(
                 sample_group.id, sample_group_album.id, outsider
             )
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN

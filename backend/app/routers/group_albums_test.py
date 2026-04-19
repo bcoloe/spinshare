@@ -10,6 +10,7 @@ import pytest
 from app.dependencies import get_current_user, get_group_album_service
 from app.main import app
 from app.routers.conftest import make_mock_user
+from app.schemas.group_album import CheckGuessResponse, NominationGuessResponse
 from app.services.group_album_service import GroupAlbumService
 from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
@@ -17,12 +18,12 @@ from fastapi.testclient import TestClient
 _NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 
-def make_mock_album(id=1, spotify_album_id="spotify_abc", title="OK Computer", artist="Radiohead"):
+def make_mock_album(id=1):
     a = MagicMock()
     a.id = id
-    a.spotify_album_id = spotify_album_id
-    a.title = title
-    a.artist = artist
+    a.spotify_album_id = "spotify_abc"
+    a.title = "OK Computer"
+    a.artist = "Radiohead"
     a.release_date = "1997-05"
     a.cover_url = None
     a.added_at = _NOW
@@ -30,29 +31,27 @@ def make_mock_album(id=1, spotify_album_id="spotify_abc", title="OK Computer", a
     return a
 
 
-def make_mock_group_album(
-    id=1, group_id=1, album_id=1, added_by=1, status="pending"
-) -> MagicMock:
+def make_mock_group_album(id=1, group_id=1, album_id=1, added_by=1, selected_date=_NOW):
     ga = MagicMock()
     ga.id = id
     ga.group_id = group_id
     ga.album_id = album_id
     ga.added_by = added_by
-    ga.status = status
+    ga.status = "pending"
     ga.added_at = _NOW
-    ga.selected_date = None
+    ga.selected_date = selected_date
     ga.albums = make_mock_album()
     return ga
 
 
-def make_mock_guess(id=1, group_album_id=1, guessing_user_id=2, guessed_user_id=1):
-    g = MagicMock()
-    g.id = id
-    g.group_album_id = group_album_id
-    g.guessing_user_id = guessing_user_id
-    g.guessed_user_id = guessed_user_id
-    g.created_at = _NOW
-    return g
+def make_mock_guess_response(id=1, group_album_id=1, guessing_user_id=2, guessed_user_id=1):
+    return NominationGuessResponse(
+        id=id,
+        group_album_id=group_album_id,
+        guessing_user_id=guessing_user_id,
+        guessed_user_id=guessed_user_id,
+        created_at=_NOW,
+    )
 
 
 @pytest.fixture
@@ -82,221 +81,116 @@ def unauthed_client(mock_svc):
     app.dependency_overrides.clear()
 
 
-# ==================== SELECTION ====================
+# ==================== DAILY SELECTION ====================
 
 
-class TestSelectAlbum:
-    def test_select_random_success(self, client, mock_svc):
-        mock_svc.select_album.return_value = make_mock_group_album(status="selected")
-        resp = client.post("/groups/1/albums/select", json={})
+class TestGetTodaysAlbums:
+    def test_returns_list(self, client, mock_svc):
+        mock_svc.get_todays_albums.return_value = [make_mock_group_album()]
+        resp = client.get("/groups/1/albums/today")
         assert resp.status_code == status.HTTP_200_OK
-        assert resp.json()["status"] == "selected"
-        mock_svc.select_album.assert_called_once()
+        assert len(resp.json()) == 1
 
-    def test_select_specific_success(self, client, mock_svc):
-        mock_svc.select_album.return_value = make_mock_group_album(id=3, status="selected")
-        resp = client.post("/groups/1/albums/select", json={"group_album_id": 3})
+    def test_empty_list(self, client, mock_svc):
+        mock_svc.get_todays_albums.return_value = []
+        resp = client.get("/groups/1/albums/today")
         assert resp.status_code == status.HTTP_200_OK
-        assert resp.json()["id"] == 3
+        assert resp.json() == []
 
-    def test_select_no_pending_conflict(self, client, mock_svc):
-        mock_svc.select_album.side_effect = HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="No pending albums"
-        )
-        resp = client.post("/groups/1/albums/select", json={})
-        assert resp.status_code == status.HTTP_409_CONFLICT
-
-    def test_select_non_admin_forbidden(self, client, mock_svc):
-        mock_svc.select_album.side_effect = HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Requires admin"
-        )
-        resp = client.post("/groups/1/albums/select", json={})
-        assert resp.status_code == status.HTTP_403_FORBIDDEN
-
-    def test_select_unauthenticated(self, unauthed_client):
-        resp = unauthed_client.post("/groups/1/albums/select", json={})
-        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
-
-
-class TestGetSelectedAlbum:
-    def test_get_selected_success(self, client, mock_svc):
-        mock_svc.get_selected_album.return_value = make_mock_group_album(status="selected")
-        resp = client.get("/groups/1/albums/selected")
-        assert resp.status_code == status.HTTP_200_OK
-        assert resp.json()["status"] == "selected"
-
-    def test_get_selected_none(self, client, mock_svc):
-        mock_svc.get_selected_album.side_effect = HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="No album selected"
-        )
-        resp = client.get("/groups/1/albums/selected")
-        assert resp.status_code == status.HTTP_404_NOT_FOUND
-
-    def test_get_selected_non_member(self, client, mock_svc):
-        mock_svc.get_selected_album.side_effect = HTTPException(
+    def test_non_member_forbidden(self, client, mock_svc):
+        mock_svc.get_todays_albums.side_effect = HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Not a member"
         )
-        resp = client.get("/groups/1/albums/selected")
+        resp = client.get("/groups/1/albums/today")
         assert resp.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_get_selected_unauthenticated(self, unauthed_client):
-        resp = unauthed_client.get("/groups/1/albums/selected")
+    def test_unauthenticated(self, unauthed_client):
+        resp = unauthed_client.get("/groups/1/albums/today")
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
 
 # ==================== GUESSING ====================
 
 
-class TestSubmitGuess:
-    def test_submit_guess_success(self, client, mock_svc):
-        mock_svc.submit_guess.return_value = make_mock_guess()
-        resp = client.post("/groups/1/albums/1/guess", json={"guessed_user_id": 1})
+class TestCheckGuess:
+    def test_correct_guess(self, client, mock_svc):
+        mock_svc.check_guess.return_value = CheckGuessResponse(
+            guess=make_mock_guess_response(),
+            correct=True,
+            nominator_user_id=1,
+            nominator_username="test_user",
+        )
+        resp = client.post("/groups/1/albums/1/check-guess", json={"guessed_user_id": 1})
         assert resp.status_code == status.HTTP_201_CREATED
         body = resp.json()
-        assert body["guessing_user_id"] == 2
-        assert body["guessed_user_id"] == 1
-        mock_svc.submit_guess.assert_called_once()
+        assert body["correct"] is True
+        assert body["nominator_user_id"] == 1
+        assert body["nominator_username"] == "test_user"
+        mock_svc.check_guess.assert_called_once()
 
-    def test_submit_guess_not_selected(self, client, mock_svc):
-        mock_svc.submit_guess.side_effect = HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Not selected"
+    def test_incorrect_guess(self, client, mock_svc):
+        mock_svc.check_guess.return_value = CheckGuessResponse(
+            guess=make_mock_guess_response(guessed_user_id=99),
+            correct=False,
+            nominator_user_id=1,
+            nominator_username="test_user",
         )
-        resp = client.post("/groups/1/albums/1/guess", json={"guessed_user_id": 1})
+        resp = client.post("/groups/1/albums/1/check-guess", json={"guessed_user_id": 99})
+        assert resp.status_code == status.HTTP_201_CREATED
+        assert resp.json()["correct"] is False
+
+    def test_not_selected_conflict(self, client, mock_svc):
+        mock_svc.check_guess.side_effect = HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Album not selected"
+        )
+        resp = client.post("/groups/1/albums/1/check-guess", json={"guessed_user_id": 1})
         assert resp.status_code == status.HTTP_409_CONFLICT
 
-    def test_submit_guess_self_forbidden(self, client, mock_svc):
-        mock_svc.submit_guess.side_effect = HTTPException(
+    def test_self_guess_forbidden(self, client, mock_svc):
+        mock_svc.check_guess.side_effect = HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Cannot guess yourself"
         )
-        resp = client.post("/groups/1/albums/1/guess", json={"guessed_user_id": 1})
+        resp = client.post("/groups/1/albums/1/check-guess", json={"guessed_user_id": 1})
         assert resp.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_submit_guess_duplicate(self, client, mock_svc):
-        mock_svc.submit_guess.side_effect = HTTPException(
+    def test_duplicate_guess_conflict(self, client, mock_svc):
+        mock_svc.check_guess.side_effect = HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Already guessed"
         )
-        resp = client.post("/groups/1/albums/1/guess", json={"guessed_user_id": 1})
+        resp = client.post("/groups/1/albums/1/check-guess", json={"guessed_user_id": 1})
         assert resp.status_code == status.HTTP_409_CONFLICT
 
-    def test_submit_guess_unauthenticated(self, unauthed_client):
-        resp = unauthed_client.post("/groups/1/albums/1/guess", json={"guessed_user_id": 1})
+    def test_non_member_forbidden(self, client, mock_svc):
+        mock_svc.check_guess.side_effect = HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not a member"
+        )
+        resp = client.post("/groups/1/albums/1/check-guess", json={"guessed_user_id": 1})
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_unauthenticated(self, unauthed_client):
+        resp = unauthed_client.post("/groups/1/albums/1/check-guess", json={"guessed_user_id": 1})
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
 
-class TestUpdateGuess:
-    def test_update_guess_success(self, client, mock_svc):
-        mock_svc.update_guess.return_value = make_mock_guess(guessed_user_id=3)
-        resp = client.put("/groups/1/albums/1/guess", json={"guessed_user_id": 3})
-        assert resp.status_code == status.HTTP_200_OK
-        assert resp.json()["guessed_user_id"] == 3
-
-    def test_update_guess_not_selected(self, client, mock_svc):
-        mock_svc.update_guess.side_effect = HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Not selected"
-        )
-        resp = client.put("/groups/1/albums/1/guess", json={"guessed_user_id": 3})
-        assert resp.status_code == status.HTTP_409_CONFLICT
-
-    def test_update_guess_not_found(self, client, mock_svc):
-        mock_svc.update_guess.side_effect = HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="No prior guess"
-        )
-        resp = client.put("/groups/1/albums/1/guess", json={"guessed_user_id": 3})
-        assert resp.status_code == status.HTTP_404_NOT_FOUND
-
-
 class TestGetMyGuess:
-    def test_get_my_guess_success(self, client, mock_svc):
-        mock_svc.get_my_guess.return_value = make_mock_guess()
+    def test_success(self, client, mock_svc):
+        guess = MagicMock()
+        guess.id = 1
+        guess.group_album_id = 1
+        guess.guessing_user_id = 1
+        guess.guessed_user_id = 2
+        guess.created_at = _NOW
+        mock_svc.get_my_guess.return_value = guess
         resp = client.get("/groups/1/albums/1/guess/me")
         assert resp.status_code == status.HTTP_200_OK
-        assert resp.json()["guessing_user_id"] == 2
 
-    def test_get_my_guess_not_found(self, client, mock_svc):
+    def test_not_found(self, client, mock_svc):
         mock_svc.get_my_guess.side_effect = HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="No guess"
         )
         resp = client.get("/groups/1/albums/1/guess/me")
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_get_my_guess_unauthenticated(self, unauthed_client):
+    def test_unauthenticated(self, unauthed_client):
         resp = unauthed_client.get("/groups/1/albums/1/guess/me")
-        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
-
-
-# ==================== REVIEW PHASE ====================
-
-
-class TestCompleteReviewPhase:
-    def test_complete_review_phase_success(self, client, mock_svc):
-        mock_svc.complete_review_phase.return_value = make_mock_group_album(status="reviewed")
-        resp = client.post("/groups/1/albums/1/complete")
-        assert resp.status_code == status.HTTP_200_OK
-        assert resp.json()["status"] == "reviewed"
-        mock_svc.complete_review_phase.assert_called_once()
-
-    def test_complete_review_phase_not_selected(self, client, mock_svc):
-        mock_svc.complete_review_phase.side_effect = HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Not selected"
-        )
-        resp = client.post("/groups/1/albums/1/complete")
-        assert resp.status_code == status.HTTP_409_CONFLICT
-
-    def test_complete_review_phase_forbidden(self, client, mock_svc):
-        mock_svc.complete_review_phase.side_effect = HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Requires admin"
-        )
-        resp = client.post("/groups/1/albums/1/complete")
-        assert resp.status_code == status.HTTP_403_FORBIDDEN
-
-    def test_complete_review_phase_unauthenticated(self, unauthed_client):
-        resp = unauthed_client.post("/groups/1/albums/1/complete")
-        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
-
-
-# ==================== REVEAL ====================
-
-
-class TestRevealNominator:
-    def test_reveal_success(self, client, mock_svc):
-        from app.schemas.group_album import GuessResultResponse, NominationRevealResponse
-
-        mock_svc.reveal_nominator.return_value = NominationRevealResponse(
-            group_album_id=1,
-            nominator_user_id=1,
-            nominator_username="test_user",
-            guesses=[
-                GuessResultResponse(
-                    guessing_user_id=2,
-                    guessing_username="other_user",
-                    guessed_user_id=1,
-                    guessed_username="test_user",
-                    correct=True,
-                )
-            ],
-        )
-        resp = client.get("/groups/1/albums/1/reveal")
-        assert resp.status_code == status.HTTP_200_OK
-        body = resp.json()
-        assert body["nominator_user_id"] == 1
-        assert body["nominator_username"] == "test_user"
-        assert len(body["guesses"]) == 1
-        assert body["guesses"][0]["correct"] is True
-
-    def test_reveal_not_reviewed(self, client, mock_svc):
-        mock_svc.reveal_nominator.side_effect = HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Not yet reviewed"
-        )
-        resp = client.get("/groups/1/albums/1/reveal")
-        assert resp.status_code == status.HTTP_409_CONFLICT
-
-    def test_reveal_non_member_forbidden(self, client, mock_svc):
-        mock_svc.reveal_nominator.side_effect = HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Not a member"
-        )
-        resp = client.get("/groups/1/albums/1/reveal")
-        assert resp.status_code == status.HTTP_403_FORBIDDEN
-
-    def test_reveal_unauthenticated(self, unauthed_client):
-        resp = unauthed_client.get("/groups/1/albums/1/reveal")
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
