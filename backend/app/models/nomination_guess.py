@@ -1,6 +1,6 @@
 """Nomination guess table — stores each member's guess for who nominated a selected album."""
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -14,6 +14,7 @@ class NominationGuess(Base):
     group_album_id = Column(Integer, ForeignKey("group_albums.id"), nullable=False)
     guessing_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     guessed_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    correct = Column(Boolean, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships

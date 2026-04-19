@@ -44,12 +44,13 @@ def make_mock_group_album(id=1, group_id=1, album_id=1, added_by=1, selected_dat
     return ga
 
 
-def make_mock_guess_response(id=1, group_album_id=1, guessing_user_id=2, guessed_user_id=1):
+def make_mock_guess_response(id=1, group_album_id=1, guessing_user_id=2, guessed_user_id=1, correct=True):
     return NominationGuessResponse(
         id=id,
         group_album_id=group_album_id,
         guessing_user_id=guessing_user_id,
         guessed_user_id=guessed_user_id,
+        correct=correct,
         created_at=_NOW,
     )
 

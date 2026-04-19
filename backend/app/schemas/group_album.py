@@ -14,6 +14,7 @@ class NominationGuessResponse(BaseModel):
     group_album_id: int
     guessing_user_id: int
     guessed_user_id: int
+    correct: bool
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

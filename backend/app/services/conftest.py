@@ -8,6 +8,7 @@ from app.services import group_service, user_service
 from app.services.album_service import AlbumService
 from app.services.group_album_service import GroupAlbumService
 from app.services.review_service import ReviewService
+from app.services.stats_service import StatsService
 from sqlalchemy import update
 
 # Placeholder hash — GroupService never verifies passwords, so bcrypt is unnecessary.
@@ -102,6 +103,11 @@ def review_service(db_session) -> ReviewService:
 @pytest.fixture(scope="function")
 def group_album_service(db_session) -> GroupAlbumService:
     return GroupAlbumService(db_session)
+
+
+@pytest.fixture(scope="function")
+def stats_service(db_session) -> StatsService:
+    return StatsService(db_session)
 
 
 @pytest.fixture(scope="function")

@@ -114,10 +114,12 @@ class GroupAlbumService:
                 detail="You cannot guess yourself as the nominator",
             )
 
+        correct = data.guessed_user_id == group_album.added_by
         guess = NominationGuess(
             group_album_id=group_album_id,
             guessing_user_id=user.id,
             guessed_user_id=data.guessed_user_id,
+            correct=correct,
         )
         try:
             self.db.add(guess)
@@ -139,7 +141,6 @@ class GroupAlbumService:
         self.db.refresh(guess)
 
         nominator = group_album.added_by_user
-        correct = data.guessed_user_id == group_album.added_by
 
         return CheckGuessResponse(
             guess=NominationGuessResponse.model_validate(guess),
