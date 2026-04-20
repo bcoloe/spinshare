@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import { LoadingOverlay } from '@mantine/core'
 
+const ProtectedRoute = lazy(() => import('./components/auth/ProtectedRoute'))
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
@@ -13,10 +14,15 @@ const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
   { path: '/register', element: <RegisterPage /> },
-  { path: '/', element: <DashboardPage /> },
-  { path: '/groups/:groupId', element: <GroupPage /> },
-  { path: '/groups/:groupId/spin', element: <DailySpinPage /> },
-  { path: '/profile', element: <ProfilePage /> },
+  {
+    element: <ProtectedRoute />,
+    children: [
+      { path: '/', element: <DashboardPage /> },
+      { path: '/groups/:groupId', element: <GroupPage /> },
+      { path: '/groups/:groupId/spin', element: <DailySpinPage /> },
+      { path: '/profile', element: <ProfilePage /> },
+    ],
+  },
   { path: '*', element: <NotFoundPage /> },
 ])
 
