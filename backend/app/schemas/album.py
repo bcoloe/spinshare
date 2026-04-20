@@ -6,6 +6,15 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class AlbumSearchResult(BaseModel):
+    spotify_album_id: str
+    title: str
+    artist: str
+    release_date: str | None = None
+    cover_url: str | None = None
+    genres: list[str] = []
+
+
 class GroupAlbumStatus(StrEnum):
     Pending = "pending"
     Selected = "selected"

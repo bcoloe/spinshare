@@ -5,6 +5,7 @@ from app.models import User
 from app.schemas.album import (
     AlbumCreate,
     AlbumResponse,
+    AlbumSearchResult,
     GroupAlbumCreate,
     GroupAlbumResponse,
     GroupAlbumStatusUpdate,
@@ -14,13 +15,34 @@ from app.schemas.album import (
 )
 from app.services.album_service import AlbumService
 from app.services.review_service import ReviewService
-from fastapi import APIRouter, Depends, status
+from app.utils import spotify_client
+from fastapi import APIRouter, Depends, Query, status
 
 albums_router = APIRouter(prefix="/albums", tags=["albums"])
 group_albums_router = APIRouter(prefix="/groups", tags=["group-albums"])
 
 
 # ==================== ALBUMS ====================
+
+
+@albums_router.get("/search", response_model=list[AlbumSearchResult])
+def search_albums(
+    q: str = Query(..., min_length=2),
+    current_user: User = Depends(get_current_user),
+):
+    """Search for albums via Spotify. Requires SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET."""
+    results = spotify_client.search_albums(q)
+    return [
+        AlbumSearchResult(
+            spotify_album_id=r.spotify_album_id,
+            title=r.title,
+            artist=r.artist,
+            release_date=r.release_date,
+            cover_url=r.cover_url,
+            genres=r.genres,
+        )
+        for r in results
+    ]
 
 
 @albums_router.post("/", response_model=AlbumResponse, status_code=status.HTTP_201_CREATED)

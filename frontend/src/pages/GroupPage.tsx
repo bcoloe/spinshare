@@ -42,12 +42,20 @@ export default function GroupPage() {
                   {group?.is_public ? 'Public' : 'Private'} · {group?.member_count} member{group?.member_count !== 1 ? 's' : ''}
                 </Text>
               </div>
-              <Button
-                leftSection={<IconDisc size={16} />}
-                onClick={() => navigate(`/groups/${groupId}/spin`)}
-              >
-                Today&apos;s spin
-              </Button>
+              <Group gap="xs">
+                <Button
+                  leftSection={<IconDisc size={16} />}
+                  onClick={() => navigate(`/groups/${groupId}/spin`)}
+                >
+                  Today&apos;s spin
+                </Button>
+                <Button
+                  variant="light"
+                  onClick={() => navigate(`/groups/${groupId}/catalog`)}
+                >
+                  Catalog
+                </Button>
+              </Group>
             </Group>
 
             <Divider />

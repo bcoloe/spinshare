@@ -7,6 +7,7 @@ const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
 const GroupPage = lazy(() => import('./pages/GroupPage'))
+const GroupCatalogPage = lazy(() => import('./pages/GroupCatalogPage'))
 const DailySpinPage = lazy(() => import('./pages/DailySpinPage'))
 const ProfilePage = lazy(() => import('./pages/ProfilePage'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
@@ -20,6 +21,7 @@ const router = createBrowserRouter([
       { path: '/', element: <DashboardPage /> },
       { path: '/groups/:groupId', element: <GroupPage /> },
       { path: '/groups/:groupId/spin', element: <DailySpinPage /> },
+      { path: '/groups/:groupId/catalog', element: <GroupCatalogPage /> },
       { path: '/profile', element: <ProfilePage /> },
     ],
   },

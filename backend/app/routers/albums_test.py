@@ -397,3 +397,42 @@ class TestGroupAlbumStatusUpdate:
         )
         resp = client.patch("/groups/1/albums/1/status", json={"status": "selected"})
         assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestAlbumSearch:
+    def test_search_returns_results(self, client):
+        from app.utils.spotify_client import SpotifyAlbumResult
+
+        mock_result = SpotifyAlbumResult(
+            spotify_album_id="abc123",
+            title="OK Computer",
+            artist="Radiohead",
+            release_date="1997-05-21",
+            cover_url="https://example.com/cover.jpg",
+            genres=["art rock"],
+        )
+        with patch("app.routers.albums.spotify_client.search_albums", return_value=[mock_result]):
+            resp = client.get("/albums/search?q=radiohead")
+
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["spotify_album_id"] == "abc123"
+        assert data[0]["title"] == "OK Computer"
+        assert data[0]["artist"] == "Radiohead"
+
+    def test_search_requires_auth(self, unauthed_client):
+        resp = unauthed_client.get("/albums/search?q=radiohead")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_search_query_too_short(self, client):
+        resp = client.get("/albums/search?q=r")
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    def test_search_spotify_unavailable(self, client):
+        with patch(
+            "app.routers.albums.spotify_client.search_albums",
+            side_effect=HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="not configured"),
+        ):
+            resp = client.get("/albums/search?q=radiohead")
+        assert resp.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
