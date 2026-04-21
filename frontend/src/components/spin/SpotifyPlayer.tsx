@@ -41,7 +41,7 @@ interface Props {
 }
 
 export default function SpotifyPlayer({ spotifyAlbumId, hasSpotify }: Props) {
-  const { status, currentTrackUri, deviceId, togglePlay, startAlbum } =
+  const { status, currentTrackUri, togglePlay, startAlbum } =
     useSpotifyPlayer(hasSpotify, spotifyAlbumId)
 
   const [tracks, setTracks] = useState<AlbumTrack[]>([])
@@ -88,13 +88,6 @@ export default function SpotifyPlayer({ spotifyAlbumId, hasSpotify }: Props) {
   useEffect(() => {
     activeTrackRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }, [currentTrackUri])
-
-  // Auto-start the album once the device is ready
-  useEffect(() => {
-    if (status === 'ready' && deviceId) {
-      startAlbum(spotifyAlbumId)
-    }
-  }, [status, deviceId, spotifyAlbumId])
 
   const openLink = `https://open.spotify.com/album/${spotifyAlbumId}`
 
@@ -165,8 +158,7 @@ export default function SpotifyPlayer({ spotifyAlbumId, hasSpotify }: Props) {
             color="green"
             radius="xl"
             size="md"
-            onClick={togglePlay}
-            disabled={status === 'ready'}
+            onClick={() => status === 'ready' ? startAlbum(spotifyAlbumId) : togglePlay()}
           >
             {isPlaying ? <IconPlayerPauseFilled size={14} /> : <IconPlayerPlayFilled size={14} />}
           </ActionIcon>
