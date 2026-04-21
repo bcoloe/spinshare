@@ -17,11 +17,9 @@ import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import { IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
 import AlbumCard from './AlbumCard'
-import ReviewForm from './ReviewForm'
-import GuessForm from './GuessForm'
-import GuessResult from './GuessResult'
+import ReviewAndGuessForm from './ReviewAndGuessForm'
 import AlbumSearchModal from '../albums/AlbumSearchModal'
-import { useTodaysAlbums, useMyReview, useMyGuess } from '../../hooks/useDailySpin'
+import { useTodaysAlbums } from '../../hooks/useDailySpin'
 import { useGroupAlbums } from '../../hooks/useAlbums'
 import { albumSearchService } from '../../services/albumSearchService'
 import { ApiError } from '../../services/apiClient'
@@ -29,27 +27,17 @@ import type { GroupAlbumResponse } from '../../types/album'
 import type { GroupDetailResponse } from '../../types/group'
 
 function SpinSlide({ groupAlbum, groupId }: { groupAlbum: GroupAlbumResponse; groupId: number }) {
-  const { data: review, isLoading: reviewLoading } = useMyReview(groupAlbum.album_id)
-  const { data: guess, isLoading: guessLoading } = useMyGuess(groupId, groupAlbum.id)
-
   return (
     <Paper p="lg" radius="md" withBorder>
       <Stack gap="xl">
         <AlbumCard album={groupAlbum.album} />
         <Divider />
-        {reviewLoading ? (
-          <Skeleton h={100} />
-        ) : (
-          <ReviewForm albumId={groupAlbum.album_id} existingReview={review ?? null} />
-        )}
-        <Divider />
-        {guessLoading ? (
-          <Skeleton h={80} />
-        ) : guess ? (
-          <GuessResult result={guess} />
-        ) : (
-          <GuessForm groupId={groupId} groupAlbumId={groupAlbum.id} />
-        )}
+        <ReviewAndGuessForm
+          albumId={groupAlbum.album_id}
+          groupId={groupId}
+          groupAlbumId={groupAlbum.id}
+          addedBy={groupAlbum.added_by}
+        />
       </Stack>
     </Paper>
   )

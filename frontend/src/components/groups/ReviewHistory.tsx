@@ -1,7 +1,42 @@
-import { Image, Skeleton, Table, Text } from '@mantine/core'
-import { useMyReview } from '../../hooks/useDailySpin'
-import type { GroupAlbumResponse } from '../../types/album'
+import { useMemo, useState } from 'react'
+import {
+  ActionIcon,
+  Button,
+  Collapse,
+  Group,
+  Image,
+  Skeleton,
+  Slider,
+  Stack,
+  Table,
+  Text,
+  TextInput,
+  Textarea,
+  UnstyledButton,
+} from '@mantine/core'
+import { useDisclosure } from '@mantine/hooks'
+import { notifications } from '@mantine/notifications'
+import { useQueries } from '@tanstack/react-query'
+import {
+  IconChevronDown,
+  IconChevronRight,
+  IconChevronUp,
+  IconPencil,
+  IconSelector,
+} from '@tabler/icons-react'
+import { albumService } from '../../services/albumService'
+import { useUpdateReview } from '../../hooks/useDailySpin'
+import { ApiError } from '../../services/apiClient'
+import ReviewAndGuessForm from '../spin/ReviewAndGuessForm'
+import type { GroupAlbumResponse, ReviewResponse } from '../../types/album'
 import type { GroupMemberResponse } from '../../types/group'
+
+// ==================== TYPES ====================
+
+type SortField = 'title' | 'artist' | 'date' | 'nominator'
+type SortDir = 'asc' | 'desc'
+
+// ==================== HELPERS ====================
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '—'
@@ -12,66 +47,267 @@ function formatDate(dateStr: string | null): string {
   })
 }
 
-interface RowProps {
-  ga: GroupAlbumResponse
-  members: GroupMemberResponse[]
+function getNominator(ga: GroupAlbumResponse, members: GroupMemberResponse[]): string {
+  return members.find((m) => m.user_id === ga.added_by)?.username ?? '—'
 }
 
-function ReviewHistoryRow({ ga, members }: RowProps) {
-  const { data: review, isLoading } = useMyReview(ga.album_id)
-  const { album } = ga
+function sortAlbums(
+  albums: GroupAlbumResponse[],
+  members: GroupMemberResponse[],
+  field: SortField,
+  dir: SortDir,
+): GroupAlbumResponse[] {
+  return [...albums].sort((a, b) => {
+    let av = '',
+      bv = ''
+    switch (field) {
+      case 'title':
+        av = a.album.title
+        bv = b.album.title
+        break
+      case 'artist':
+        av = a.album.artist
+        bv = b.album.artist
+        break
+      case 'date':
+        av = a.selected_date ?? ''
+        bv = b.selected_date ?? ''
+        break
+      case 'nominator':
+        av = getNominator(a, members)
+        bv = getNominator(b, members)
+        break
+    }
+    return dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
+  })
+}
 
-  const nominator = members.find((m) => m.user_id === ga.added_by)?.username ?? '—'
+// ==================== SORT BUTTON ====================
 
+interface SortButtonProps {
+  field: SortField
+  label: string
+  active: SortField
+  dir: SortDir
+  onClick: (f: SortField) => void
+}
+
+function SortButton({ field, label, active, dir, onClick }: SortButtonProps) {
+  const Icon =
+    active !== field ? IconSelector : dir === 'asc' ? IconChevronUp : IconChevronDown
   return (
-    <Table.Tr>
-      <Table.Td>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-          <Image
-            src={album.cover_url ?? undefined}
-            w={36}
-            h={36}
-            radius="sm"
-            style={{ flexShrink: 0 }}
-            fallbackSrc="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='36'%3E%3Crect width='36' height='36' fill='%23373A40'/%3E%3C/svg%3E"
-          />
-          <div style={{ minWidth: 0 }}>
-            <Text size="sm" fw={500} lineClamp={1}>{album.title}</Text>
-            <Text size="xs" c="dimmed" lineClamp={1}>{album.artist}</Text>
-          </div>
-        </div>
-      </Table.Td>
-      <Table.Td>
-        <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-          {formatDate(ga.selected_date)}
-        </Text>
-      </Table.Td>
-      <Table.Td>
-        {isLoading ? (
-          <Skeleton h={16} w={40} />
-        ) : review ? (
-          <Text size="sm" fw={500}>{review.rating} / 10</Text>
-        ) : (
-          <Text size="sm" c="dimmed">—</Text>
-        )}
-      </Table.Td>
-      <Table.Td style={{ maxWidth: 240 }}>
-        {isLoading ? (
-          <Skeleton h={16} w={120} />
-        ) : review?.comment ? (
-          <Text size="xs" c="dimmed" fs="italic" lineClamp={2}>
-            &ldquo;{review.comment}&rdquo;
-          </Text>
-        ) : (
-          <Text size="xs" c="dimmed">—</Text>
-        )}
-      </Table.Td>
-      <Table.Td>
-        <Text size="sm" c="dimmed">{nominator}</Text>
-      </Table.Td>
-    </Table.Tr>
+    <UnstyledButton
+      onClick={() => onClick(field)}
+      style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}
+      c="dimmed"
+    >
+      {label}
+      <Icon size={13} />
+    </UnstyledButton>
   )
 }
+
+// ==================== COVER CELL ====================
+
+function CoverCell({ src }: { src: string | null }) {
+  return src ? (
+    <Image src={src} w={36} h={36} radius="sm" style={{ flexShrink: 0 }} />
+  ) : (
+    <div
+      style={{
+        width: 36,
+        height: 36,
+        background: 'var(--mantine-color-dark-5)',
+        borderRadius: 4,
+        flexShrink: 0,
+      }}
+    />
+  )
+}
+
+// ==================== UNREVIEWED ROW ====================
+
+interface UnreviewedRowProps {
+  ga: GroupAlbumResponse
+  groupId: number
+  members: GroupMemberResponse[]
+  isExpanded: boolean
+  onToggle: () => void
+}
+
+function UnreviewedRow({ ga, groupId, members: _members, isExpanded, onToggle }: UnreviewedRowProps) {
+  const { album } = ga
+
+  return (
+    <>
+      <Table.Tr style={{ cursor: 'pointer' }} onClick={onToggle}>
+        <Table.Td>
+          <CoverCell src={album.cover_url} />
+        </Table.Td>
+        <Table.Td>
+          <Text size="sm" fw={500} lineClamp={1}>
+            {album.title}
+          </Text>
+        </Table.Td>
+        <Table.Td>
+          <Text size="sm" c="dimmed" lineClamp={1}>
+            {album.artist}
+          </Text>
+        </Table.Td>
+        <Table.Td>
+          <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+            {formatDate(ga.selected_date)}
+          </Text>
+        </Table.Td>
+        <Table.Td>
+          <Group gap={4} justify="flex-end">
+            {isExpanded ? <IconChevronUp size={14} /> : <IconPencil size={14} />}
+            <Text size="xs" c={isExpanded ? 'dimmed' : 'violet'}>
+              {isExpanded ? 'Collapse' : 'Review Now'}
+            </Text>
+          </Group>
+        </Table.Td>
+      </Table.Tr>
+
+      {isExpanded && (
+        <Table.Tr>
+          <Table.Td
+            colSpan={5}
+            style={{ background: 'var(--mantine-color-dark-7)', padding: '16px 20px' }}
+          >
+            <ReviewAndGuessForm
+              albumId={album.id}
+              groupId={groupId}
+              groupAlbumId={ga.id}
+              addedBy={ga.added_by}
+            />
+          </Table.Td>
+        </Table.Tr>
+      )}
+    </>
+  )
+}
+
+// ==================== REVIEWED ROW ====================
+
+interface ReviewedRowProps {
+  ga: GroupAlbumResponse
+  review: ReviewResponse
+  members: GroupMemberResponse[]
+  isExpanded: boolean
+  onToggle: () => void
+}
+
+function ReviewedRow({ ga, review, members, isExpanded, onToggle }: ReviewedRowProps) {
+  const { album } = ga
+  const [editMode, setEditMode] = useState(false)
+  const [editRating, setEditRating] = useState(review.rating)
+  const [editComment, setEditComment] = useState(review.comment ?? '')
+  const updateReview = useUpdateReview(ga.album_id)
+
+  const handleEditOpen = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setEditRating(review.rating)
+    setEditComment(review.comment ?? '')
+    setEditMode(true)
+    if (!isExpanded) onToggle()
+  }
+
+  const handleSave = async () => {
+    try {
+      await updateReview.mutateAsync({
+        reviewId: review.id,
+        data: { rating: editRating, comment: editComment || undefined },
+      })
+      setEditMode(false)
+      notifications.show({ color: 'green', message: 'Review updated' })
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Could not update review'
+      notifications.show({ color: 'red', message })
+    }
+  }
+
+  const handleCancel = () => {
+    setEditMode(false)
+  }
+
+  return (
+    <>
+      <Table.Tr style={{ cursor: 'pointer' }} onClick={onToggle}>
+        <Table.Td>
+          <CoverCell src={album.cover_url} />
+        </Table.Td>
+        <Table.Td>
+          <Text size="sm" fw={500} lineClamp={1}>{album.title}</Text>
+        </Table.Td>
+        <Table.Td>
+          <Text size="sm" c="dimmed" lineClamp={1}>{album.artist}</Text>
+        </Table.Td>
+        <Table.Td>
+          <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{formatDate(ga.selected_date)}</Text>
+        </Table.Td>
+        <Table.Td>
+          <Text size="sm" fw={500}>{review.rating} / 10</Text>
+        </Table.Td>
+        <Table.Td>
+          <Text size="sm" c="dimmed">{getNominator(ga, members)}</Text>
+        </Table.Td>
+        <Table.Td>
+          <Group gap={6} justify="flex-end" wrap="nowrap">
+            <ActionIcon size="sm" variant="subtle" onClick={handleEditOpen}>
+              <IconPencil size={13} />
+            </ActionIcon>
+            {isExpanded ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
+          </Group>
+        </Table.Td>
+      </Table.Tr>
+
+      {isExpanded && (
+        <Table.Tr>
+          <Table.Td
+            colSpan={7}
+            style={{ background: 'var(--mantine-color-dark-7)', padding: '16px 20px' }}
+          >
+            {editMode ? (
+              <Stack gap="md" maw={480}>
+                <div>
+                  <Group justify="space-between" mb={4}>
+                    <Text size="sm">Rating</Text>
+                    <Text size="sm" fw={500} c="violet">{editRating} / 10</Text>
+                  </Group>
+                  <Slider
+                    min={0} max={10} step={0.1}
+                    value={editRating} onChange={setEditRating}
+                    marks={[0, 2, 4, 6, 8, 10].map((v) => ({ value: v, label: String(v) }))}
+                    mb="lg"
+                  />
+                </div>
+                <Textarea
+                  label="Comment (optional)"
+                  value={editComment}
+                  onChange={(e) => setEditComment(e.currentTarget.value)}
+                  maxLength={1000}
+                  autosize
+                  minRows={2}
+                />
+                <Group gap="xs">
+                  <Button size="xs" loading={updateReview.isPending} onClick={handleSave}>Save</Button>
+                  <Button size="xs" variant="default" onClick={handleCancel}>Cancel</Button>
+                </Group>
+              </Stack>
+            ) : (
+              <Text size="sm" c={review.comment ? undefined : 'dimmed'} fs={review.comment ? 'italic' : undefined}>
+                {review.comment ? `"${review.comment}"` : 'No notes left.'}
+              </Text>
+            )}
+          </Table.Td>
+        </Table.Tr>
+      )}
+    </>
+  )
+}
+
+// ==================== MAIN COMPONENT ====================
 
 interface Props {
   groupId: number
@@ -80,39 +316,182 @@ interface Props {
   isLoading: boolean
 }
 
-export default function ReviewHistory({ albums, members, isLoading }: Props) {
-  if (isLoading) {
+export default function ReviewHistory({ groupId, albums, members, isLoading }: Props) {
+  const [pendingOpen, { toggle: togglePending }] = useDisclosure(true)
+  const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [expandedReviewedId, setExpandedReviewedId] = useState<number | null>(null)
+
+  const [unreviewedField, setUnreviewedField] = useState<SortField>('date')
+  const [unreviewedDir, setUnreviewedDir] = useState<SortDir>('desc')
+  const [reviewedField, setReviewedField] = useState<SortField>('date')
+  const [reviewedDir, setReviewedDir] = useState<SortDir>('desc')
+  const [reviewedFilter, setReviewedFilter] = useState('')
+
+  const toggleUnreviewedSort = (f: SortField) => {
+    if (unreviewedField === f) setUnreviewedDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    else { setUnreviewedField(f); setUnreviewedDir('asc') }
+  }
+  const toggleReviewedSort = (f: SortField) => {
+    if (reviewedField === f) setReviewedDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    else { setReviewedField(f); setReviewedDir('asc') }
+  }
+
+  const reviewQueries = useQueries({
+    queries: albums.map((ga) => ({
+      queryKey: ['reviews', ga.album_id, 'me'],
+      queryFn: () => albumService.getMyReview(ga.album_id),
+      enabled: !!ga.album_id,
+    })),
+  })
+
+  const reviewsLoading = reviewQueries.some((q) => q.isLoading)
+
+  const reviewMap = useMemo(() => {
+    const map = new Map<number, ReviewResponse | null>()
+    albums.forEach((ga, i) => {
+      map.set(ga.album_id, reviewQueries[i]?.data ?? null)
+    })
+    return map
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [albums, reviewQueries])
+
+  const unreviewed = useMemo(
+    () => albums.filter((ga) => !reviewMap.get(ga.album_id)),
+    [albums, reviewMap],
+  )
+  const reviewed = useMemo(
+    () => albums.filter((ga) => !!reviewMap.get(ga.album_id)),
+    [albums, reviewMap],
+  )
+
+  const sortedUnreviewed = useMemo(
+    () => sortAlbums(unreviewed, members, unreviewedField, unreviewedDir),
+    [unreviewed, members, unreviewedField, unreviewedDir],
+  )
+  const filteredReviewed = useMemo(() => {
+    const q = reviewedFilter.toLowerCase()
+    if (!q) return reviewed
+    return reviewed.filter(
+      (ga) =>
+        ga.album.title.toLowerCase().includes(q) ||
+        ga.album.artist.toLowerCase().includes(q),
+    )
+  }, [reviewed, reviewedFilter])
+
+  const sortedReviewed = useMemo(
+    () => sortAlbums(filteredReviewed, members, reviewedField, reviewedDir),
+    [filteredReviewed, members, reviewedField, reviewedDir],
+  )
+
+  const toggleExpand = (id: number) => setExpandedId((prev) => (prev === id ? null : id))
+
+  if (isLoading || reviewsLoading) {
     return (
-      <div>
+      <Stack gap="xs">
         {Array.from({ length: 5 }).map((_, i) => (
-          <Skeleton key={i} h={52} mb={4} radius="sm" />
+          <Skeleton key={i} h={52} radius="sm" />
         ))}
-      </div>
+      </Stack>
     )
   }
 
   if (!albums.length) {
-    return (
-      <Text c="dimmed" size="sm">No albums have been reviewed yet.</Text>
-    )
+    return <Text c="dimmed" size="sm">No albums have been spun yet.</Text>
   }
 
   return (
-    <Table highlightOnHover verticalSpacing="sm">
-      <Table.Thead>
-        <Table.Tr>
-          <Table.Th>Album</Table.Th>
-          <Table.Th>Date</Table.Th>
-          <Table.Th>Rating</Table.Th>
-          <Table.Th>Notes</Table.Th>
-          <Table.Th>Nominated By</Table.Th>
-        </Table.Tr>
-      </Table.Thead>
-      <Table.Tbody>
-        {albums.map((ga) => (
-          <ReviewHistoryRow key={ga.id} ga={ga} members={members} />
-        ))}
-      </Table.Tbody>
-    </Table>
+    <Stack gap="xl">
+      {unreviewed.length > 0 && (
+        <Stack gap="xs">
+          <UnstyledButton onClick={togglePending}>
+            <Group gap="xs">
+              {pendingOpen ? <IconChevronDown size={16} /> : <IconChevronRight size={16} />}
+              <Text fw={600} size="sm">
+                Pending Reviews ({unreviewed.length})
+              </Text>
+            </Group>
+          </UnstyledButton>
+          <Collapse in={pendingOpen}>
+            <Table highlightOnHover verticalSpacing="sm">
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th w={52} />
+                  <Table.Th>
+                    <SortButton field="title" label="Album" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
+                  </Table.Th>
+                  <Table.Th>
+                    <SortButton field="artist" label="Artist" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
+                  </Table.Th>
+                  <Table.Th>
+                    <SortButton field="date" label="Date" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
+                  </Table.Th>
+                  <Table.Th />
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {sortedUnreviewed.map((ga) => (
+                  <UnreviewedRow
+                    key={ga.id}
+                    ga={ga}
+                    groupId={groupId}
+                    members={members}
+                    isExpanded={expandedId === ga.id}
+                    onToggle={() => toggleExpand(ga.id)}
+                  />
+                ))}
+              </Table.Tbody>
+            </Table>
+          </Collapse>
+        </Stack>
+      )}
+
+      {reviewed.length > 0 && (
+        <Stack gap="xs">
+          <Group justify="space-between" align="center">
+            <Text fw={600} size="sm">Review History</Text>
+            <TextInput
+              placeholder="Filter by album or artist..."
+              size="xs"
+              value={reviewedFilter}
+              onChange={(e) => setReviewedFilter(e.currentTarget.value)}
+              w={220}
+            />
+          </Group>
+          <Table highlightOnHover verticalSpacing="sm">
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th w={52} />
+                <Table.Th>
+                  <SortButton field="title" label="Album" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
+                </Table.Th>
+                <Table.Th>
+                  <SortButton field="artist" label="Artist" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
+                </Table.Th>
+                <Table.Th>
+                  <SortButton field="date" label="Date" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
+                </Table.Th>
+                <Table.Th>Rating</Table.Th>
+                <Table.Th>
+                  <SortButton field="nominator" label="Nominated By" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
+                </Table.Th>
+                <Table.Th w={56} />
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {sortedReviewed.map((ga) => (
+                <ReviewedRow
+                  key={ga.id}
+                  ga={ga}
+                  review={reviewMap.get(ga.album_id)!}
+                  members={members}
+                  isExpanded={expandedReviewedId === ga.id}
+                  onToggle={() => setExpandedReviewedId((prev) => (prev === ga.id ? null : ga.id))}
+                />
+              ))}
+            </Table.Tbody>
+          </Table>
+        </Stack>
+      )}
+    </Stack>
   )
 }

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { groupService } from '../services/groupService'
-import type { GroupCreate } from '../types/group'
+import type { GroupCreate, GroupModify } from '../types/group'
 
 export function useMyGroups(username: string) {
   return useQuery({
@@ -65,5 +65,41 @@ export function useRemoveMember() {
       groupService.removeMember(groupId, userId),
     onSuccess: (_data, { groupId }) =>
       qc.invalidateQueries({ queryKey: ['groups', groupId, 'members'] }),
+  })
+}
+
+export function useAddMember(groupId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (userId: number) => groupService.addMember(groupId, userId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'members'] }),
+  })
+}
+
+export function useUpdateMemberRole(groupId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ userId, role }: { userId: number; role: string }) =>
+      groupService.updateMemberRole(groupId, userId, role),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'members'] }),
+  })
+}
+
+export function useUpdateGroup(groupId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: GroupModify) => groupService.update(groupId, data),
+    onSuccess: (updated) => {
+      qc.setQueryData(['groups', groupId], updated)
+      qc.invalidateQueries({ queryKey: ['groups', 'mine'] })
+    },
+  })
+}
+
+export function useDeleteGroup() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (groupId: number) => groupService.delete(groupId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', 'mine'] }),
   })
 }
