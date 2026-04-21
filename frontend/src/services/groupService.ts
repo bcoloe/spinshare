@@ -45,6 +45,20 @@ export const groupService = {
     return apiFetch(`/groups/${groupId}/members/${userId}`, { method: 'DELETE' })
   },
 
+  addMember(groupId: number, userId: number): Promise<void> {
+    return apiFetch(`/groups/${groupId}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId }),
+    })
+  },
+
+  updateMemberRole(groupId: number, userId: number, role: string): Promise<GroupMemberResponse> {
+    return apiFetch(`/groups/${groupId}/members/${userId}/role`, {
+      method: 'PUT',
+      body: JSON.stringify({ role }),
+    })
+  },
+
   getStats(groupId: number): Promise<GroupStatsResponse> {
     return apiFetch(`/groups/${groupId}/stats`)
   },
