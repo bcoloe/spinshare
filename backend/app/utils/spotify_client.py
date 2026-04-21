@@ -66,7 +66,7 @@ def get_auth_url(user_id: int) -> str:
             "client_id": settings.SPOTIFY_CLIENT_ID,
             "response_type": "code",
             "redirect_uri": settings.SPOTIFY_REDIRECT_URI,
-            "scope": "streaming user-read-email user-read-private user-read-playback-state user-modify-playback-state",
+            "scope": "streaming user-read-email user-read-private user-read-playback-state user-modify-playback-state playlist-modify-public playlist-modify-private user-library-modify user-library-read",
             "state": state,
         }
     )
