@@ -28,12 +28,14 @@ export async function fetchUserPlaylists(token: string): Promise<SpotifyPlaylist
   const resp = await spotifyFetch(token, '/me/playlists?limit=50')
   if (!resp.ok) throw new Error('Could not load playlists — please reconnect your Spotify account.')
   const data = await resp.json()
-  return data.items.map((p: { id: string; name: string; images: Array<{ url: string }>; tracks: { total: number } }) => ({
-    id: p.id,
-    name: p.name,
-    imageUrl: p.images?.[0]?.url ?? null,
-    tracksTotal: p.tracks.total,
-  }))
+  return data.items
+    .filter((p: { id: string | null }) => p?.id)
+    .map((p: { id: string; name: string; images: Array<{ url: string }>; tracks?: { total: number } }) => ({
+      id: p.id,
+      name: p.name,
+      imageUrl: p.images?.[0]?.url ?? null,
+      tracksTotal: p.tracks?.total ?? 0,
+    }))
 }
 
 export async function addTracksToPlaylist(
