@@ -71,7 +71,7 @@ spinshare/
 │   │   └── utils/          # Shared utilities
 │   ├── alembic/            # Database migrations
 │   └── requirements.txt
-├── frontend/               # React + TypeScript (planned)
+├── frontend/               # React + TypeScript + Vite + Mantine
 └── DESIGN.md               # Architecture decisions
 ```
 
@@ -84,17 +84,49 @@ spinshare/
 | Validation | Pydantic |
 | Auth | JWT (python-jose) + bcrypt |
 | Database | PostgreSQL |
-| Frontend | React + TypeScript + Vite (planned) |
-| UI Components | Mantine UI (planned) |
+| Frontend | React + TypeScript + Vite |
+| UI Components | Mantine UI |
 
-### Running the Development Server
+### Running the Full Application Locally
 
+Run the backend and frontend in two separate terminals.
+
+**Terminal 1 — Backend**
 ```bash
 cd backend
+source venv/bin/activate
 uvicorn app.main:app --reload
 ```
+API available at `http://localhost:8000` · Swagger docs at `http://localhost:8000/docs`
 
-API documentation available at `http://localhost:8000/docs`
+**Terminal 2 — Frontend**
+```bash
+cd frontend
+npm install   # first time only
+npm run dev
+```
+App available at `http://localhost:5173`
+
+The frontend proxies all `/api/*` requests to the backend, so no browser CORS configuration is needed in development.
+
+**Alternatively — one command with tmux**
+```bash
+scripts/dev.sh
+```
+This opens a split tmux session (`spinshare`) with the backend on the left and frontend on the right. Re-running the script attaches to the existing session instead of creating a duplicate. Pass an optional session name as the first argument: `scripts/dev.sh my-session`. Requires tmux to be installed (`brew install tmux` / `apt install tmux`).
+
+#### Spotify album search (optional)
+
+To enable album search in the nomination flow, add your Spotify credentials to `backend/.env`:
+
+```
+SPOTIFY_CLIENT_ID=your_client_id
+SPOTIFY_CLIENT_SECRET=your_client_secret
+```
+
+Get these from the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) — create an app and copy the Client ID and Secret. No user login or OAuth callback is required; the backend uses the Client Credentials flow server-side.
+
+If these are not set, album search returns a 503 and the rest of the app functions normally.
 
 ### Testing
 

@@ -81,8 +81,8 @@ class UserWithStats(UserResponse):
 class LoginRequest(BaseModel):
     """Schema for login request"""
 
-    email: EmailStr | None
-    username: str | None
+    email: EmailStr | None = None
+    username: str | None = None
     password: str
 
     @field_validator("email", "username", mode="before")
@@ -95,9 +95,10 @@ class LoginRequest(BaseModel):
     @model_validator(mode="after")
     def _has_necessary_member(self):
         has_email = self.email is not None
-        has_username = self.email is not None
+        has_username = self.username is not None
         if not (has_email or has_username):
             raise ValueError("Either email or username must be specified.")
+        return self
 
 
 class LoginResponse(BaseModel):
