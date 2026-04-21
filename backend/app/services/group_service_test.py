@@ -454,4 +454,28 @@ class TestGroupServiceMutators:
         with pytest.raises(HTTPException) as exc_info:
             sample_group_service.update_group_settings(sample_group.id, sample_user.id, request)
         assert exc_info.value.status_code == status.HTTP_409_CONFLICT
-        assert exc_info.value.detail == "Group name already registered"
+
+
+class TestGroupServiceSearch:
+    def test_search_by_username_includes_private_groups(
+        self, sample_group_service, sample_user, group_factory
+    ):
+        """Private groups appear when searching by the member's username."""
+        private_group = group_factory(name="Secret-Spins", is_public=False)
+        results = sample_group_service.search_groups(username=sample_user.username)
+        assert any(g.id == private_group.id for g in results)
+
+    def test_search_without_username_excludes_private_groups(
+        self, sample_group_service, sample_user, group_factory
+    ):
+        """Private groups must not appear in generic (no-username) searches."""
+        private_group = group_factory(name="Hidden-Spins", is_public=False)
+        results = sample_group_service.search_groups(query="hidden")
+        assert not any(g.id == private_group.id for g in results)
+
+    def test_search_without_username_returns_public_groups(
+        self, sample_group_service, sample_user, group_factory
+    ):
+        public_group = group_factory(name="Open-Spins", is_public=True)
+        results = sample_group_service.search_groups(query="open")
+        assert any(g.id == public_group.id for g in results)

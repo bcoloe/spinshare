@@ -294,8 +294,14 @@ class GroupService:
     def search_groups(
         self, query: str | None = None, username: str | None = None, limit: int = 10
     ) -> list[Group]:
-        """Search public groups by partial name and/or member username."""
-        q = self.db.query(Group).filter(Group.is_public == True)  # noqa: E712
+        """Search groups by partial name and/or member username.
+
+        Public groups are always searchable. When filtering by username, private
+        groups belonging to that user are also included.
+        """
+        q = self.db.query(Group)
+        if not username:
+            q = q.filter(Group.is_public == True)  # noqa: E712
         if query:
             q = q.filter(Group.name_uniform.contains(query.lower()))
         if username:
