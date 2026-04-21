@@ -1,9 +1,10 @@
-import { useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import {
+  ActionIcon,
   AppShell as MantineAppShell,
   Avatar,
   Burger,
+  Button,
   Group,
   Menu,
   NavLink,
@@ -14,9 +15,19 @@ import {
   UnstyledButton,
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
-import { IconDisc, IconLogout, IconUser } from '@tabler/icons-react'
+import {
+  IconDisc,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
+  IconLogout,
+  IconPlus,
+  IconSearch,
+  IconUser,
+} from '@tabler/icons-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useMyGroups } from '../../hooks/useGroups'
+import CreateGroupModal from '../groups/CreateGroupModal'
+import JoinGroupModal from '../groups/JoinGroupModal'
 
 interface AppShellProps {
   children: React.ReactNode
@@ -26,8 +37,10 @@ export default function AppShell({ children }: AppShellProps) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const [opened, { toggle }] = useDisclosure()
-  const [_search, _setSearch] = useState('')
+  const [mobileOpened, { toggle: toggleMobile }] = useDisclosure()
+  const [desktopOpened, { toggle: toggleDesktop }] = useDisclosure(true)
+  const [createOpened, { open: openCreate, close: closeCreate }] = useDisclosure()
+  const [joinOpened, { open: openJoin, close: closeJoin }] = useDisclosure()
 
   const { data: groups, isLoading } = useMyGroups(user?.username ?? '')
 
@@ -39,13 +52,27 @@ export default function AppShell({ children }: AppShellProps) {
   return (
     <MantineAppShell
       header={{ height: 56 }}
-      navbar={{ width: 220, breakpoint: 'sm', collapsed: { mobile: !opened } }}
+      navbar={{
+        width: 220,
+        breakpoint: 'sm',
+        collapsed: { mobile: !mobileOpened, desktop: !desktopOpened },
+      }}
       padding="md"
     >
       <MantineAppShell.Header>
         <Group h="100%" px="md" justify="space-between">
           <Group gap="sm">
-            <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
+            <Burger opened={mobileOpened} onClick={toggleMobile} hiddenFrom="sm" size="sm" />
+            <ActionIcon
+              variant="subtle"
+              visibleFrom="sm"
+              onClick={toggleDesktop}
+              aria-label="Toggle sidebar"
+            >
+              {desktopOpened
+                ? <IconLayoutSidebarLeftCollapse size={20} />
+                : <IconLayoutSidebarLeftExpand size={20} />}
+            </ActionIcon>
             <IconDisc size={22} />
             <Title order={4}>SpinShare</Title>
           </Group>
@@ -80,6 +107,16 @@ export default function AppShell({ children }: AppShellProps) {
             to="/"
             active={location.pathname === '/'}
           />
+          <Button
+            fullWidth
+            variant="subtle"
+            justify="start"
+            leftSection={<IconSearch size={16} />}
+            mt={4}
+            onClick={openJoin}
+          >
+            Find group
+          </Button>
         </MantineAppShell.Section>
 
         <MantineAppShell.Section grow component={ScrollArea} mt="md">
@@ -101,9 +138,23 @@ export default function AppShell({ children }: AppShellProps) {
             <Text size="xs" c="dimmed">No groups yet</Text>
           )}
         </MantineAppShell.Section>
+
+        <MantineAppShell.Section>
+          <Button
+            fullWidth
+            variant="light"
+            leftSection={<IconPlus size={16} />}
+            onClick={openCreate}
+          >
+            New group
+          </Button>
+        </MantineAppShell.Section>
       </MantineAppShell.Navbar>
 
       <MantineAppShell.Main>{children}</MantineAppShell.Main>
+
+      <CreateGroupModal opened={createOpened} onClose={closeCreate} />
+      <JoinGroupModal opened={joinOpened} onClose={closeJoin} />
     </MantineAppShell>
   )
 }
