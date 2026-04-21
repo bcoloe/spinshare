@@ -57,6 +57,33 @@ def unauthed_client(mock_user_service):
 
 # ==================== SPOTIFY CONNECT ====================
 
+class TestSpotifyToken:
+    def test_returns_access_token(self, client, mock_user_service):
+        mock_user_service.get_valid_spotify_token.return_value = "valid_access_token"
+        resp = client.get("/users/spotify/token")
+        assert resp.status_code == 200
+        assert resp.json()["access_token"] == "valid_access_token"
+
+    def test_requires_auth(self, unauthed_client):
+        resp = unauthed_client.get("/users/spotify/token")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_404_when_not_connected(self, client, mock_user_service):
+        mock_user_service.get_valid_spotify_token.side_effect = HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No Spotify account connected"
+        )
+        resp = client.get("/users/spotify/token")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_401_when_token_expired(self, client, mock_user_service):
+        mock_user_service.get_valid_spotify_token.side_effect = HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Spotify connection expired — please reconnect",
+        )
+        resp = client.get("/users/spotify/token")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+
 class TestSpotifyConnectUrl:
     def test_returns_spotify_url(self, client):
         with patch("app.routers.users.spotify_client.get_auth_url", return_value="https://accounts.spotify.com/authorize?foo=bar") as mock_get:

@@ -112,3 +112,7 @@ class LoginResponse(BaseModel):
 
 class SpotifyConnectUrlResponse(BaseModel):
     url: str
+
+
+class SpotifyTokenResponse(BaseModel):
+    access_token: str

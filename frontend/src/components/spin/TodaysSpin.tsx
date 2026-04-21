@@ -3,7 +3,6 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Carousel } from '@mantine/carousel'
 import {
   Alert,
-  Anchor,
   Button,
   Center,
   Divider,
@@ -16,47 +15,27 @@ import {
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { IconExternalLink, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
+import { IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
 import AlbumCard from './AlbumCard'
+import SpotifyPlayer from './SpotifyPlayer'
 import ReviewAndGuessForm from './ReviewAndGuessForm'
 import AlbumSearchModal from '../albums/AlbumSearchModal'
 import { useTodaysAlbums } from '../../hooks/useDailySpin'
 import { useGroupAlbums } from '../../hooks/useAlbums'
+import { useMyStats } from '../../hooks/useStats'
 import { albumSearchService } from '../../services/albumSearchService'
 import { ApiError } from '../../services/apiClient'
 import type { GroupAlbumResponse } from '../../types/album'
 import type { GroupDetailResponse } from '../../types/group'
 
-function SpinSlide({ groupAlbum, groupId }: { groupAlbum: GroupAlbumResponse; groupId: number }) {
+function SpinSlide({ groupAlbum, groupId, hasSpotify }: { groupAlbum: GroupAlbumResponse; groupId: number; hasSpotify: boolean }) {
   const spotifyId = groupAlbum.album.spotify_album_id
   return (
     <Paper p="lg" radius="md" withBorder>
       <Stack gap="xl">
         <AlbumCard album={groupAlbum.album} />
         {spotifyId && (
-          <Stack gap="xs">
-            <iframe
-              src={`https://open.spotify.com/embed/album/${spotifyId}?utm_source=generator&theme=0`}
-              width="100%"
-              height="352"
-              frameBorder={0}
-              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-              loading="lazy"
-              style={{ borderRadius: 12 }}
-            />
-            <Anchor
-              href={`https://open.spotify.com/album/${spotifyId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              size="sm"
-              c="dimmed"
-            >
-              <Group gap={4}>
-                <IconExternalLink size={14} />
-                Open in Spotify
-              </Group>
-            </Anchor>
-          </Stack>
+          <SpotifyPlayer spotifyAlbumId={spotifyId} hasSpotify={hasSpotify} />
         )}
         <Divider />
         <ReviewAndGuessForm
@@ -135,6 +114,8 @@ interface Props {
 
 export default function TodaysSpin({ groupId, group }: Props) {
   const { data: albums, isLoading, isError } = useTodaysAlbums(groupId)
+  const { data: stats } = useMyStats()
+  const hasSpotify = stats?.has_spotify ?? false
   const [nominateOpened, { open: openNominate, close: closeNominate }] = useDisclosure()
 
   const canSelect =
@@ -184,14 +165,14 @@ export default function TodaysSpin({ groupId, group }: Props) {
   }
 
   if (albums?.length === 1) {
-    return <SpinSlide groupAlbum={albums[0]} groupId={groupId} />
+    return <SpinSlide groupAlbum={albums[0]} groupId={groupId} hasSpotify={hasSpotify} />
   }
 
   return (
     <Carousel withIndicators loop>
       {albums?.map((a) => (
         <Carousel.Slide key={a.id}>
-          <SpinSlide groupAlbum={a} groupId={groupId} />
+          <SpinSlide groupAlbum={a} groupId={groupId} hasSpotify={hasSpotify} />
         </Carousel.Slide>
       ))}
     </Carousel>

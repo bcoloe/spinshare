@@ -5,6 +5,11 @@ export async function getSpotifyConnectUrl(): Promise<string> {
   return data.url
 }
 
+export async function getSpotifyToken(): Promise<string> {
+  const data = await apiFetch<{ access_token: string }>('/users/spotify/token')
+  return data.access_token
+}
+
 export async function disconnectSpotify(): Promise<void> {
   await apiFetch('/users/spotify', { method: 'DELETE' })
 }

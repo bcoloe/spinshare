@@ -66,7 +66,7 @@ def get_auth_url(user_id: int) -> str:
             "client_id": settings.SPOTIFY_CLIENT_ID,
             "response_type": "code",
             "redirect_uri": settings.SPOTIFY_REDIRECT_URI,
-            "scope": "user-read-email user-read-private",
+            "scope": "streaming user-read-email user-read-private user-read-playback-state user-modify-playback-state",
             "state": state,
         }
     )
@@ -120,6 +120,43 @@ def exchange_code_for_tokens(code: str) -> dict:
         "refresh_token": refresh_token,
         "expires_at": expires_at,
     }
+
+
+def refresh_access_token(refresh_token: str) -> dict:
+    """Use a refresh token to obtain a new access token.
+
+    Returns a dict with: access_token, expires_at, and optionally a new refresh_token.
+
+    Raises:
+        HTTPException 401: If Spotify rejects the refresh token (revoked/expired).
+        HTTPException 502: On unexpected Spotify API errors.
+    """
+    settings = get_settings()
+    resp = httpx.post(
+        "https://accounts.spotify.com/api/token",
+        data={"grant_type": "refresh_token", "refresh_token": refresh_token},
+        auth=(settings.SPOTIFY_CLIENT_ID, settings.SPOTIFY_CLIENT_SECRET),
+        timeout=10,
+    )
+    if resp.status_code in (400, 401):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Spotify connection expired — please reconnect",
+        )
+    if not resp.is_success:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Spotify token refresh failed",
+        )
+    data = resp.json()
+    result = {
+        "access_token": data["access_token"],
+        "expires_at": datetime.now(UTC) + timedelta(seconds=data["expires_in"]),
+    }
+    # Spotify may rotate the refresh token
+    if "refresh_token" in data:
+        result["refresh_token"] = data["refresh_token"]
+    return result
 
 
 def search_albums(query: str, limit: int = 10) -> list[SpotifyAlbumResult]:

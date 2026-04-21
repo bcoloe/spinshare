@@ -7,6 +7,7 @@ from app.schemas.user import (
     LoginRequest,
     LoginResponse,
     SpotifyConnectUrlResponse,
+    SpotifyTokenResponse,
     UserCreate,
     UserResponse,
     UserUpdate,
@@ -94,6 +95,20 @@ def search_users(
 ):
     """Search users by username or email"""
     return user_service.search_users(query, limit=limit)
+
+
+@router.get("/spotify/token", response_model=SpotifyTokenResponse)
+def get_spotify_token(
+    current_user: User = Depends(get_current_user),
+    user_service: UserService = Depends(get_user_service),
+):
+    """Return a valid Spotify access token for the current user, refreshing if needed.
+
+    Returns 404 if no Spotify connection exists, 401 if the connection has expired
+    and requires the user to reconnect.
+    """
+    token = user_service.get_valid_spotify_token(current_user.id)
+    return SpotifyTokenResponse(access_token=token)
 
 
 @router.get("/spotify/connect-url", response_model=SpotifyConnectUrlResponse)

@@ -1,6 +1,6 @@
 """User interface service"""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from app.models import Group, Review, SpotifyConnection, User
 from app.schemas.user import LoginRequest, LoginResponse, UserCreate, UserResponse, UserUpdate
@@ -376,6 +376,39 @@ class UserService:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail="Failed to connect Spotify account"
             ) from None
+
+    def get_valid_spotify_token(self, user_id: int) -> str:
+        """Return a valid Spotify access token for the user, refreshing if within 5 minutes of expiry.
+
+        Raises:
+            HTTPException 404: If user has no Spotify connection.
+            HTTPException 401: If the refresh token has been revoked (propagated from spotify_client).
+        """
+        from app.utils import spotify_client
+
+        connection = self.get_spotify_connection(user_id)
+        if not connection:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No Spotify account connected",
+            )
+
+        needs_refresh = (
+            connection.token_expires_at is None
+            or connection.token_expires_at <= datetime.now(UTC) + timedelta(minutes=5)
+        )
+
+        if needs_refresh:
+            refreshed = spotify_client.refresh_access_token(connection.refresh_token)
+            connection.access_token = refreshed["access_token"]
+            connection.token_expires_at = refreshed["expires_at"]
+            connection.last_refreshed_at = datetime.now(UTC)
+            if "refresh_token" in refreshed:
+                connection.refresh_token = refreshed["refresh_token"]
+            self.db.commit()
+            self.db.refresh(connection)
+
+        return connection.access_token
 
     def disconnect_spotify(self, user_id: int) -> None:
         """
