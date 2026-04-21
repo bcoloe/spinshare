@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Carousel } from '@mantine/carousel'
 import {
   Alert,
+  Anchor,
   Button,
   Center,
   Divider,
@@ -15,7 +16,7 @@ import {
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
+import { IconExternalLink, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
 import AlbumCard from './AlbumCard'
 import ReviewAndGuessForm from './ReviewAndGuessForm'
 import AlbumSearchModal from '../albums/AlbumSearchModal'
@@ -27,10 +28,36 @@ import type { GroupAlbumResponse } from '../../types/album'
 import type { GroupDetailResponse } from '../../types/group'
 
 function SpinSlide({ groupAlbum, groupId }: { groupAlbum: GroupAlbumResponse; groupId: number }) {
+  const spotifyId = groupAlbum.album.spotify_album_id
   return (
     <Paper p="lg" radius="md" withBorder>
       <Stack gap="xl">
         <AlbumCard album={groupAlbum.album} />
+        {spotifyId && (
+          <Stack gap="xs">
+            <iframe
+              src={`https://open.spotify.com/embed/album/${spotifyId}?utm_source=generator&theme=0`}
+              width="100%"
+              height="352"
+              frameBorder={0}
+              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+              loading="lazy"
+              style={{ borderRadius: 12 }}
+            />
+            <Anchor
+              href={`https://open.spotify.com/album/${spotifyId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              size="sm"
+              c="dimmed"
+            >
+              <Group gap={4}>
+                <IconExternalLink size={14} />
+                Open in Spotify
+              </Group>
+            </Anchor>
+          </Stack>
+        )}
         <Divider />
         <ReviewAndGuessForm
           albumId={groupAlbum.album_id}
