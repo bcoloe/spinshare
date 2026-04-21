@@ -13,23 +13,12 @@ export type PlayerStatus =
   | 'reconnect_required'
   | 'error'
 
-export interface SpotifyTrack {
-  name: string
-  artists: string
-  albumName: string
-  coverUrl: string | null
-  durationMs: number
-  positionMs: number
-}
-
 export interface UseSpotifyPlayerResult {
   status: PlayerStatus
-  currentTrack: SpotifyTrack | null
+  currentTrackUri: string | null
   deviceId: string | null
   togglePlay: () => void
-  nextTrack: () => void
-  prevTrack: () => void
-  startAlbum: (spotifyAlbumId: string) => Promise<void>
+  startAlbum: (spotifyAlbumId: string, trackUri?: string) => Promise<void>
 }
 
 // Load the Spotify Web Playback SDK script once globally.
@@ -56,9 +45,9 @@ function loadSpotifySdk(): Promise<void> {
   })
 }
 
-export function useSpotifyPlayer(enabled: boolean): UseSpotifyPlayerResult {
+export function useSpotifyPlayer(enabled: boolean, spotifyAlbumId: string): UseSpotifyPlayerResult {
   const [status, setStatus] = useState<PlayerStatus>('idle')
-  const [currentTrack, setCurrentTrack] = useState<SpotifyTrack | null>(null)
+  const [currentTrackUri, setCurrentTrackUri] = useState<string | null>(null)
   const [deviceId, setDeviceId] = useState<string | null>(null)
   const playerRef = useRef<Spotify.Player | null>(null)
   const tokenRef = useRef<string | null>(null)
@@ -108,14 +97,16 @@ export function useSpotifyPlayer(enabled: boolean): UseSpotifyPlayerResult {
         player.addListener('player_state_changed', (state: Spotify.PlaybackState | null) => {
           if (cancelled || !state) return
           const track = state.track_window.current_track
-          setCurrentTrack({
-            name: track.name,
-            artists: track.artists.map((a) => a.name).join(', '),
-            albumName: track.album.name,
-            coverUrl: track.album.images[0]?.url ?? null,
-            durationMs: state.duration,
-            positionMs: state.position,
-          })
+
+          // If playback has moved to a different album, revert to ready without
+          // updating the displayed track — the tracklist stays anchored to this album.
+          if (track.album.uri !== `spotify:album:${spotifyAlbumId}`) {
+            setCurrentTrackUri(null)
+            setStatus('ready')
+            return
+          }
+
+          setCurrentTrackUri(track.uri)
           setStatus(state.paused ? 'paused' : 'playing')
         })
 
@@ -127,7 +118,6 @@ export function useSpotifyPlayer(enabled: boolean): UseSpotifyPlayerResult {
           if (!cancelled) setStatus('reconnect_required')
         })
 
-        // Fires when user doesn't have Spotify Premium
         player.addListener('account_error', () => {
           if (!cancelled) setStatus('premium_required')
         })
@@ -157,11 +147,11 @@ export function useSpotifyPlayer(enabled: boolean): UseSpotifyPlayerResult {
   }, [enabled])
 
   const togglePlay = () => playerRef.current?.togglePlay()
-  const nextTrack = () => playerRef.current?.nextTrack()
-  const prevTrack = () => playerRef.current?.previousTrack()
 
-  const startAlbum = async (spotifyAlbumId: string) => {
+  const startAlbum = async (albumId: string, trackUri?: string) => {
     if (!deviceId || !tokenRef.current) return
+    const body: Record<string, unknown> = { context_uri: `spotify:album:${albumId}` }
+    if (trackUri) body.offset = { uri: trackUri }
     try {
       await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
         method: 'PUT',
@@ -169,12 +159,12 @@ export function useSpotifyPlayer(enabled: boolean): UseSpotifyPlayerResult {
           Authorization: `Bearer ${tokenRef.current}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ context_uri: `spotify:album:${spotifyAlbumId}` }),
+        body: JSON.stringify(body),
       })
     } catch {
       // Non-critical — player will still be connected, user can retry
     }
   }
 
-  return { status, currentTrack, deviceId, togglePlay, nextTrack, prevTrack, startAlbum }
+  return { status, currentTrackUri, deviceId, togglePlay, startAlbum }
 }

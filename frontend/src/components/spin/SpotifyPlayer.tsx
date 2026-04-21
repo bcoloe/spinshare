@@ -1,11 +1,11 @@
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ActionIcon,
   Alert,
   Anchor,
   Box,
   Group,
-  Image,
+  ScrollArea,
   Skeleton,
   Stack,
   Text,
@@ -16,10 +16,24 @@ import {
   IconExternalLink,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
-  IconPlayerSkipBackFilled,
-  IconPlayerSkipForwardFilled,
 } from '@tabler/icons-react'
 import { useSpotifyPlayer } from '../../hooks/useSpotifyPlayer'
+import { getSpotifyToken } from '../../services/streamingService'
+
+interface AlbumTrack {
+  uri: string
+  name: string
+  trackNumber: number
+  durationMs: number
+  artists: string
+}
+
+function formatDuration(ms: number): string {
+  const totalSec = Math.floor(ms / 1000)
+  const min = Math.floor(totalSec / 60)
+  const sec = totalSec % 60
+  return `${min}:${sec.toString().padStart(2, '0')}`
+}
 
 interface Props {
   spotifyAlbumId: string
@@ -27,8 +41,53 @@ interface Props {
 }
 
 export default function SpotifyPlayer({ spotifyAlbumId, hasSpotify }: Props) {
-  const { status, currentTrack, deviceId, togglePlay, nextTrack, prevTrack, startAlbum } =
-    useSpotifyPlayer(hasSpotify)
+  const { status, currentTrackUri, deviceId, togglePlay, startAlbum } =
+    useSpotifyPlayer(hasSpotify, spotifyAlbumId)
+
+  const [tracks, setTracks] = useState<AlbumTrack[]>([])
+  const [tracksLoading, setTracksLoading] = useState(false)
+  const activeTrackRef = useRef<HTMLDivElement | null>(null)
+
+  // Fetch tracklist once when the player is ready and we have a token
+  useEffect(() => {
+    if (!hasSpotify || (status !== 'ready' && status !== 'playing' && status !== 'paused')) return
+    if (tracks.length > 0) return
+
+    let cancelled = false
+    setTracksLoading(true)
+
+    async function fetchTracks() {
+      try {
+        const token = await getSpotifyToken()
+        // Fetch up to 50 tracks; covers virtually all albums
+        const resp = await fetch(
+          `https://api.spotify.com/v1/albums/${spotifyAlbumId}/tracks?limit=50`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        )
+        if (!resp.ok || cancelled) return
+        const data = await resp.json()
+        setTracks(
+          data.items.map((t: { uri: string; name: string; track_number: number; duration_ms: number; artists: Array<{ name: string }> }) => ({
+            uri: t.uri,
+            name: t.name,
+            trackNumber: t.track_number,
+            durationMs: t.duration_ms,
+            artists: t.artists.map((a) => a.name).join(', '),
+          }))
+        )
+      } finally {
+        if (!cancelled) setTracksLoading(false)
+      }
+    }
+
+    fetchTracks()
+    return () => { cancelled = true }
+  }, [hasSpotify, status, spotifyAlbumId, tracks.length])
+
+  // Scroll the active track into view when it changes
+  useEffect(() => {
+    activeTrackRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [currentTrackUri])
 
   // Auto-start the album once the device is ready
   useEffect(() => {
@@ -44,17 +103,13 @@ export default function SpotifyPlayer({ spotifyAlbumId, hasSpotify }: Props) {
   }
 
   if (status === 'loading' || status === 'idle') {
-    return <Skeleton h={80} radius="md" />
+    return <Skeleton h={300} radius="md" />
   }
 
   if (status === 'premium_required') {
     return (
       <Stack gap="xs">
-        <Alert
-          icon={<IconBrandSpotify size={16} />}
-          color="green"
-          title="Spotify Premium required"
-        >
+        <Alert icon={<IconBrandSpotify size={16} />} color="green" title="Spotify Premium required">
           Full playback is only available with Spotify Premium.
         </Alert>
         <IframeFallback spotifyAlbumId={spotifyAlbumId} />
@@ -86,60 +141,101 @@ export default function SpotifyPlayer({ spotifyAlbumId, hasSpotify }: Props) {
     )
   }
 
-  const isActive = status === 'playing' || status === 'paused'
+  const isPlaying = status === 'playing'
 
   return (
     <Stack gap="xs">
       <Box
-        p="sm"
         style={(theme) => ({
           background: theme.colors.dark[7],
           borderRadius: theme.radius.md,
           border: `1px solid ${theme.colors.dark[4]}`,
+          overflow: 'hidden',
         })}
       >
-        <Group gap="sm" wrap="nowrap">
-          {currentTrack?.coverUrl ? (
-            <Image src={currentTrack.coverUrl} w={52} h={52} radius="sm" />
-          ) : (
-            <Box
-              w={52}
-              h={52}
-              style={(theme) => ({
-                background: theme.colors.dark[5],
-                borderRadius: theme.radius.sm,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              })}
-            >
-              <IconBrandSpotify size={24} color="#1DB954" />
-            </Box>
-          )}
-
-          <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
-            <Text size="sm" fw={500} lineClamp={1}>
-              {isActive && currentTrack ? currentTrack.name : 'Starting playback…'}
-            </Text>
-            <Text size="xs" c="dimmed" lineClamp={1}>
-              {isActive && currentTrack ? currentTrack.artists : 'Spotify'}
-            </Text>
-          </Stack>
-
-          <Group gap="xs" wrap="nowrap">
-            <ActionIcon variant="subtle" size="sm" onClick={prevTrack} disabled={!isActive}>
-              <IconPlayerSkipBackFilled size={14} />
-            </ActionIcon>
-            <ActionIcon variant="filled" color="green" radius="xl" size="md" onClick={togglePlay}>
-              {status === 'playing'
-                ? <IconPlayerPauseFilled size={14} />
-                : <IconPlayerPlayFilled size={14} />}
-            </ActionIcon>
-            <ActionIcon variant="subtle" size="sm" onClick={nextTrack} disabled={!isActive}>
-              <IconPlayerSkipForwardFilled size={14} />
-            </ActionIcon>
-          </Group>
+        {/* Playback controls header */}
+        <Group
+          px="sm"
+          py="xs"
+          gap="sm"
+          style={(theme) => ({ borderBottom: `1px solid ${theme.colors.dark[5]}` })}
+        >
+          <ActionIcon
+            variant="filled"
+            color="green"
+            radius="xl"
+            size="md"
+            onClick={togglePlay}
+            disabled={status === 'ready'}
+          >
+            {isPlaying ? <IconPlayerPauseFilled size={14} /> : <IconPlayerPlayFilled size={14} />}
+          </ActionIcon>
+          <Text size="sm" c={currentTrackUri ? 'white' : 'dimmed'} fw={currentTrackUri ? 500 : 400}>
+            {isPlaying && currentTrackUri
+              ? tracks.find((t) => t.uri === currentTrackUri)?.name ?? 'Playing…'
+              : status === 'paused' && currentTrackUri
+              ? `Paused · ${tracks.find((t) => t.uri === currentTrackUri)?.name ?? ''}`
+              : 'Ready to play'}
+          </Text>
         </Group>
+
+        {/* Tracklist */}
+        <ScrollArea h={280} type="hover">
+          {tracksLoading
+            ? Array.from({ length: 6 }).map((_, i) => (
+                <Box key={i} px="sm" py={6}>
+                  <Skeleton h={14} radius="sm" />
+                </Box>
+              ))
+            : tracks.map((track) => {
+                const isActive = track.uri === currentTrackUri
+                return (
+                  <Box
+                    key={track.uri}
+                    ref={isActive ? activeTrackRef : null}
+                    px="sm"
+                    py={7}
+                    onClick={() => startAlbum(spotifyAlbumId, track.uri)}
+                    style={(theme) => ({
+                      cursor: 'pointer',
+                      background: isActive ? theme.colors.dark[5] : 'transparent',
+                      borderLeft: isActive ? `2px solid #1DB954` : '2px solid transparent',
+                      '&:hover': { background: theme.colors.dark[6] },
+                    })}
+                  >
+                    <Group gap="xs" wrap="nowrap">
+                      <Text
+                        size="xs"
+                        c="dimmed"
+                        w={20}
+                        ta="right"
+                        style={{ flexShrink: 0 }}
+                      >
+                        {isActive ? (
+                          <IconBrandSpotify size={12} color="#1DB954" />
+                        ) : (
+                          track.trackNumber
+                        )}
+                      </Text>
+                      <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
+                        <Text
+                          size="sm"
+                          c={isActive ? 'green.4' : undefined}
+                          fw={isActive ? 500 : 400}
+                          lineClamp={1}
+                        >
+                          {track.name}
+                        </Text>
+                        <Text size="xs" c="dimmed" lineClamp={1}>{track.artists}</Text>
+                      </Stack>
+                      <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
+                        {formatDuration(track.durationMs)}
+                      </Text>
+                    </Group>
+                  </Box>
+                )
+              })}
+        </ScrollArea>
       </Box>
 
       <Anchor href={openLink} target="_blank" rel="noopener noreferrer" size="sm" c="dimmed">
