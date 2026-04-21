@@ -33,7 +33,7 @@ def create_group(
     return group_service.create_group(group_data, current_user)
 
 
-@router.get("/search", response_model=list[GroupResponse])
+@router.get("/search", response_model=list[GroupDetailResponse])
 def search_groups(
     query: str | None = None,
     username: str | None = None,
@@ -42,7 +42,20 @@ def search_groups(
     group_service: GroupService = Depends(get_group_service),
 ):
     """Search public groups by partial name and/or member username."""
-    return group_service.search_groups(query=query, username=username, limit=limit)
+    groups = group_service.search_groups(query=query, username=username, limit=limit)
+    return [
+        GroupDetailResponse(
+            id=g.id,
+            name=g.name,
+            created_at=g.created_at,
+            is_public=g.is_public,
+            member_count=len(g.members),
+            current_user_role=(
+                role.value if (role := group_service.get_user_role(current_user.id, g.id)) else None
+            ),
+        )
+        for g in groups
+    ]
 
 
 @router.get("/name/{group_name}", response_model=GroupDetailResponse)

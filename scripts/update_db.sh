@@ -35,6 +35,10 @@ while [ -z "$description" ]; do
     read -rp "Update description: " description
 done
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BACKEND_DIR="$(dirname "$SCRIPT_DIR")/backend"
+
+cd "$BACKEND_DIR"
 alembic revision --autogenerate -m "$description"
 
 if [ $FORCE -eq 1 ]; then

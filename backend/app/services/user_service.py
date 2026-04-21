@@ -221,7 +221,7 @@ class UserService:
         Raises:
             HTTPException 401: If credentials are invalid
         """
-        user = self.authenticate_user(request.password, email=request.email, username=request.email)
+        user = self.authenticate_user(request.password, email=request.email, username=request.username)
 
         if not user:
             raise HTTPException(
@@ -232,7 +232,7 @@ class UserService:
 
         # Create tokens
         access_token = security.create_access_token(data=self._access_token_data(user))
-        refresh_token = security.create_access_token(data=self._refresh_token_data(user))
+        refresh_token = security.create_refresh_token(data=self._refresh_token_data(user))
 
         return LoginResponse(
             access_token=access_token,
@@ -262,7 +262,7 @@ class UserService:
             ) from None
 
         # Create new access token
-        new_access_token = security.security.create_access_token(data=self._access_token_data(user))
+        new_access_token = security.create_access_token(data=self._access_token_data(user))
 
         return LoginResponse(
             access_token=new_access_token,

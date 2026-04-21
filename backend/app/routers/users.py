@@ -25,7 +25,7 @@ def register_user(user_data: UserCreate, user_service: UserService = Depends(get
 @router.post("/login", response_model=LoginResponse)
 def login(credentials: LoginRequest, user_service: UserService = Depends(get_user_service)):
     """Login and get access token"""
-    return user_service.login(credentials.email, credentials.password)
+    return user_service.login(credentials)
 
 
 @router.post("/refresh", response_model=LoginResponse)

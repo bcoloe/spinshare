@@ -45,11 +45,13 @@ export default function JoinGroupModal({ opened, onClose }: Props) {
             </div>
             <Button
               size="xs"
-              variant="light"
+              variant={g.current_user_role ? 'filled' : 'light'}
+              color={g.current_user_role ? 'green' : 'violet'}
+              disabled={!!g.current_user_role}
               loading={joinGroup.isPending}
               onClick={() => handleJoin(g.id, g.name)}
             >
-              Join
+              {g.current_user_role ? 'Joined' : 'Join'}
             </Button>
           </Group>
         ))}

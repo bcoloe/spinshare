@@ -44,4 +44,11 @@ export const albumSearchService = {
   removeGroupAlbum(groupId: number, groupAlbumId: number): Promise<void> {
     return apiFetch(`/groups/${groupId}/albums/${groupAlbumId}`, { method: 'DELETE' })
   },
+
+  updateStatus(groupId: number, groupAlbumId: number, status: 'pending' | 'selected' | 'reviewed'): Promise<GroupAlbumResponse> {
+    return apiFetch(`/groups/${groupId}/albums/${groupAlbumId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    })
+  },
 }

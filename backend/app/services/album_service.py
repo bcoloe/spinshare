@@ -1,5 +1,7 @@
 """Album and group album service."""
 
+from datetime import datetime, timezone
+
 from app.models import Album, Group, GroupAlbum, User
 from app.models.genre import Genre
 from app.schemas.album import AlbumCreate, GroupAlbumStatus, GroupAlbumStatusUpdate
@@ -141,6 +143,8 @@ class AlbumService:
 
         group_album = self.get_group_album(group_id, group_album_id)
         group_album.status = update.status.value
+        if update.status == GroupAlbumStatus.Selected:
+            group_album.selected_date = datetime.now(timezone.utc)
         self.db.commit()
         self.db.refresh(group_album)
         return group_album
@@ -176,6 +180,19 @@ class AlbumService:
                 detail=f"Album with Spotify ID '{spotify_album_id}' not found",
             )
         return album
+
+    def get_todays_albums(self, group_id: int) -> list[GroupAlbum]:
+        """Return albums selected for today in this group."""
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        return (
+            self.db.query(GroupAlbum)
+            .filter(
+                GroupAlbum.group_id == group_id,
+                GroupAlbum.status == GroupAlbumStatus.Selected,
+                GroupAlbum.selected_date >= today_start,
+            )
+            .all()
+        )
 
     def get_group_albums(
         self, group_id: int, status_filter: str | None = None

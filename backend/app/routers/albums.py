@@ -193,6 +193,17 @@ def list_group_albums(
     return [GroupAlbumResponse.from_orm(ga) for ga in gas]
 
 
+@group_albums_router.get("/{group_id}/albums/today", response_model=list[GroupAlbumResponse])
+def get_todays_albums(
+    group_id: int,
+    current_user: User = Depends(get_current_user),
+    album_service: AlbumService = Depends(get_album_service),
+):
+    """Return albums selected for today in this group."""
+    gas = album_service.get_todays_albums(group_id)
+    return [GroupAlbumResponse.from_orm(ga) for ga in gas]
+
+
 @group_albums_router.get(
     "/{group_id}/albums/{group_album_id}", response_model=GroupAlbumResponse
 )
