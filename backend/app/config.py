@@ -6,9 +6,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     DATABASE_URL: str
     SECRET_KEY: str
-    # SPOTIFY_CLIENT_ID: str
-    # SPOTIFY_CLIENT_SECRET: str
-    # ... other settings
+    SPOTIFY_CLIENT_ID: str = ""
+    SPOTIFY_CLIENT_SECRET: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="allow")
 

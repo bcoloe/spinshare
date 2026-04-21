@@ -1,0 +1,47 @@
+import { apiFetch } from './apiClient'
+import type { AlbumResponse, GroupAlbumResponse } from '../types/album'
+
+export interface AlbumSearchResult {
+  spotify_album_id: string
+  title: string
+  artist: string
+  release_date: string | null
+  cover_url: string | null
+  genres: string[]
+}
+
+export const albumSearchService = {
+  search(query: string): Promise<AlbumSearchResult[]> {
+    return apiFetch(`/albums/search?q=${encodeURIComponent(query)}`)
+  },
+
+  getOrCreate(data: AlbumSearchResult): Promise<AlbumResponse> {
+    return apiFetch('/albums/get-or-create', {
+      method: 'POST',
+      body: JSON.stringify({
+        spotify_album_id: data.spotify_album_id,
+        title: data.title,
+        artist: data.artist,
+        release_date: data.release_date,
+        cover_url: data.cover_url,
+        genres: data.genres,
+      }),
+    })
+  },
+
+  nominateToGroup(groupId: number, albumId: number): Promise<GroupAlbumResponse> {
+    return apiFetch(`/groups/${groupId}/albums`, {
+      method: 'POST',
+      body: JSON.stringify({ album_id: albumId }),
+    })
+  },
+
+  getGroupAlbums(groupId: number, status?: string): Promise<GroupAlbumResponse[]> {
+    const qs = status ? `?status=${encodeURIComponent(status)}` : ''
+    return apiFetch(`/groups/${groupId}/albums${qs}`)
+  },
+
+  removeGroupAlbum(groupId: number, groupAlbumId: number): Promise<void> {
+    return apiFetch(`/groups/${groupId}/albums/${groupAlbumId}`, { method: 'DELETE' })
+  },
+}
