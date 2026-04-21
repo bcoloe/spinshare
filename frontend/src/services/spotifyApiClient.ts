@@ -26,7 +26,7 @@ async function spotifyFetch(token: string, path: string, init?: RequestInit): Pr
 
 export async function fetchUserPlaylists(token: string): Promise<SpotifyPlaylist[]> {
   const resp = await spotifyFetch(token, '/me/playlists?limit=50')
-  if (!resp.ok) return []
+  if (!resp.ok) throw new Error('Could not load playlists — please reconnect your Spotify account.')
   const data = await resp.json()
   return data.items.map((p: { id: string; name: string; images: Array<{ url: string }>; tracks: { total: number } }) => ({
     id: p.id,

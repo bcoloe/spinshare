@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
+  Alert,
+  Anchor,
   Box,
   Group,
   Image,
@@ -9,6 +11,7 @@ import {
   Text,
   UnstyledButton,
 } from '@mantine/core'
+import { IconAlertCircle } from '@tabler/icons-react'
 import { IconMusic } from '@tabler/icons-react'
 import { fetchUserPlaylists, type SpotifyPlaylist } from '../../services/spotifyApiClient'
 import { getSpotifyToken } from '../../services/streamingService'
@@ -23,14 +26,17 @@ interface Props {
 export default function PlaylistPickerModal({ opened, onClose, onSelect, title = 'Add to playlist' }: Props) {
   const [playlists, setPlaylists] = useState<SpotifyPlaylist[]>([])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!opened) return
     let cancelled = false
     setLoading(true)
+    setError(null)
     getSpotifyToken()
       .then((token) => fetchUserPlaylists(token))
       .then((data) => { if (!cancelled) setPlaylists(data) })
+      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load playlists.') })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [opened])
@@ -41,6 +47,11 @@ export default function PlaylistPickerModal({ opened, onClose, onSelect, title =
         <Group justify="center" py="xl">
           <Loader size="sm" />
         </Group>
+      ) : error ? (
+        <Alert icon={<IconAlertCircle size={16} />} color="orange">
+          {error}{' '}
+          <Anchor href="/profile" size="sm">Reconnect Spotify</Anchor> to grant playlist access.
+        </Alert>
       ) : playlists.length === 0 ? (
         <Text size="sm" c="dimmed" ta="center" py="xl">No playlists found.</Text>
       ) : (
