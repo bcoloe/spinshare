@@ -22,6 +22,7 @@ class GroupAlbum(Base):
     group = relationship("Group", back_populates="albums")
     albums = relationship("Album", back_populates="group_albums")
     added_by_user = relationship("User", foreign_keys=[added_by], back_populates="added_albums")
+    guesses = relationship("NominationGuess", back_populates="group_album")
 
     __table_args__ = (
         UniqueConstraint("group_id", "album_id", "added_by", name="unique_user_album_per_group"),

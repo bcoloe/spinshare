@@ -1,0 +1,78 @@
+"""Daily album selector cron job.
+
+Selects N random unselected albums per group and marks them as today's spins
+by setting selected_date = now(). Intended to run once per day at midnight UTC
+(or each group's configured timezone, once group settings are added).
+
+Usage:
+    python scripts/daily_album_selector.py            # 1 album per group (default)
+    python scripts/daily_album_selector.py --n 3      # 3 albums per group
+    python scripts/daily_album_selector.py --group 42 # single group only
+
+Cron example (daily at midnight UTC):
+    0 0 * * * cd /path/to/spinshare/backend && .venv/bin/python scripts/daily_album_selector.py
+"""
+
+import argparse
+import logging
+import sys
+
+# Ensure the app package is importable when run from the backend/ directory.
+sys.path.insert(0, ".")
+
+from sqlalchemy.orm import Session
+
+from app.config import get_settings
+from app.database import Base
+from app.models import Group  # noqa: F401 — ensure all models are registered
+from app.models import GroupAlbum  # noqa: F401
+from app.services.group_album_service import GroupAlbumService
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger(__name__)
+
+
+def run(n: int, group_id: int | None, db: Session) -> None:
+    svc = GroupAlbumService(db)
+
+    groups = db.query(Group).all() if group_id is None else [_get_group(db, group_id)]
+
+    for group in groups:
+        try:
+            selected = svc.select_daily_albums(group.id, n=n)
+            titles = [ga.albums.title for ga in selected]
+            log.info("Group %d (%s): selected %s", group.id, group.name, titles)
+        except Exception as exc:
+            log.warning("Group %d (%s): skipped — %s", group.id, group.name, exc)
+
+
+def _get_group(db: Session, group_id: int) -> Group:
+    group = db.query(Group).filter(Group.id == group_id).first()
+    if not group:
+        log.error("Group %d not found", group_id)
+        sys.exit(1)
+    return group
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Daily album selector")
+    parser.add_argument("--n", type=int, default=1, help="Albums to select per group")
+    parser.add_argument("--group", type=int, default=None, help="Limit to a specific group ID")
+    args = parser.parse_args()
+
+    settings = get_settings()
+    engine = create_engine(settings.DATABASE_URL)
+    SessionLocal = sessionmaker(bind=engine)
+    db = SessionLocal()
+
+    try:
+        run(n=args.n, group_id=args.group, db=db)
+    finally:
+        db.close()
+        engine.dispose()
+
+
+if __name__ == "__main__":
+    main()

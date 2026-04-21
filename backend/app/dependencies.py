@@ -6,8 +6,10 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User
 from app.services.album_service import AlbumService
+from app.services.group_album_service import GroupAlbumService
 from app.services.group_service import GroupService
 from app.services.review_service import ReviewService
+from app.services.stats_service import StatsService
 from app.services.user_service import UserService
 from app.utils.security import decode_access_token
 
@@ -32,6 +34,16 @@ def get_album_service(db: Session = Depends(get_db)) -> AlbumService:
 def get_review_service(db: Session = Depends(get_db)) -> ReviewService:
     """Dependency to get ReviewService"""
     return ReviewService(db)
+
+
+def get_group_album_service(db: Session = Depends(get_db)) -> GroupAlbumService:
+    """Dependency to get GroupAlbumService"""
+    return GroupAlbumService(db)
+
+
+def get_stats_service(db: Session = Depends(get_db)) -> StatsService:
+    """Dependency to get StatsService"""
+    return StatsService(db)
 
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
