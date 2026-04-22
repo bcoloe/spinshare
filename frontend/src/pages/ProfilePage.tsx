@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Button,
   Divider,
@@ -13,6 +13,7 @@ import {
 import { useForm } from '@mantine/form'
 import { notifications } from '@mantine/notifications'
 import { useQueryClient } from '@tanstack/react-query'
+import { IconBrandSpotify } from '@tabler/icons-react'
 import AppShell from '../components/layout/AppShell'
 import StatsGrid from '../components/profile/StatsGrid'
 import GroupStatsList from '../components/profile/GroupStatsList'
@@ -20,6 +21,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useMyStats } from '../hooks/useStats'
 import { useMyGroups } from '../hooks/useGroups'
 import { apiFetch, ApiError } from '../services/apiClient'
+import { getSpotifyConnectUrl, disconnectSpotify } from '../services/streamingService'
 
 interface EditFormValues {
   username: string
@@ -34,6 +36,48 @@ export default function ProfilePage() {
   const { data: groups } = useMyGroups(user?.username ?? '')
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [connectingSpotify, setConnectingSpotify] = useState(false)
+  const [disconnectingSpotify, setDisconnectingSpotify] = useState(false)
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const spotify = params.get('spotify')
+    if (spotify === 'connected') {
+      notifications.show({ color: 'green', message: 'Spotify connected successfully' })
+      qc.invalidateQueries({ queryKey: ['stats', 'me'] })
+    } else if (spotify === 'error') {
+      notifications.show({ color: 'red', message: 'Could not connect Spotify — please try again' })
+    }
+    if (spotify) {
+      const clean = new URL(window.location.href)
+      clean.searchParams.delete('spotify')
+      window.history.replaceState({}, '', clean.toString())
+    }
+  }, [])
+
+  const handleSpotifyConnect = async () => {
+    setConnectingSpotify(true)
+    try {
+      const url = await getSpotifyConnectUrl()
+      window.location.href = url
+    } catch {
+      notifications.show({ color: 'red', message: 'Could not initiate Spotify connection' })
+      setConnectingSpotify(false)
+    }
+  }
+
+  const handleSpotifyDisconnect = async () => {
+    setDisconnectingSpotify(true)
+    try {
+      await disconnectSpotify()
+      await qc.invalidateQueries({ queryKey: ['stats', 'me'] })
+      notifications.show({ color: 'green', message: 'Spotify disconnected' })
+    } catch {
+      notifications.show({ color: 'red', message: 'Could not disconnect Spotify' })
+    } finally {
+      setDisconnectingSpotify(false)
+    }
+  }
 
   const form = useForm<EditFormValues>({
     initialValues: {
@@ -124,6 +168,45 @@ export default function ProfilePage() {
             </Group>
           </Stack>
         )}
+
+        <Divider />
+
+        <div>
+          <Title order={5} mb="md">Connected services</Title>
+          <Group justify="space-between">
+            <Group gap="sm">
+              <IconBrandSpotify size={20} color="#1DB954" />
+              <div>
+                <Text size="sm" fw={500}>Spotify</Text>
+                <Text size="xs" c="dimmed">
+                  {stats?.has_spotify ? 'Connected' : 'Not connected'}
+                </Text>
+              </div>
+            </Group>
+            {statsLoading ? (
+              <Skeleton w={80} h={28} radius="sm" />
+            ) : stats?.has_spotify ? (
+              <Button
+                size="xs"
+                variant="subtle"
+                color="red"
+                loading={disconnectingSpotify}
+                onClick={handleSpotifyDisconnect}
+              >
+                Disconnect
+              </Button>
+            ) : (
+              <Button
+                size="xs"
+                variant="light"
+                loading={connectingSpotify}
+                onClick={handleSpotifyConnect}
+              >
+                Connect
+              </Button>
+            )}
+          </Group>
+        </div>
 
         <Divider />
 

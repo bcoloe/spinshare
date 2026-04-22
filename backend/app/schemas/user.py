@@ -108,3 +108,11 @@ class LoginResponse(BaseModel):
     refresh_token: str
     token_type: str
     user: UserResponse
+
+
+class SpotifyConnectUrlResponse(BaseModel):
+    url: str
+
+
+class SpotifyTokenResponse(BaseModel):
+    access_token: str
