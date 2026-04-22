@@ -53,3 +53,12 @@ alembic revision --autogenerate -m "description"
 | ---- | ----------- |
 | [README.md](README.md) | Developer-facing high level overview of the project. |
 | [DESIGN.md](DESIGN.md) | High-level design and technology decisions. |
+
+## External API References
+
+When working with Spotify integrations, **always fetch the current documentation before implementing or modifying any Spotify Web API call**. The API has breaking changes (e.g. February 2026 endpoint consolidation) that are not reflected in training data.
+
+| API | Reference URL |
+|-----|--------------|
+| Spotify Web API | https://developer.spotify.com/documentation/web-api/reference |
+| Spotify Web Playback SDK | https://developer.spotify.com/documentation/web-playback-sdk/reference |
