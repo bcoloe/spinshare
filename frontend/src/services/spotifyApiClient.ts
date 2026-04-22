@@ -118,8 +118,6 @@ export async function saveAlbum(token: string, albumId: string): Promise<void> {
 }
 
 export async function unsaveAlbum(token: string, albumId: string): Promise<void> {
-  await spotifyFetch(token, '/me/library', {
-    method: 'DELETE',
-    body: JSON.stringify({ uris: [`spotify:album:${albumId}`] }),
-  })
+  const uri = encodeURIComponent(`spotify:album:${albumId}`)
+  await spotifyFetch(token, `/me/library?uris=${uri}`, { method: 'DELETE' })
 }
