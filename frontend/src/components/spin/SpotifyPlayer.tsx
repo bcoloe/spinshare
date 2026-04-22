@@ -4,9 +4,11 @@ import {
   Alert,
   Anchor,
   Box,
+  Collapse,
   Group,
   ScrollArea,
   Skeleton,
+  Slider,
   Stack,
   Text,
   Tooltip,
@@ -16,21 +18,23 @@ import { notifications } from '@mantine/notifications'
 import {
   IconAlertCircle,
   IconBrandSpotify,
+  IconChevronDown,
+  IconChevronUp,
   IconExternalLink,
   IconHeart,
   IconHeartFilled,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
+  IconPlayerSkipBackFilled,
+  IconPlayerSkipForwardFilled,
   IconPlaylistAdd,
 } from '@tabler/icons-react'
 import { useSpotifyPlayer } from '../../hooks/useSpotifyPlayer'
 import { getSpotifyToken } from '../../services/streamingService'
 import {
-  addTracksToPlaylist,
   isAlbumSaved,
   saveAlbum,
   unsaveAlbum,
-  type SpotifyPlaylist,
 } from '../../services/spotifyApiClient'
 import PlaylistPickerModal from './PlaylistPickerModal'
 
@@ -55,16 +59,18 @@ interface Props {
 }
 
 export default function SpotifyPlayer({ spotifyAlbumId, hasSpotify }: Props) {
-  const { status, currentTrackUri, togglePlay, startAlbum } =
+  const { status, currentTrackUri, position, duration, togglePlay, skipNext, skipPrevious, seekTo, startAlbum } =
     useSpotifyPlayer(hasSpotify, spotifyAlbumId)
 
   const [tracks, setTracks] = useState<AlbumTrack[]>([])
   const [tracksLoading, setTracksLoading] = useState(false)
   const [albumSaved, setAlbumSaved] = useState(false)
   const [savingAlbum, setSavingAlbum] = useState(false)
+  const [seekValue, setSeekValue] = useState<number | null>(null)
+  const [tracklistOpen, setTracklistOpen] = useState(true)
 
-  // pickerTarget: 'album' to add all tracks, or a track URI string to add one track
-  const [pickerTarget, setPickerTarget] = useState<'album' | string | null>(null)
+  const [pickerUris, setPickerUris] = useState<string[]>([])
+  const [pickerTitle, setPickerTitle] = useState('Add to playlist')
   const [pickerOpened, { open: openPicker, close: closePicker }] = useDisclosure(false)
 
   const activeTrackRef = useRef<HTMLDivElement | null>(null)
@@ -139,29 +145,13 @@ export default function SpotifyPlayer({ spotifyAlbumId, hasSpotify }: Props) {
   }
 
   const handleOpenPicker = (target: 'album' | string) => {
-    setPickerTarget(target)
+    setPickerUris(target === 'album' ? tracks.map((t) => t.uri) : [target])
+    setPickerTitle(target === 'album' ? 'Add album to playlist' : 'Add track to playlist')
     openPicker()
   }
 
-  const handlePlaylistSelected = async (playlist: SpotifyPlaylist) => {
-    const uris =
-      pickerTarget === 'album'
-        ? tracks.map((t) => t.uri)
-        : pickerTarget
-          ? [pickerTarget]
-          : []
-
-    if (uris.length === 0) return
-
-    try {
-      const token = await getSpotifyToken()
-      await addTracksToPlaylist(token, playlist.id, uris)
-      const label = pickerTarget === 'album' ? 'Album' : 'Track'
-      notifications.show({ color: 'green', message: `${label} added to ${playlist.name}` })
-    } catch (err) {
-      notifications.show({ color: 'red', message: err instanceof Error ? err.message : 'Could not add to playlist' })
-    }
-  }
+  const displayPosition = seekValue ?? position
+  const progressPercent = duration > 0 ? (displayPosition / duration) * 100 : 0
 
   const openLink = `https://open.spotify.com/album/${spotifyAlbumId}`
 
@@ -203,6 +193,7 @@ export default function SpotifyPlayer({ spotifyAlbumId, hasSpotify }: Props) {
   }
 
   const isPlaying = status === 'playing'
+  const isActive = status === 'playing' || status === 'paused'
 
   return (
     <>
@@ -221,9 +212,12 @@ export default function SpotifyPlayer({ spotifyAlbumId, hasSpotify }: Props) {
             py="xs"
             gap="sm"
             justify="space-between"
-            style={(theme) => ({ borderBottom: `1px solid ${theme.colors.dark[5]}` })}
+            style={(theme) => ({ borderBottom: isActive ? 'none' : `1px solid ${theme.colors.dark[5]}` })}
           >
-            <Group gap="sm" style={{ minWidth: 0, flex: 1 }}>
+            <Group gap={4} style={{ minWidth: 0, flex: 1 }}>
+              <ActionIcon variant="subtle" size="sm" color="gray" onClick={skipPrevious} disabled={!isActive}>
+                <IconPlayerSkipBackFilled size={14} />
+              </ActionIcon>
               <ActionIcon
                 variant="filled"
                 color="green"
@@ -233,7 +227,10 @@ export default function SpotifyPlayer({ spotifyAlbumId, hasSpotify }: Props) {
               >
                 {isPlaying ? <IconPlayerPauseFilled size={14} /> : <IconPlayerPlayFilled size={14} />}
               </ActionIcon>
-              <Text size="sm" c={currentTrackUri ? 'white' : 'dimmed'} fw={currentTrackUri ? 500 : 400} lineClamp={1} style={{ flex: 1 }}>
+              <ActionIcon variant="subtle" size="sm" color="gray" onClick={skipNext} disabled={!isActive}>
+                <IconPlayerSkipForwardFilled size={14} />
+              </ActionIcon>
+              <Text size="sm" c={currentTrackUri ? 'white' : 'dimmed'} fw={currentTrackUri ? 500 : 400} lineClamp={1} style={{ flex: 1, marginLeft: 4 }}>
                 {isPlaying && currentTrackUri
                   ? tracks.find((t) => t.uri === currentTrackUri)?.name ?? 'Playing…'
                   : status === 'paused' && currentTrackUri
@@ -256,70 +253,107 @@ export default function SpotifyPlayer({ spotifyAlbumId, hasSpotify }: Props) {
                 </ActionIcon>
               </Tooltip>
               <Tooltip label="Add album to playlist" withArrow>
-                <ActionIcon
-                  variant="subtle"
-                  size="sm"
-                  onClick={() => handleOpenPicker('album')}
-                  disabled={tracks.length === 0}
-                >
+                <ActionIcon variant="subtle" size="sm" onClick={() => handleOpenPicker('album')} disabled={tracks.length === 0}>
                   <IconPlaylistAdd size={14} />
+                </ActionIcon>
+              </Tooltip>
+              <Tooltip label={tracklistOpen ? 'Hide tracklist' : 'Show tracklist'} withArrow>
+                <ActionIcon variant="subtle" size="sm" color="gray" onClick={() => setTracklistOpen((o) => !o)}>
+                  {tracklistOpen ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
                 </ActionIcon>
               </Tooltip>
             </Group>
           </Group>
 
+          {/* Progress bar */}
+          {isActive && (
+            <Box px="sm" pb={6} style={(theme) => ({ borderBottom: `1px solid ${theme.colors.dark[5]}` })}>
+              <Group gap="xs" align="center" wrap="nowrap">
+                <Text size="xs" c="dimmed" w={32} ta="right" style={{ flexShrink: 0 }}>
+                  {formatDuration(displayPosition)}
+                </Text>
+                <Slider
+                  style={{ flex: 1 }}
+                  size="xs"
+                  value={progressPercent}
+                  min={0}
+                  max={100}
+                  step={0.01}
+                  label={null}
+                  thumbSize={10}
+                  onChange={(val) => setSeekValue((val / 100) * duration)}
+                  onChangeEnd={(val) => {
+                    const ms = (val / 100) * duration
+                    seekTo(ms)
+                    setSeekValue(null)
+                  }}
+                  styles={(theme) => ({
+                    track: { background: theme.colors.dark[4] },
+                    bar: { background: '#1DB954' },
+                    thumb: { borderColor: '#1DB954', background: '#1DB954' },
+                  })}
+                />
+                <Text size="xs" c="dimmed" w={32} style={{ flexShrink: 0 }}>
+                  {formatDuration(duration)}
+                </Text>
+              </Group>
+            </Box>
+          )}
+
           {/* Tracklist */}
-          <ScrollArea h={280} type="hover">
-            {tracksLoading
-              ? Array.from({ length: 6 }).map((_, i) => (
-                  <Box key={i} px="sm" py={6}>
-                    <Skeleton h={14} radius="sm" />
-                  </Box>
-                ))
-              : tracks.map((track) => {
-                  const isActive = track.uri === currentTrackUri
-                  return (
-                    <Group
-                      key={track.uri}
-                      ref={isActive ? activeTrackRef : null}
-                      px="sm"
-                      py={7}
-                      gap="xs"
-                      wrap="nowrap"
-                      className="track-row"
-                      style={(theme) => ({
-                        cursor: 'pointer',
-                        background: isActive ? theme.colors.dark[5] : 'transparent',
-                        borderLeft: isActive ? '2px solid #1DB954' : '2px solid transparent',
-                      })}
-                      onClick={() => startAlbum(spotifyAlbumId, track.uri)}
-                    >
-                      <Text size="xs" c="dimmed" w={20} ta="right" style={{ flexShrink: 0 }}>
-                        {isActive ? <IconBrandSpotify size={12} color="#1DB954" /> : track.trackNumber}
-                      </Text>
-                      <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
-                        <Text size="sm" c={isActive ? 'green.4' : undefined} fw={isActive ? 500 : 400} lineClamp={1}>
-                          {track.name}
+          <Collapse in={tracklistOpen}>
+            <ScrollArea h={280} type="hover">
+              {tracksLoading
+                ? Array.from({ length: 6 }).map((_, i) => (
+                    <Box key={i} px="sm" py={6}>
+                      <Skeleton h={14} radius="sm" />
+                    </Box>
+                  ))
+                : tracks.map((track) => {
+                    const isActive = track.uri === currentTrackUri
+                    return (
+                      <Group
+                        key={track.uri}
+                        ref={isActive ? activeTrackRef : null}
+                        px="sm"
+                        py={7}
+                        gap="xs"
+                        wrap="nowrap"
+                        className="track-row"
+                        style={(theme) => ({
+                          cursor: 'pointer',
+                          background: isActive ? theme.colors.dark[5] : 'transparent',
+                          borderLeft: isActive ? '2px solid #1DB954' : '2px solid transparent',
+                        })}
+                        onClick={() => startAlbum(spotifyAlbumId, track.uri)}
+                      >
+                        <Text size="xs" c="dimmed" w={20} ta="right" style={{ flexShrink: 0 }}>
+                          {isActive ? <IconBrandSpotify size={12} color="#1DB954" /> : track.trackNumber}
                         </Text>
-                        <Text size="xs" c="dimmed" lineClamp={1}>{track.artists}</Text>
-                      </Stack>
-                      <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
-                        {formatDuration(track.durationMs)}
-                      </Text>
-                      <Tooltip label="Add to playlist" withArrow>
-                        <ActionIcon
-                          variant="subtle"
-                          size="xs"
-                          style={{ flexShrink: 0 }}
-                          onClick={(e) => { e.stopPropagation(); handleOpenPicker(track.uri) }}
-                        >
-                          <IconPlaylistAdd size={12} />
-                        </ActionIcon>
-                      </Tooltip>
-                    </Group>
-                  )
-                })}
-          </ScrollArea>
+                        <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
+                          <Text size="sm" c={isActive ? 'green.4' : undefined} fw={isActive ? 500 : 400} lineClamp={1}>
+                            {track.name}
+                          </Text>
+                          <Text size="xs" c="dimmed" lineClamp={1}>{track.artists}</Text>
+                        </Stack>
+                        <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
+                          {formatDuration(track.durationMs)}
+                        </Text>
+                        <Tooltip label="Add to playlist" withArrow>
+                          <ActionIcon
+                            variant="subtle"
+                            size="xs"
+                            style={{ flexShrink: 0 }}
+                            onClick={(e) => { e.stopPropagation(); handleOpenPicker(track.uri) }}
+                          >
+                            <IconPlaylistAdd size={12} />
+                          </ActionIcon>
+                        </Tooltip>
+                      </Group>
+                    )
+                  })}
+            </ScrollArea>
+          </Collapse>
         </Box>
 
         <Anchor href={openLink} target="_blank" rel="noopener noreferrer" size="sm" c="dimmed">
@@ -333,8 +367,8 @@ export default function SpotifyPlayer({ spotifyAlbumId, hasSpotify }: Props) {
       <PlaylistPickerModal
         opened={pickerOpened}
         onClose={closePicker}
-        onSelect={handlePlaylistSelected}
-        title={pickerTarget === 'album' ? 'Add album to playlist' : 'Add track to playlist'}
+        uris={pickerUris}
+        title={pickerTitle}
       />
     </>
   )

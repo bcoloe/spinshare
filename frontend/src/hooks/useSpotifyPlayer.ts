@@ -16,8 +16,13 @@ export type PlayerStatus =
 export interface UseSpotifyPlayerResult {
   status: PlayerStatus
   currentTrackUri: string | null
+  position: number
+  duration: number
   deviceId: string | null
   togglePlay: () => void
+  skipNext: () => void
+  skipPrevious: () => void
+  seekTo: (positionMs: number) => void
   startAlbum: (spotifyAlbumId: string, trackUri?: string) => Promise<void>
 }
 
@@ -48,9 +53,32 @@ function loadSpotifySdk(): Promise<void> {
 export function useSpotifyPlayer(enabled: boolean, spotifyAlbumId: string): UseSpotifyPlayerResult {
   const [status, setStatus] = useState<PlayerStatus>('idle')
   const [currentTrackUri, setCurrentTrackUri] = useState<string | null>(null)
+  const [position, setPosition] = useState(0)
+  const [duration, setDuration] = useState(0)
   const [deviceId, setDeviceId] = useState<string | null>(null)
+
   const playerRef = useRef<Spotify.Player | null>(null)
   const tokenRef = useRef<string | null>(null)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Base position and timestamp used to interpolate progress between state events
+  const basePositionRef = useRef(0)
+  const baseTimestampRef = useRef(0)
+  const isPlayingRef = useRef(false)
+
+  function startProgressInterval() {
+    if (intervalRef.current) return
+    intervalRef.current = setInterval(() => {
+      if (!isPlayingRef.current) return
+      setPosition(basePositionRef.current + (Date.now() - baseTimestampRef.current))
+    }, 250)
+  }
+
+  function stopProgressInterval() {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current)
+      intervalRef.current = null
+    }
+  }
 
   useEffect(() => {
     if (!enabled) return
@@ -87,6 +115,7 @@ export function useSpotifyPlayer(enabled: boolean, spotifyAlbumId: string): UseS
           if (!cancelled) {
             setDeviceId(device_id)
             setStatus('ready')
+            startProgressInterval()
           }
         })
 
@@ -98,15 +127,22 @@ export function useSpotifyPlayer(enabled: boolean, spotifyAlbumId: string): UseS
           if (cancelled || !state) return
           const track = state.track_window.current_track
 
-          // If playback has moved to a different album, revert to ready without
-          // updating the displayed track — the tracklist stays anchored to this album.
           if (track.album.uri !== `spotify:album:${spotifyAlbumId}`) {
             setCurrentTrackUri(null)
             setStatus('ready')
+            isPlayingRef.current = false
+            setPosition(0)
+            setDuration(0)
             return
           }
 
+          basePositionRef.current = state.position
+          baseTimestampRef.current = Date.now()
+          isPlayingRef.current = !state.paused
+
           setCurrentTrackUri(track.uri)
+          setDuration(state.duration)
+          setPosition(state.position)
           setStatus(state.paused ? 'paused' : 'playing')
         })
 
@@ -141,12 +177,22 @@ export function useSpotifyPlayer(enabled: boolean, spotifyAlbumId: string): UseS
 
     return () => {
       cancelled = true
+      stopProgressInterval()
       playerRef.current?.disconnect()
       playerRef.current = null
     }
   }, [enabled])
 
   const togglePlay = () => playerRef.current?.togglePlay()
+  const skipNext = () => playerRef.current?.nextTrack()
+  const skipPrevious = () => playerRef.current?.previousTrack()
+
+  const seekTo = (positionMs: number) => {
+    basePositionRef.current = positionMs
+    baseTimestampRef.current = Date.now()
+    setPosition(positionMs)
+    playerRef.current?.seek(positionMs)
+  }
 
   const startAlbum = async (albumId: string, trackUri?: string) => {
     if (!deviceId || !tokenRef.current) return
@@ -166,5 +212,5 @@ export function useSpotifyPlayer(enabled: boolean, spotifyAlbumId: string): UseS
     }
   }
 
-  return { status, currentTrackUri, deviceId, togglePlay, startAlbum }
+  return { status, currentTrackUri, position, duration, deviceId, togglePlay, skipNext, skipPrevious, seekTo, startAlbum }
 }
