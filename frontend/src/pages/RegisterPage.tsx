@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import {
   Anchor,
   Box,
@@ -57,7 +57,9 @@ function validatePassword(v: string): string | null {
 
 export default function RegisterPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [loading, setLoading] = useState(false)
+  const next = searchParams.get('next')
 
   const form = useForm<FormValues>({
     initialValues: { username: '', email: '', password: '', confirmPassword: '' },
@@ -86,7 +88,7 @@ export default function RegisterPage() {
         password: values.password,
       })
       notifications.show({ color: 'green', message: 'Account created — please sign in' })
-      navigate('/login')
+      navigate(next ? `/login?next=${encodeURIComponent(next)}` : '/login')
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Registration failed'
       notifications.show({ color: 'red', message })

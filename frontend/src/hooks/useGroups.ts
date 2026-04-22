@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { groupService } from '../services/groupService'
+import { invitationService } from '../services/invitationService'
 import type { GroupCreate, GroupModify } from '../types/group'
 
 export function useMyGroups(username: string) {
@@ -101,5 +102,58 @@ export function useDeleteGroup() {
   return useMutation({
     mutationFn: (groupId: number) => groupService.delete(groupId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', 'mine'] }),
+  })
+}
+
+export function useSendInvitation(groupId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (email: string) => invitationService.send(groupId, email),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'invitations'] }),
+  })
+}
+
+export function useInvitation(token: string) {
+  return useQuery({
+    queryKey: ['invitations', token],
+    queryFn: () => invitationService.getByToken(token),
+    enabled: !!token,
+    retry: false,
+  })
+}
+
+export function useMyPendingInvitations() {
+  return useQuery({
+    queryKey: ['invitations', 'pending'],
+    queryFn: () => invitationService.getMyPending(),
+    refetchInterval: 60_000,
+  })
+}
+
+export function useAcceptInvitation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (token: string) => invitationService.accept(token),
+    onSuccess: (inv) => {
+      qc.invalidateQueries({ queryKey: ['invitations', 'pending'] })
+      qc.invalidateQueries({ queryKey: ['groups', inv.group_id, 'members'] })
+      qc.invalidateQueries({ queryKey: ['groups', 'mine'] })
+    },
+  })
+}
+
+export function useDeclineInvitation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (token: string) => invitationService.decline(token),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['invitations', 'pending'] }),
+  })
+}
+
+export function useGroupPendingInvitations(groupId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['groups', groupId, 'invitations'],
+    queryFn: () => invitationService.list(groupId),
+    enabled: enabled && !!groupId,
   })
 }

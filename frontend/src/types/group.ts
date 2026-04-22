@@ -33,3 +33,17 @@ export interface GroupModify {
   name?: string
   is_public?: boolean
 }
+
+export interface InvitationResponse {
+  id: number
+  group_id: number
+  group_name: string
+  invited_email: string
+  invited_by: number
+  inviter_username: string
+  token: string
+  created_at: string
+  expires_at: string
+  accepted_at: string | null
+  status: 'pending' | 'accepted' | 'expired'
+}

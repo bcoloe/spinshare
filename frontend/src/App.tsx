@@ -11,11 +11,13 @@ const GroupCatalogPage = lazy(() => import('./pages/GroupCatalogPage'))
 const GroupSettingsPage = lazy(() => import('./pages/GroupSettingsPage'))
 const DailySpinPage = lazy(() => import('./pages/DailySpinPage'))
 const ProfilePage = lazy(() => import('./pages/ProfilePage'))
+const InviteAcceptPage = lazy(() => import('./pages/InviteAcceptPage'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 
 const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
   { path: '/register', element: <RegisterPage /> },
+  { path: '/invite/:token', element: <InviteAcceptPage /> },
   {
     element: <ProtectedRoute />,
     children: [
