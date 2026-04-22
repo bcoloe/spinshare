@@ -111,10 +111,8 @@ export async function isAlbumSaved(token: string, albumId: string): Promise<bool
 }
 
 export async function saveAlbum(token: string, albumId: string): Promise<void> {
-  await spotifyFetch(token, '/me/library', {
-    method: 'PUT',
-    body: JSON.stringify({ uris: [`spotify:album:${albumId}`] }),
-  })
+  const uri = encodeURIComponent(`spotify:album:${albumId}`)
+  await spotifyFetch(token, `/me/library?uris=${uri}`, { method: 'PUT' })
 }
 
 export async function unsaveAlbum(token: string, albumId: string): Promise<void> {
