@@ -6,16 +6,22 @@ import {
   Burger,
   Button,
   Group,
+  Indicator,
   Menu,
   NavLink,
+  Popover,
   ScrollArea,
   Skeleton,
+  Stack,
   Text,
   Title,
   UnstyledButton,
 } from '@mantine/core'
+import { useState } from 'react'
 import { useDisclosure } from '@mantine/hooks'
 import {
+  IconBell,
+  IconCheck,
   IconDisc,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -23,9 +29,14 @@ import {
   IconPlus,
   IconSearch,
   IconUser,
+  IconX,
 } from '@tabler/icons-react'
+import { notifications } from '@mantine/notifications'
+import { useEffect } from 'react'
 import { useAuth } from '../../hooks/useAuth'
-import { useMyGroups } from '../../hooks/useGroups'
+import { useMyGroups, useMyPendingInvitations, useAcceptInvitation, useDeclineInvitation } from '../../hooks/useGroups'
+import { useUnreadNotifications, useMarkAllNotificationsRead } from '../../hooks/useNotifications'
+import { ApiError } from '../../services/apiClient'
 import CreateGroupModal from '../groups/CreateGroupModal'
 import JoinGroupModal from '../groups/JoinGroupModal'
 
@@ -43,6 +54,45 @@ export default function AppShell({ children }: AppShellProps) {
   const [joinOpened, { open: openJoin, close: closeJoin }] = useDisclosure()
 
   const { data: groups, isLoading } = useMyGroups(user?.username ?? '')
+  const { data: pendingInvitations = [] } = useMyPendingInvitations()
+  const { data: unreadNotifications = [] } = useUnreadNotifications()
+  const acceptInvitation = useAcceptInvitation()
+  const declineInvitation = useDeclineInvitation()
+  const markAllRead = useMarkAllNotificationsRead()
+  const [bellOpened, { toggle: toggleBell, close: closeBell }] = useDisclosure()
+
+  const totalUnread = pendingInvitations.length + unreadNotifications.length
+
+  // Snapshot notifications when the bell opens so the list stays visible
+  // while markAllRead fires and the query refetches to empty in the background.
+  const [notificationSnapshot, setNotificationSnapshot] = useState(unreadNotifications)
+
+  useEffect(() => {
+    if (bellOpened) {
+      setNotificationSnapshot(unreadNotifications)
+      if (unreadNotifications.length > 0) markAllRead.mutate()
+    }
+  }, [bellOpened]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleAccept = async (token: string, groupName: string, groupId: number) => {
+    try {
+      await acceptInvitation.mutateAsync(token)
+      closeBell()
+      notifications.show({ color: 'green', message: `Joined ${groupName}!` })
+      navigate(`/groups/${groupId}`)
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Could not accept invitation'
+      notifications.show({ color: 'red', message })
+    }
+  }
+
+  const handleDecline = async (token: string) => {
+    try {
+      await declineInvitation.mutateAsync(token)
+    } catch {
+      notifications.show({ color: 'red', message: 'Could not decline invitation' })
+    }
+  }
 
   const handleLogout = () => {
     logout()
@@ -77,6 +127,98 @@ export default function AppShell({ children }: AppShellProps) {
             <Title order={4}>SpinShare</Title>
           </Group>
 
+          <Group gap="xs">
+            <Popover
+              opened={bellOpened}
+              onClose={closeBell}
+              position="bottom-end"
+              shadow="md"
+              width={300}
+            >
+              <Popover.Target>
+                <Indicator
+                  disabled={totalUnread === 0}
+                  label={totalUnread}
+                  size={16}
+                  color="violet"
+                >
+                  <ActionIcon variant="subtle" onClick={toggleBell} aria-label="Notifications">
+                    <IconBell size={18} />
+                  </ActionIcon>
+                </Indicator>
+              </Popover.Target>
+              <Popover.Dropdown p="sm">
+                {pendingInvitations.length === 0 && notificationSnapshot.length === 0 ? (
+                  <Text size="sm" c="dimmed">No new notifications</Text>
+                ) : (
+                  <Stack gap="md">
+                    {pendingInvitations.length > 0 && (
+                      <div>
+                        <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb="xs">
+                          Invitations
+                        </Text>
+                        <Stack gap="xs">
+                          {pendingInvitations.map((inv) => (
+                            <Group key={inv.id} justify="space-between" wrap="nowrap">
+                              <div>
+                                <Text size="sm" fw={500} lineClamp={1}>{inv.group_name}</Text>
+                                <Text size="xs" c="dimmed">from {inv.inviter_username}</Text>
+                              </div>
+                              <Group gap={4} wrap="nowrap">
+                                <ActionIcon
+                                  size="sm"
+                                  variant="light"
+                                  color="green"
+                                  loading={acceptInvitation.isPending}
+                                  onClick={() => handleAccept(inv.token, inv.group_name, inv.group_id)}
+                                  aria-label="Accept"
+                                >
+                                  <IconCheck size={14} />
+                                </ActionIcon>
+                                <ActionIcon
+                                  size="sm"
+                                  variant="light"
+                                  color="red"
+                                  loading={declineInvitation.isPending}
+                                  onClick={() => handleDecline(inv.token)}
+                                  aria-label="Decline"
+                                >
+                                  <IconX size={14} />
+                                </ActionIcon>
+                              </Group>
+                            </Group>
+                          ))}
+                        </Stack>
+                      </div>
+                    )}
+
+                    {notificationSnapshot.length > 0 && (
+                      <div>
+                        <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb="xs">
+                          Activity
+                        </Text>
+                        <Stack gap="xs">
+                          {notificationSnapshot.map((n) => (
+                            <Group key={n.id} wrap="nowrap" gap="xs">
+                              <Text
+                                size="sm"
+                                style={{ cursor: n.group_id ? 'pointer' : 'default' }}
+                                onClick={() => {
+                                  if (n.group_id) { closeBell(); navigate(`/groups/${n.group_id}`) }
+                                }}
+                              >
+                                {n.message}
+                              </Text>
+                            </Group>
+                          ))}
+                        </Stack>
+                      </div>
+                    )}
+                  </Stack>
+                )}
+              </Popover.Dropdown>
+            </Popover>
+
           <Menu shadow="md" width={180}>
             <Menu.Target>
               <UnstyledButton>
@@ -96,6 +238,7 @@ export default function AppShell({ children }: AppShellProps) {
               </Menu.Item>
             </Menu.Dropdown>
           </Menu>
+          </Group>
         </Group>
       </MantineAppShell.Header>
 

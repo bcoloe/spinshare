@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import {
   Anchor,
   Box,
@@ -25,7 +25,9 @@ interface FormValues {
 export default function LoginPage() {
   const { login } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [loading, setLoading] = useState(false)
+  const next = searchParams.get('next') ?? '/'
 
   const form = useForm<FormValues>({
     initialValues: { identifier: '', password: '' },
@@ -44,7 +46,7 @@ export default function LoginPage() {
         ...(isEmail ? { email: identifier } : { username: identifier }),
         password: values.password,
       })
-      navigate('/')
+      navigate(next)
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Login failed'
       notifications.show({ color: 'red', message })

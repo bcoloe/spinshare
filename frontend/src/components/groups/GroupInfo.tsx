@@ -1,8 +1,8 @@
 import { useNavigate } from 'react-router-dom'
-import { Button, Divider, SimpleGrid, Skeleton, Stack, Text, Title } from '@mantine/core'
+import { Badge, Button, Divider, Group, SimpleGrid, Skeleton, Stack, Text, Title } from '@mantine/core'
 import { IconListDetails } from '@tabler/icons-react'
 import MemberList from './MemberList'
-import { useGroupStats } from '../../hooks/useGroups'
+import { useGroupStats, useGroupPendingInvitations } from '../../hooks/useGroups'
 import type { GroupDetailResponse } from '../../types/group'
 
 function formatDate(dateStr: string): string {
@@ -39,8 +39,12 @@ export default function GroupInfo({ group }: Props) {
   const navigate = useNavigate()
   const { data: stats, isLoading: statsLoading } = useGroupStats(group.id)
 
-  const canManageCatalog =
+  const canManage =
     group.current_user_role === 'owner' || group.current_user_role === 'admin'
+
+  const { data: pendingInvitations = [] } = useGroupPendingInvitations(group.id, canManage)
+
+  const canManageCatalog = canManage
 
   return (
     <Stack gap="xl">
@@ -69,6 +73,29 @@ export default function GroupInfo({ group }: Props) {
         <Title order={5} mb="sm">Members</Title>
         <MemberList group={group} />
       </div>
+
+      {canManage && pendingInvitations.length > 0 && (
+        <>
+          <Divider />
+          <div>
+            <Group gap="xs" mb="sm">
+              <Title order={5}>Pending Invitations</Title>
+              <Badge size="sm" variant="light" color="violet">{pendingInvitations.length}</Badge>
+            </Group>
+            <Stack gap="xs">
+              {pendingInvitations.map((inv) => (
+                <Group key={inv.id} justify="space-between">
+                  <Text size="sm">{inv.invited_email}</Text>
+                  <Text size="xs" c="dimmed">
+                    invited by {inv.inviter_username} · expires{' '}
+                    {new Date(inv.expires_at).toLocaleDateString()}
+                  </Text>
+                </Group>
+              ))}
+            </Stack>
+          </div>
+        </>
+      )}
 
       {canManageCatalog && (
         <>
