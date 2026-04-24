@@ -182,18 +182,17 @@ export default function GroupSettingsPage() {
                       disabled={!isOwner && m.role === 'owner'}
                       allowDeselect={false}
                     />
-                    {canRemove(m) && (
-                      <Tooltip label="Remove member">
-                        <ActionIcon
-                          variant="subtle"
-                          color="red"
-                          size="sm"
-                          onClick={() => setMemberToRemove(m)}
-                        >
-                          <IconUserMinus size={14} />
-                        </ActionIcon>
-                      </Tooltip>
-                    )}
+                    <Tooltip label="Remove member" disabled={!canRemove(m)}>
+                      <ActionIcon
+                        variant="subtle"
+                        color="red"
+                        size="sm"
+                        onClick={() => canRemove(m) && setMemberToRemove(m)}
+                        style={{ visibility: canRemove(m) ? 'visible' : 'hidden' }}
+                      >
+                        <IconUserMinus size={14} />
+                      </ActionIcon>
+                    </Tooltip>
                   </Group>
                 </Group>
               ))}
