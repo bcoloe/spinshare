@@ -140,6 +140,7 @@ export default function GroupPage() {
           <LeaveGroupModal
             groupId={gid}
             groupName={group.name}
+            isLastMember={members.length === 1}
             opened={leaveOpened}
             onClose={closeLeave}
           />

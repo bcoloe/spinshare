@@ -165,10 +165,21 @@ class TestGroupServiceDelete:
         assert user not in sample_group.members
         assert sample_group not in user.groups
 
-    def test_sole_owner_cannot_remove_themself(
-        self, sample_group_service, sample_group, sample_user
+    def test_sole_owner_last_member_leaves_deletes_group(
+        self, db_session, sample_group_service, sample_group, sample_user
     ):
-        """If there is only one owner, they cannot remove themselves"""
+        """When the sole owner is also the last member, leaving deletes the group."""
+        group_id = sample_group.id
+        sample_group_service.remove_user(sample_group.id, sample_user.id, sample_user.id)
+        assert db_session.get(Group, group_id) is None
+
+    def test_sole_owner_cannot_leave_with_other_members(
+        self, sample_group_service, sample_group, sample_user, user_factory
+    ):
+        """The sole owner cannot leave while other members would be stranded without an owner."""
+        other = user_factory(email="joe@test.com", username="joe_schmo")
+        sample_group_service.add_user(sample_group.id, other.id)
+
         with pytest.raises(HTTPException) as exc_info:
             sample_group_service.remove_user(sample_group.id, sample_user.id, sample_user.id)
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
@@ -180,7 +191,7 @@ class TestGroupServiceDelete:
     def test_multi_owner_can_remove_themself(
         self, sample_group_service, sample_group, sample_user, user_factory, set_user_role
     ):
-        """If there is are multiple owners, they can remove themselves"""
+        """If there are multiple owners, one can remove themselves."""
         user = user_factory(email="presidente@test.com", username="president")
         sample_group_service.add_user(sample_group.id, user.id)
         set_user_role(user_id=user.id, group_id=sample_group.id, role=GroupRole.Owner)
@@ -199,6 +210,20 @@ class TestGroupServiceDelete:
         assert len(owner_ids) == 1
         assert sample_user.id not in owner_ids
         assert user.id in owner_ids
+
+    def test_last_member_leaving_deletes_group(
+        self, db_session, sample_group_service, sample_group, sample_user, user_factory, set_user_role
+    ):
+        """When the last remaining member leaves, the group is deleted."""
+        second_owner = user_factory(email="second@test.com", username="second_owner")
+        sample_group_service.add_user(sample_group.id, second_owner.id)
+        set_user_role(user_id=second_owner.id, group_id=sample_group.id, role=GroupRole.Owner)
+
+        group_id = sample_group.id
+        sample_group_service.remove_user(sample_group.id, sample_user.id, sample_user.id)
+        sample_group_service.remove_user(sample_group.id, second_owner.id, second_owner.id)
+
+        assert db_session.get(Group, group_id) is None
 
     @pytest.mark.parametrize(
         "user_role",
@@ -392,6 +417,60 @@ class TestGroupServiceMutators:
 
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
         assert exc_info.value.detail == "You must be a member of this group"
+
+    @pytest.mark.parametrize("new_role", [GroupRole.Admin, GroupRole.Member])
+    def test_sole_owner_cannot_demote_themselves(
+        self, sample_group_service, sample_group, sample_user, new_role
+    ):
+        """The sole owner cannot change their own role — they must promote another member first."""
+        with pytest.raises(HTTPException) as exc_info:
+            sample_group_service.set_user_role(
+                sample_user.id, sample_user.id, sample_group.id, role=new_role
+            )
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+        assert (
+            exc_info.value.detail
+            == "Cannot demote the only group owner -- promote another member first"
+        )
+        assert sample_group_service.get_user_role(sample_user.id, sample_group.id) == GroupRole.Owner
+
+    @pytest.mark.parametrize("new_role", [GroupRole.Admin, GroupRole.Member])
+    def test_sole_owner_cannot_be_demoted_by_another_owner(
+        self, sample_group_service, sample_group, sample_user, user_factory, set_user_role, new_role
+    ):
+        """Another owner cannot demote the sole remaining owner."""
+        second_owner = user_factory(email="second@test.com", username="second_owner")
+        sample_group_service.add_user(sample_group.id, second_owner.id)
+        set_user_role(user_id=second_owner.id, group_id=sample_group.id, role=GroupRole.Owner)
+
+        # Demote second_owner so sample_user is the only owner again
+        sample_group_service.set_user_role(
+            second_owner.id, sample_user.id, sample_group.id, role=GroupRole.Admin
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            sample_group_service.set_user_role(
+                sample_user.id, second_owner.id, sample_group.id, role=new_role
+            )
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+        assert (
+            exc_info.value.detail
+            == "Cannot demote the only group owner -- promote another member first"
+        )
+
+    @pytest.mark.parametrize("new_role", [GroupRole.Admin, GroupRole.Member])
+    def test_owner_can_demote_themselves_when_another_owner_exists(
+        self, sample_group_service, sample_group, sample_user, user_factory, set_user_role, new_role
+    ):
+        """An owner can change their own role once another owner has been promoted."""
+        second_owner = user_factory(email="second@test.com", username="second_owner")
+        sample_group_service.add_user(sample_group.id, second_owner.id)
+        set_user_role(user_id=second_owner.id, group_id=sample_group.id, role=GroupRole.Owner)
+
+        sample_group_service.set_user_role(
+            sample_user.id, sample_user.id, sample_group.id, role=new_role
+        )
+        assert sample_group_service.get_user_role(sample_user.id, sample_group.id) == new_role
 
     @pytest.mark.parametrize(
         "user_role",

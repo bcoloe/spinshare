@@ -92,10 +92,11 @@ class GroupService:
             ) from None
 
     def remove_user(self, group_id: int, user_id: int, removed_by_user_id: int):
-        """Remove a user from a group.
+        """Remove a user from a group. If the removed user is the last member, the group is deleted.
 
         Raises:
             HTTPException 403 if user is not authorized to remove (i.e., >=admin or owner themselves)
+            HTTPException 403 if removing the sole owner while other members remain
         """
         group = self.get_group_by_id(group_id)
         if not self.is_user_in_group(user_id, group_id):
@@ -105,15 +106,21 @@ class GroupService:
         user = user_service.UserService(self.db).get_user_by_id(user_id)
         user_role = self.get_user_role(user_id, group_id)
 
-        # Only allow removal by group creator OR member
+        # Only allow removal by group admin/owner or the member themselves
         if removed_by_user_id != user_id:
             self.require_permission(removed_by_user_id, group_id, min(GroupRole.Admin, user_role))
-        elif user_role == GroupRole.Owner:
-            if len(self.get_users_with_role(group_id, GroupRole.Owner)) == 1:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Cannot remove the only group owner -- nominate a replacement first",
-                )
+
+        # Block removal of the sole owner while other members would be left without one.
+        # Exception: if the owner is the last member, allow the departure (group will be deleted).
+        if (
+            user_role == GroupRole.Owner
+            and len(self.get_users_with_role(group_id, GroupRole.Owner)) == 1
+            and len(group.members) > 1
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot remove the only group owner -- nominate a replacement first",
+            )
 
         try:
             group.members.remove(user)
@@ -124,6 +131,17 @@ class GroupService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Cannot remove user due to existing dependencies",
             ) from None
+
+        if not group.members:
+            try:
+                self.db.delete(group)
+                self.db.commit()
+            except IntegrityError:
+                self.db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Cannot delete group due to existing dependencies",
+                ) from None
 
     # ==================== GET ====================
     def get_group_by_id(self, group_id: int) -> Group:
@@ -210,6 +228,17 @@ class GroupService:
 
         if not force:
             self.require_permission(set_by_user_id, group_id, role)
+
+        current_role = self.get_user_role(user_id, group_id)
+        if (
+            current_role == GroupRole.Owner
+            and role != GroupRole.Owner
+            and len(self.get_users_with_role(group_id, GroupRole.Owner)) == 1
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot demote the only group owner -- promote another member first",
+            )
 
         try:
             stmt = (

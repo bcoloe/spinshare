@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
+  ActionIcon,
   Button,
   Divider,
   Group,
@@ -12,18 +13,22 @@ import {
   Text,
   TextInput,
   Title,
+  Tooltip,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { IconArrowLeft } from '@tabler/icons-react'
+import { IconArrowLeft, IconUserMinus } from '@tabler/icons-react'
 import AppShell from '../components/layout/AppShell'
 import {
   useDeleteGroup,
   useGroup,
   useGroupMembers,
+  useRemoveMember,
   useUpdateGroup,
   useUpdateMemberRole,
 } from '../hooks/useGroups'
+import { useAuth } from '../hooks/useAuth'
 import { ApiError } from '../services/apiClient'
+import { GroupMemberResponse } from '../types/group'
 
 const ROLE_OPTIONS = [
   { value: 'member', label: 'Member' },
@@ -36,20 +41,24 @@ export default function GroupSettingsPage() {
   const gid = Number(groupId)
   const navigate = useNavigate()
 
+  const { user } = useAuth()
   const { data: group, isLoading: groupLoading } = useGroup(gid)
   const { data: members = [], isLoading: membersLoading } = useGroupMembers(gid)
   const updateGroup = useUpdateGroup(gid)
   const updateRole = useUpdateMemberRole(gid)
   const deleteGroup = useDeleteGroup()
+  const removeMember = useRemoveMember()
 
   const [name, setName] = useState<string | null>(null)
   const [isPublic, setIsPublic] = useState<boolean | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [memberToRemove, setMemberToRemove] = useState<GroupMemberResponse | null>(null)
 
   const currentName = name ?? group?.name ?? ''
   const currentPublic = isPublic ?? group?.is_public ?? true
 
   const isOwner = group?.current_user_role === 'owner'
+  const currentRole = group?.current_user_role
 
   const handleSave = async () => {
     try {
@@ -68,6 +77,26 @@ export default function GroupSettingsPage() {
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Could not update role'
       notifications.show({ color: 'red', message })
+    }
+  }
+
+  const canRemove = (target: GroupMemberResponse) => {
+    if (target.user_id === user?.id) return false
+    if (currentRole === 'owner') return true
+    if (currentRole === 'admin') return target.role !== 'owner'
+    return false
+  }
+
+  const handleRemoveMember = async () => {
+    if (!memberToRemove) return
+    try {
+      await removeMember.mutateAsync({ groupId: gid, userId: memberToRemove.user_id })
+      notifications.show({ color: 'green', message: `${memberToRemove.username} was removed` })
+      setMemberToRemove(null)
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Could not remove member'
+      notifications.show({ color: 'red', message })
+      setMemberToRemove(null)
     }
   }
 
@@ -143,15 +172,28 @@ export default function GroupSettingsPage() {
               {members.map((m) => (
                 <Group key={m.user_id} justify="space-between">
                   <Text size="sm">{m.username}</Text>
-                  <Select
-                    size="xs"
-                    w={110}
-                    data={ROLE_OPTIONS}
-                    value={m.role}
-                    onChange={(val) => val && handleRoleChange(m.user_id, val)}
-                    disabled={!isOwner && m.role === 'owner'}
-                    allowDeselect={false}
-                  />
+                  <Group gap="xs">
+                    <Select
+                      size="xs"
+                      w={110}
+                      data={ROLE_OPTIONS}
+                      value={m.role}
+                      onChange={(val) => val && handleRoleChange(m.user_id, val)}
+                      disabled={!isOwner && m.role === 'owner'}
+                      allowDeselect={false}
+                    />
+                    <Tooltip label="Remove member" disabled={!canRemove(m)}>
+                      <ActionIcon
+                        variant="subtle"
+                        color="red"
+                        size="sm"
+                        onClick={() => canRemove(m) && setMemberToRemove(m)}
+                        style={{ visibility: canRemove(m) ? 'visible' : 'hidden' }}
+                      >
+                        <IconUserMinus size={14} />
+                      </ActionIcon>
+                    </Tooltip>
+                  </Group>
                 </Group>
               ))}
             </Stack>
@@ -194,6 +236,25 @@ export default function GroupSettingsPage() {
           </Button>
           <Button color="red" loading={deleteGroup.isPending} onClick={handleDelete}>
             Delete
+          </Button>
+        </Group>
+      </Modal>
+
+      <Modal
+        opened={memberToRemove !== null}
+        onClose={() => setMemberToRemove(null)}
+        title="Remove member"
+      >
+        <Text size="sm" mb="lg">
+          Are you sure you want to remove <strong>{memberToRemove?.username}</strong> from this
+          group?
+        </Text>
+        <Group justify="flex-end">
+          <Button variant="default" onClick={() => setMemberToRemove(null)}>
+            Cancel
+          </Button>
+          <Button color="red" loading={removeMember.isPending} onClick={handleRemoveMember}>
+            Remove
           </Button>
         </Group>
       </Modal>
