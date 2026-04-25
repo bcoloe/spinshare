@@ -6,6 +6,7 @@ import {
   Divider,
   Group,
   Modal,
+  NumberInput,
   Select,
   Skeleton,
   Stack,
@@ -51,18 +52,29 @@ export default function GroupSettingsPage() {
 
   const [name, setName] = useState<string | null>(null)
   const [isPublic, setIsPublic] = useState<boolean | null>(null)
+  const [minRoleToAddMembers, setMinRoleToAddMembers] = useState<string | null>(null)
+  const [dailyAlbumCount, setDailyAlbumCount] = useState<number | string | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [memberToRemove, setMemberToRemove] = useState<GroupMemberResponse | null>(null)
 
   const currentName = name ?? group?.name ?? ''
   const currentPublic = isPublic ?? group?.is_public ?? true
+  const currentMinRole = minRoleToAddMembers ?? group?.settings?.min_role_to_add_members ?? 'admin'
+  const currentDailyCount = dailyAlbumCount ?? group?.settings?.daily_album_count ?? 1
 
   const isOwner = group?.current_user_role === 'owner'
   const currentRole = group?.current_user_role
 
   const handleSave = async () => {
     try {
-      await updateGroup.mutateAsync({ name: currentName, is_public: currentPublic })
+      await updateGroup.mutateAsync({
+        name: currentName,
+        is_public: currentPublic,
+        settings: {
+          min_role_to_add_members: currentMinRole,
+          daily_album_count: typeof currentDailyCount === 'number' ? currentDailyCount : undefined,
+        },
+      })
       notifications.show({ color: 'green', message: 'Settings saved' })
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Could not save settings'
@@ -147,6 +159,37 @@ export default function GroupSettingsPage() {
             description="Public groups can be found and joined by anyone."
             checked={currentPublic}
             onChange={(e) => setIsPublic(e.currentTarget.checked)}
+          />
+          <Button
+            style={{ alignSelf: 'flex-start' }}
+            loading={updateGroup.isPending}
+            onClick={handleSave}
+          >
+            Save
+          </Button>
+        </Stack>
+
+        <Divider />
+
+        <Stack gap="md">
+          <Title order={5}>Access & Policy</Title>
+          <Select
+            label="Who can add members"
+            description="Minimum role required to add new members to this group."
+            data={ROLE_OPTIONS}
+            value={currentMinRole}
+            onChange={(val) => val && setMinRoleToAddMembers(val)}
+            allowDeselect={false}
+            w={200}
+          />
+          <NumberInput
+            label="Albums per day"
+            description="Number of albums drawn for daily review (max 10)."
+            value={currentDailyCount}
+            onChange={setDailyAlbumCount}
+            min={1}
+            max={10}
+            w={120}
           />
           <Button
             style={{ alignSelf: 'flex-start' }}

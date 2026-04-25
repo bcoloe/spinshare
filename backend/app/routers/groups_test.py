@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from app.models.group import GroupRole
-from app.routers.conftest import make_mock_group, make_mock_user
+from app.routers.conftest import make_mock_group, make_mock_settings, make_mock_user
 from fastapi import status
 
 _NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -109,6 +109,7 @@ class TestGroupUpdate:
     def test_update_group_success(self, client, mock_group_service):
         updated = make_mock_group(name="NewName")
         mock_group_service.get_group_by_id.return_value = updated
+        mock_group_service.get_user_role.return_value = GroupRole.Owner
 
         resp = client.patch("/groups/1", json={"name": "NewName"})
 
@@ -205,12 +206,14 @@ class TestGroupMembers:
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
     def test_add_member_success(self, client, mock_group_service):
+        mock_group_service.get_group_settings.return_value = make_mock_settings()
         resp = client.post("/groups/1/members", json={"user_id": 2})
         assert resp.status_code == status.HTTP_201_CREATED
         mock_group_service.add_user.assert_called_once()
 
     def test_add_member_forbidden(self, client, mock_group_service):
         from fastapi import HTTPException
+        mock_group_service.get_group_settings.return_value = make_mock_settings()
         mock_group_service.require_permission.side_effect = HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Requires at least admin role"
         )
@@ -234,6 +237,7 @@ class TestGroupMembers:
 class TestGroupSearch:
     def test_search_by_name(self, client, mock_group_service):
         mock_group_service.search_groups.return_value = [make_mock_group(name="Bumblebees")]
+        mock_group_service.get_user_role.return_value = None
 
         resp = client.get("/groups/search?query=Bumble")
 
@@ -245,6 +249,7 @@ class TestGroupSearch:
 
     def test_search_by_username(self, client, mock_group_service):
         mock_group_service.search_groups.return_value = [make_mock_group()]
+        mock_group_service.get_user_role.return_value = None
 
         resp = client.get("/groups/search?username=test_user")
 

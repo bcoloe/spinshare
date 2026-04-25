@@ -2,6 +2,7 @@ from .album import Album
 from .genre import Genre, album_genres
 from .group import Group, group_members
 from .group_album import GroupAlbum
+from .group_settings import GroupSettings
 from .invitation import GroupInvitation
 from .nomination_guess import NominationGuess
 from .notification import Notification
@@ -16,6 +17,7 @@ __all__ = [
     "Group",
     "album_genres",
     "GroupAlbum",
+    "GroupSettings",
     "GroupInvitation",
     "NominationGuess",
     "Notification",

@@ -45,6 +45,12 @@ export default function GroupPage() {
   const canManage =
     group?.current_user_role === 'owner' || group?.current_user_role === 'admin'
 
+  const ROLE_RANK: Record<string, number> = { owner: 0, admin: 1, member: 2 }
+  const minRoleToInvite = group?.settings?.min_role_to_add_members ?? 'admin'
+  const canInvite =
+    !!group?.current_user_role &&
+    (ROLE_RANK[group.current_user_role] ?? 99) <= (ROLE_RANK[minRoleToInvite] ?? 99)
+
   return (
     <AppShell>
       <Stack gap="lg">
@@ -68,7 +74,7 @@ export default function GroupPage() {
             </div>
 
             <Group gap="xs">
-              {canManage && (
+              {canInvite && (
                 <Tooltip label="Invite member">
                   <ActionIcon variant="subtle" onClick={openInvite}>
                     <IconUserPlus size={18} />
@@ -144,7 +150,7 @@ export default function GroupPage() {
             opened={leaveOpened}
             onClose={closeLeave}
           />
-          {canManage && (
+          {canInvite && (
             <InviteUserModal groupId={gid} opened={inviteOpened} onClose={closeInvite} />
           )}
         </>
