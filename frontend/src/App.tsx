@@ -1,9 +1,19 @@
 import { lazy, Suspense } from 'react'
-import { createBrowserRouter, RouterProvider } from 'react-router-dom'
+import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom'
 import { LoadingOverlay } from '@mantine/core'
+import { useAuth } from './hooks/useAuth'
 
 const ProtectedRoute = lazy(() => import('./components/auth/ProtectedRoute'))
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
+
+function RootRoute() {
+  const { user } = useAuth()
+  const favoriteId = user?.username
+    ? localStorage.getItem(`spinshare_favorite_group_${user.username}`)
+    : null
+  if (favoriteId) return <Navigate to={`/groups/${favoriteId}`} replace />
+  return <DashboardPage />
+}
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
 const GroupPage = lazy(() => import('./pages/GroupPage'))
@@ -21,7 +31,7 @@ const router = createBrowserRouter([
   {
     element: <ProtectedRoute />,
     children: [
-      { path: '/', element: <DashboardPage /> },
+      { path: '/', element: <RootRoute /> },
       { path: '/groups/:groupId', element: <GroupPage /> },
       { path: '/groups/:groupId/spin', element: <DailySpinPage /> },
       { path: '/groups/:groupId/catalog', element: <GroupCatalogPage /> },

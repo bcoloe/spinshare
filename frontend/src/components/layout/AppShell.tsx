@@ -14,6 +14,7 @@ import {
   Skeleton,
   Stack,
   Text,
+  TextInput,
   Title,
   UnstyledButton,
 } from '@mantine/core'
@@ -28,6 +29,8 @@ import {
   IconLogout,
   IconPlus,
   IconSearch,
+  IconStar,
+  IconStarFilled,
   IconUser,
   IconX,
 } from '@tabler/icons-react'
@@ -35,6 +38,7 @@ import { notifications } from '@mantine/notifications'
 import { useEffect } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { useMyGroups, useMyPendingInvitations, useAcceptInvitation, useDeclineInvitation } from '../../hooks/useGroups'
+import { useFavoriteGroup } from '../../context/FavoriteGroupContext'
 import { useUnreadNotifications, useMarkAllNotificationsRead } from '../../hooks/useNotifications'
 import { ApiError } from '../../services/apiClient'
 import CreateGroupModal from '../groups/CreateGroupModal'
@@ -54,6 +58,8 @@ export default function AppShell({ children }: AppShellProps) {
   const [joinOpened, { open: openJoin, close: closeJoin }] = useDisclosure()
 
   const { data: groups, isLoading } = useMyGroups(user?.username ?? '')
+  const { favoriteId, toggleFavorite, clearIfStale } = useFavoriteGroup()
+  const [sidebarFilter, setSidebarFilter] = useState('')
   const { data: pendingInvitations = [] } = useMyPendingInvitations()
   const { data: unreadNotifications = [] } = useUnreadNotifications()
   const acceptInvitation = useAcceptInvitation()
@@ -73,6 +79,10 @@ export default function AppShell({ children }: AppShellProps) {
       if (unreadNotifications.length > 0) markAllRead.mutate()
     }
   }, [bellOpened]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (groups) clearIfStale(groups.map((g) => g.id))
+  }, [groups, clearIfStale])
 
   const handleAccept = async (token: string, groupName: string, groupId: number) => {
     try {
@@ -266,17 +276,41 @@ export default function AppShell({ children }: AppShellProps) {
           <Text size="xs" fw={600} c="dimmed" mb="xs" tt="uppercase">
             Your Groups
           </Text>
+          {!isLoading && (groups?.length ?? 0) > 0 && (
+            <TextInput
+              size="xs"
+              placeholder="Filter..."
+              leftSection={<IconSearch size={12} />}
+              value={sidebarFilter}
+              onChange={(e) => setSidebarFilter(e.currentTarget.value)}
+              mb="xs"
+            />
+          )}
           {isLoading
             ? Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} h={32} mb={4} radius="sm" />)
-            : groups?.map((g) => (
-                <NavLink
-                  key={g.id}
-                  label={g.name}
-                  component={Link}
-                  to={`/groups/${g.id}`}
-                  active={location.pathname.startsWith(`/groups/${g.id}`)}
-                />
-              ))}
+            : [...(groups ?? [])]
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .filter((g) => !sidebarFilter || g.name.toLowerCase().includes(sidebarFilter.toLowerCase()))
+                .map((g) => (
+                  <NavLink
+                    key={g.id}
+                    label={g.name}
+                    component={Link}
+                    to={`/groups/${g.id}`}
+                    active={location.pathname.startsWith(`/groups/${g.id}`)}
+                    rightSection={
+                      <ActionIcon
+                        size="xs"
+                        variant="subtle"
+                        color={favoriteId === g.id ? 'yellow' : 'gray'}
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleFavorite(g.id) }}
+                        aria-label={favoriteId === g.id ? 'Unset default group' : 'Set as default group'}
+                      >
+                        {favoriteId === g.id ? <IconStarFilled size={12} /> : <IconStar size={12} />}
+                      </ActionIcon>
+                    }
+                  />
+                ))}
           {!isLoading && groups?.length === 0 && (
             <Text size="xs" c="dimmed">No groups yet</Text>
           )}
