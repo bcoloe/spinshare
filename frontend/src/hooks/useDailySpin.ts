@@ -19,6 +19,16 @@ export function useTodaysAlbums(groupId: number) {
   })
 }
 
+export function useTriggerDailySelection(groupId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => albumService.triggerDailySelection(groupId),
+    onSuccess: (albums) => {
+      qc.setQueryData(['groups', groupId, 'albums', 'today'], albums)
+    },
+  })
+}
+
 export function useMyReview(albumId: number) {
   return useQuery({
     queryKey: ['reviews', albumId, 'me'],

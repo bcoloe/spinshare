@@ -110,6 +110,42 @@ class TestGetTodaysAlbums:
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
 
+# ==================== TRIGGER DAILY SELECTION ====================
+
+
+class TestTriggerDailySelection:
+    def test_triggers_selection(self, client, mock_svc):
+        mock_svc.trigger_daily_selection.return_value = [make_mock_group_album()]
+        resp = client.post("/groups/1/albums/select-today")
+        assert resp.status_code == status.HTTP_200_OK
+        assert len(resp.json()) == 1
+        mock_svc.trigger_daily_selection.assert_called_once()
+
+    def test_returns_existing_when_already_selected(self, client, mock_svc):
+        mock_svc.trigger_daily_selection.return_value = [make_mock_group_album(id=1), make_mock_group_album(id=2, album_id=2)]
+        resp = client.post("/groups/1/albums/select-today")
+        assert resp.status_code == status.HTTP_200_OK
+        assert len(resp.json()) == 2
+
+    def test_non_member_forbidden(self, client, mock_svc):
+        mock_svc.trigger_daily_selection.side_effect = HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not a member"
+        )
+        resp = client.post("/groups/1/albums/select-today")
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_not_enough_albums_conflict(self, client, mock_svc):
+        mock_svc.trigger_daily_selection.side_effect = HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Not enough unselected albums"
+        )
+        resp = client.post("/groups/1/albums/select-today")
+        assert resp.status_code == status.HTTP_409_CONFLICT
+
+    def test_unauthenticated(self, unauthed_client):
+        resp = unauthed_client.post("/groups/1/albums/select-today")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+
 # ==================== GUESSING ====================
 
 
