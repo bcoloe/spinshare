@@ -190,8 +190,10 @@ class GroupAlbumService:
             nominator_usernames=[n.username for n in nominators],
         )
 
-    def get_my_guess(self, group_id: int, group_album_id: int, user: User) -> NominationGuess:
-        """Get the current user's prior guess for a group album.
+    def get_my_guess(self, group_id: int, group_album_id: int, user: User) -> CheckGuessResponse:
+        """Get the current user's prior guess for a group album, including nominator details.
+
+        Returns the same shape as check_guess so callers always get nominator context.
 
         Raises:
             HTTPException 403: If user is not a group member.
@@ -199,8 +201,25 @@ class GroupAlbumService:
         """
         group_service = gs.GroupService(self.db)
         group_service.require_membership(user.id, group_id)
-        self._get_group_album_or_404(group_id, group_album_id)
-        return self._get_guess(group_album_id, user.id, raise_on_missing=True)
+        group_album = self._get_group_album_or_404(group_id, group_album_id)
+        guess = self._get_guess(group_album_id, user.id, raise_on_missing=True)
+
+        all_nominations = (
+            self.db.query(GroupAlbum)
+            .filter(
+                GroupAlbum.group_id == group_id,
+                GroupAlbum.album_id == group_album.album_id,
+            )
+            .all()
+        )
+        nominators = [ga.added_by_user for ga in all_nominations]
+
+        return CheckGuessResponse(
+            guess=NominationGuessResponse.model_validate(guess),
+            correct=guess.correct,
+            nominator_user_ids=[n.id for n in nominators],
+            nominator_usernames=[n.username for n in nominators],
+        )
 
     # ==================== HELPERS ====================
 

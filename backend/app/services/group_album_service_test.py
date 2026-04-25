@@ -341,7 +341,10 @@ class TestGetMyGuess:
         )
 
         result = group_album_service.get_my_guess(sample_group.id, sample_group_album.id, other)
-        assert result.guessing_user_id == other.id
+        assert result.guess.guessing_user_id == other.id
+        assert result.correct is True
+        assert sample_user.id in result.nominator_user_ids
+        assert sample_user.username in result.nominator_usernames
 
     def test_get_my_guess_not_found(
         self, group_album_service, sample_group, sample_group_album, sample_user

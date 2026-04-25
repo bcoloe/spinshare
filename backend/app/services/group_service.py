@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from app.models import Group, GroupSettings, User, group_members
+from app.models import Group, GroupAlbum, GroupSettings, User, group_members
 from app.models.group import GroupRole
 from app.schemas.group import GroupCreate, GroupModifyRequest
 from app.services import user_service
@@ -126,6 +126,14 @@ class GroupService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Cannot remove the only group owner -- nominate a replacement first",
             )
+
+        # Remove the departing member's unselected nominations. Only their own rows are
+        # deleted — co-nominations of the same album by other members remain intact.
+        self.db.query(GroupAlbum).filter(
+            GroupAlbum.group_id == group_id,
+            GroupAlbum.added_by == user_id,
+            GroupAlbum.selected_date.is_(None),
+        ).delete(synchronize_session="fetch")
 
         try:
             group.members.remove(user)

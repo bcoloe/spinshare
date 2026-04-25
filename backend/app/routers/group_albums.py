@@ -13,7 +13,6 @@ from app.schemas.album import GroupAlbumResponse
 from app.schemas.group_album import (
     CheckGuessResponse,
     NominationGuessCreate,
-    NominationGuessResponse,
 )
 from app.services.group_album_service import GroupAlbumService
 from fastapi import APIRouter, Depends, status
@@ -59,7 +58,7 @@ def check_guess(
 
 @router.get(
     "/{group_id}/albums/{group_album_id}/guess/me",
-    response_model=NominationGuessResponse,
+    response_model=CheckGuessResponse,
 )
 def get_my_guess(
     group_id: int,
