@@ -118,23 +118,23 @@ class TestCheckGuess:
         mock_svc.check_guess.return_value = CheckGuessResponse(
             guess=make_mock_guess_response(),
             correct=True,
-            nominator_user_id=1,
-            nominator_username="test_user",
+            nominator_user_ids=[1],
+            nominator_usernames=["test_user"],
         )
         resp = client.post("/groups/1/albums/1/check-guess", json={"guessed_user_id": 1})
         assert resp.status_code == status.HTTP_201_CREATED
         body = resp.json()
         assert body["correct"] is True
-        assert body["nominator_user_id"] == 1
-        assert body["nominator_username"] == "test_user"
+        assert body["nominator_user_ids"] == [1]
+        assert body["nominator_usernames"] == ["test_user"]
         mock_svc.check_guess.assert_called_once()
 
     def test_incorrect_guess(self, client, mock_svc):
         mock_svc.check_guess.return_value = CheckGuessResponse(
             guess=make_mock_guess_response(guessed_user_id=99),
             correct=False,
-            nominator_user_id=1,
-            nominator_username="test_user",
+            nominator_user_ids=[1],
+            nominator_usernames=["test_user"],
         )
         resp = client.post("/groups/1/albums/1/check-guess", json={"guessed_user_id": 99})
         assert resp.status_code == status.HTTP_201_CREATED

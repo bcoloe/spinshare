@@ -7,6 +7,7 @@ from app.models.genre import Genre
 from app.schemas.album import AlbumCreate, GroupAlbumStatus, GroupAlbumStatusUpdate
 from app.services import group_service as gs
 from fastapi import HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -107,20 +108,53 @@ class AlbumService:
         return group_album
 
     def remove_group_album(self, group_id: int, group_album_id: int, user: User):
-        """Remove a nominated album from a group catalog.
+        """Remove a nomination from a group catalog.
+
+        Admins/owners remove ALL nominations for the album.
+        Regular members remove only their own nomination.
 
         Raises:
-            HTTPException 403: If user is not the nominator and not an admin/owner.
+            HTTPException 403: If user is not a nominator and not an admin/owner.
             HTTPException 404: If group album not found.
         """
-        group_album = self.get_group_album(group_id, group_album_id)
+        canonical_ga = self.get_group_album(group_id, group_album_id)
         group_service = gs.GroupService(self.db)
 
-        if group_album.added_by != user.id:
+        try:
             group_service.require_permission(user.id, group_id, gs.GroupRole.Admin)
+            is_admin = True
+        except HTTPException:
+            is_admin = False
+
+        if is_admin:
+            to_delete = (
+                self.db.query(GroupAlbum)
+                .filter(
+                    GroupAlbum.group_id == group_id,
+                    GroupAlbum.album_id == canonical_ga.album_id,
+                )
+                .all()
+            )
+        else:
+            user_ga = (
+                self.db.query(GroupAlbum)
+                .filter(
+                    GroupAlbum.group_id == group_id,
+                    GroupAlbum.album_id == canonical_ga.album_id,
+                    GroupAlbum.added_by == user.id,
+                )
+                .first()
+            )
+            if not user_ga:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You are not a nominator for this album",
+                )
+            to_delete = [user_ga]
 
         try:
-            self.db.delete(group_album)
+            for ga in to_delete:
+                self.db.delete(ga)
             self.db.commit()
         except IntegrityError:
             self.db.rollback()
@@ -132,7 +166,7 @@ class AlbumService:
     def update_group_album_status(
         self, group_id: int, group_album_id: int, update: GroupAlbumStatusUpdate, user: User
     ) -> GroupAlbum:
-        """Update group album status (pending → selected → reviewed). Requires Admin or Owner.
+        """Update status for all nominations of an album. Requires Admin or Owner.
 
         Raises:
             HTTPException 403: If user is not an admin/owner.
@@ -141,13 +175,23 @@ class AlbumService:
         group_service = gs.GroupService(self.db)
         group_service.require_permission(user.id, group_id, gs.GroupRole.Admin)
 
-        group_album = self.get_group_album(group_id, group_album_id)
-        group_album.status = update.status.value
-        if update.status == GroupAlbumStatus.Selected:
-            group_album.selected_date = datetime.now(timezone.utc)
+        canonical_ga = self.get_group_album(group_id, group_album_id)
+        all_nominations = (
+            self.db.query(GroupAlbum)
+            .filter(
+                GroupAlbum.group_id == group_id,
+                GroupAlbum.album_id == canonical_ga.album_id,
+            )
+            .all()
+        )
+        now = datetime.now(timezone.utc) if update.status == GroupAlbumStatus.Selected else None
+        for ga in all_nominations:
+            ga.status = update.status.value
+            if now:
+                ga.selected_date = now
         self.db.commit()
-        self.db.refresh(group_album)
-        return group_album
+        self.db.refresh(canonical_ga)
+        return canonical_ga
 
     # ==================== GET ====================
 
@@ -197,11 +241,53 @@ class AlbumService:
     def get_group_albums(
         self, group_id: int, status_filter: str | None = None
     ) -> list[GroupAlbum]:
-        """List all group albums, optionally filtered by status."""
-        q = self.db.query(GroupAlbum).filter(GroupAlbum.group_id == group_id)
+        """List group albums unified per album (one entry per unique album with nomination count).
+
+        Multiple nominations for the same album are collapsed into the earliest
+        GroupAlbum row (canonical), with nomination_count and nominator_user_ids attached.
+        """
+        subq = (
+            self.db.query(
+                GroupAlbum.album_id,
+                func.min(GroupAlbum.id).label("canonical_id"),
+                func.count(GroupAlbum.id).label("nomination_count"),
+            )
+            .filter(GroupAlbum.group_id == group_id)
+            .group_by(GroupAlbum.album_id)
+            .subquery()
+        )
+
+        q = (
+            self.db.query(GroupAlbum, subq.c.nomination_count)
+            .join(subq, GroupAlbum.id == subq.c.canonical_id)
+        )
         if status_filter:
             q = q.filter(GroupAlbum.status == status_filter)
-        return q.all()
+
+        rows = q.all()
+        if not rows:
+            return []
+
+        # Fetch all nominator IDs grouped by album for this group
+        album_ids = [ga.album_id for ga, _ in rows]
+        raw = (
+            self.db.query(GroupAlbum.album_id, GroupAlbum.added_by)
+            .filter(
+                GroupAlbum.group_id == group_id,
+                GroupAlbum.album_id.in_(album_ids),
+            )
+            .all()
+        )
+        nominators_by_album: dict[int, list[int]] = {}
+        for album_id, added_by in raw:
+            nominators_by_album.setdefault(album_id, []).append(added_by)
+
+        result = []
+        for ga, count in rows:
+            ga.nomination_count = count
+            ga.nominator_user_ids = nominators_by_album.get(ga.album_id, [ga.added_by])
+            result.append(ga)
+        return result
 
     def get_group_album(self, group_id: int, group_album_id: int) -> GroupAlbum:
         """Get a specific group album entry.

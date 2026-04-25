@@ -25,5 +25,5 @@ class CheckGuessResponse(BaseModel):
 
     guess: NominationGuessResponse
     correct: bool
-    nominator_user_id: int
-    nominator_username: str
+    nominator_user_ids: list[int]
+    nominator_usernames: list[str]
