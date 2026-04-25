@@ -1,6 +1,8 @@
 import random
+from datetime import datetime, timezone
 
 import pytest
+from app.models import GroupAlbum
 from app.models.group import Group, GroupRole
 from app.schemas.group import GroupCreate, GroupModifyRequest, GroupSettingsUpdate
 from fastapi import HTTPException, status
@@ -273,6 +275,60 @@ class TestGroupServiceDelete:
             exc_info.value.detail
             == f"Requires at least {GroupRole.Admin} role"
         )
+
+
+class TestGroupServiceRemoveUserPendingNominations:
+    """Pending nominations by a departing member should be cleaned up."""
+
+    def _add_nomination(self, db_session, group_id, album_id, user_id, *, selected=False):
+        ga = GroupAlbum(
+            group_id=group_id,
+            album_id=album_id,
+            added_by=user_id,
+            selected_date=datetime.now(tz=timezone.utc) if selected else None,
+        )
+        db_session.add(ga)
+        db_session.commit()
+        db_session.refresh(ga)
+        return ga
+
+    def test_pending_nomination_removed_on_leave(
+        self, db_session, sample_group_service, sample_group, sample_user, sample_album, user_factory
+    ):
+        """A departing member's pending nomination is deleted."""
+        leaver = user_factory(email="leaver@test.com", username="leaver")
+        sample_group_service.add_user(sample_group.id, leaver.id)
+        ga_id = self._add_nomination(db_session, sample_group.id, sample_album.id, leaver.id).id
+
+        sample_group_service.remove_user(sample_group.id, leaver.id, leaver.id)
+
+        assert db_session.get(GroupAlbum, ga_id) is None
+
+    def test_selected_nomination_retained_on_leave(
+        self, db_session, sample_group_service, sample_group, sample_user, sample_album, user_factory
+    ):
+        """Already-selected nominations are not deleted when the nominator leaves."""
+        leaver = user_factory(email="leaver@test.com", username="leaver")
+        sample_group_service.add_user(sample_group.id, leaver.id)
+        ga_id = self._add_nomination(db_session, sample_group.id, sample_album.id, leaver.id, selected=True).id
+
+        sample_group_service.remove_user(sample_group.id, leaver.id, leaver.id)
+
+        assert db_session.get(GroupAlbum, ga_id) is not None
+
+    def test_co_nominated_album_survives_partial_departure(
+        self, db_session, sample_group_service, sample_group, sample_user, sample_album, user_factory
+    ):
+        """When multiple members nominated the same album, only the leaver's row is removed."""
+        leaver = user_factory(email="leaver@test.com", username="leaver")
+        sample_group_service.add_user(sample_group.id, leaver.id)
+        leaver_ga_id = self._add_nomination(db_session, sample_group.id, sample_album.id, leaver.id).id
+        stayer_ga_id = self._add_nomination(db_session, sample_group.id, sample_album.id, sample_user.id).id
+
+        sample_group_service.remove_user(sample_group.id, leaver.id, leaver.id)
+
+        assert db_session.get(GroupAlbum, leaver_ga_id) is None
+        assert db_session.get(GroupAlbum, stayer_ga_id) is not None
 
 
 class TestGroupServiceGetters:
