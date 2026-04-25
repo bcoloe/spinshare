@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.dependencies import get_current_user, get_group_service
 from app.main import app
-from app.models import Group, User
+from app.models import Group, GroupSettings, User
 from app.services.group_service import GroupService
 from app.utils.security import create_access_token
 
@@ -29,6 +29,16 @@ def _auth_headers_for(user) -> dict:
 
 # ==================== GROUP HELPERS ====================
 
+def make_mock_settings(
+    min_role_to_add_members="admin",
+    daily_album_count=1,
+) -> MagicMock:
+    settings = MagicMock(spec=GroupSettings)
+    settings.min_role_to_add_members = min_role_to_add_members
+    settings.daily_album_count = daily_album_count
+    return settings
+
+
 def make_mock_group(
     id=1,
     name="Bumblebees",
@@ -36,6 +46,7 @@ def make_mock_group(
     members=None,
     albums=None,
     created_at=None,
+    settings=None,
 ) -> MagicMock:
     group = MagicMock(spec=Group)
     group.id = id
@@ -44,6 +55,7 @@ def make_mock_group(
     group.members = members if members is not None else []
     group.albums = albums if albums is not None else []
     group.created_at = created_at or datetime(2026, 1, 1, tzinfo=timezone.utc)
+    group.settings = settings if settings is not None else make_mock_settings()
     return group
 
 

@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from app.models import Group, User, group_members
+from app.models import Group, GroupSettings, User, group_members
 from app.models.group import GroupRole
 from app.schemas.group import GroupCreate, GroupModifyRequest
 from app.services import user_service
@@ -49,6 +49,11 @@ class GroupService:
 
         self.add_user(group.id, user.id)
         self.set_user_role(user.id, user.id, group.id, GroupRole.Owner, force=True)
+
+        settings = GroupSettings(group_id=group.id)
+        self.db.add(settings)
+        self.db.commit()
+
         return group
 
     # ==================== ADD ====================
@@ -299,19 +304,41 @@ class GroupService:
         if update_data.is_public is not None:
             group.is_public = update_data.is_public
 
+        # Change policy settings
+        if update_data.settings is not None:
+            gs = self.get_group_settings(group_id)
+            if update_data.settings.min_role_to_add_members is not None:
+                gs.min_role_to_add_members = update_data.settings.min_role_to_add_members
+            if update_data.settings.daily_album_count is not None:
+                gs.daily_album_count = update_data.settings.daily_album_count
+
         try:
             self.db.commit()
         except IntegrityError:
             self.db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Cannot update group name due to existing dependencies.",
+                detail="Cannot update group settings due to existing dependencies.",
             ) from None
+
+    def get_group_settings(self, group_id: int) -> GroupSettings:
+        """Get settings for a group, creating defaults if missing.
+
+        Raises:
+            HTTPException 404: If group not found.
+        """
+        group = self.get_group_by_id(group_id)
+        if group.settings is None:
+            settings = GroupSettings(group_id=group_id)
+            self.db.add(settings)
+            self.db.commit()
+            self.db.refresh(group)
+        return group.settings
 
     def _update_group_name(self, group: Group, name: str):
         """Update the group name."""
         existing_group = self.get_group_by_name(name)
-        if existing_group:
+        if existing_group and existing_group.id != group.id:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail="Group name already registered"
             )

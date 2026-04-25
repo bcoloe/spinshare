@@ -10,6 +10,7 @@ from app.schemas.group import (
     GroupMemberResponse,
     GroupModifyRequest,
     GroupResponse,
+    GroupSettingsResponse,
     GroupStatsResponse,
     JoinGroupResponse,
     RoleUpdateRequest,
@@ -53,6 +54,7 @@ def search_groups(
             current_user_role=(
                 role.value if (role := group_service.get_user_role(current_user.id, g.id)) else None
             ),
+            settings=GroupSettingsResponse.model_validate(g.settings) if g.settings else None,
         )
         for g in groups
     ]
@@ -78,6 +80,7 @@ def get_group_by_name(
         is_public=group.is_public,
         member_count=len(group.members),
         current_user_role=current_role.value if current_role else None,
+        settings=GroupSettingsResponse.model_validate(group.settings) if group.settings else None,
     )
 
 
@@ -99,19 +102,30 @@ def get_group(
         is_public=group.is_public,
         member_count=len(group.members),
         current_user_role=current_role.value if current_role else None,
+        settings=GroupSettingsResponse.model_validate(group.settings) if group.settings else None,
     )
 
 
-@router.patch("/{group_id}", response_model=GroupResponse)
+@router.patch("/{group_id}", response_model=GroupDetailResponse)
 def update_group(
     group_id: int,
     update_data: GroupModifyRequest,
     current_user: User = Depends(get_current_user),
     group_service: GroupService = Depends(get_group_service),
 ):
-    """Update group settings (name, visibility). Requires Admin or Owner role."""
+    """Update group settings. Requires Admin or Owner role."""
     group_service.update_group_settings(group_id, current_user.id, update_data)
-    return group_service.get_group_by_id(group_id)
+    group = group_service.get_group_by_id(group_id)
+    current_role = group_service.get_user_role(current_user.id, group_id)
+    return GroupDetailResponse(
+        id=group.id,
+        name=group.name,
+        created_at=group.created_at,
+        is_public=group.is_public,
+        member_count=len(group.members),
+        current_user_role=current_role.value if current_role else None,
+        settings=GroupSettingsResponse.model_validate(group.settings) if group.settings else None,
+    )
 
 
 @router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -166,8 +180,11 @@ def add_member(
     current_user: User = Depends(get_current_user),
     group_service: GroupService = Depends(get_group_service),
 ):
-    """Add a user to a group. Requires Admin or Owner role."""
-    group_service.require_permission(current_user.id, group_id, GroupRole.Admin)
+    """Add a user to a group. Required role is configured per group (default: Admin or Owner)."""
+    settings = group_service.get_group_settings(group_id)
+    group_service.require_permission(
+        current_user.id, group_id, GroupRole(settings.min_role_to_add_members)
+    )
     group_service.add_user(group_id, body.user_id)
 
 

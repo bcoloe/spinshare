@@ -4,10 +4,16 @@ export interface GroupResponse {
   created_at: string
 }
 
+export interface GroupSettings {
+  min_role_to_add_members: 'owner' | 'admin' | 'member'
+  daily_album_count: number
+}
+
 export interface GroupDetailResponse extends GroupResponse {
   is_public: boolean
   member_count: number
   current_user_role: 'owner' | 'admin' | 'member' | null
+  settings: GroupSettings | null
 }
 
 export interface GroupMemberResponse {
@@ -32,6 +38,10 @@ export interface GroupCreate {
 export interface GroupModify {
   name?: string
   is_public?: boolean
+  settings?: {
+    min_role_to_add_members?: string
+    daily_album_count?: number
+  }
 }
 
 export interface InvitationResponse {

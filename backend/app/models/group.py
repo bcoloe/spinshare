@@ -66,3 +66,4 @@ class Group(Base):
     creator = relationship("User", foreign_keys=[created_by], back_populates="created_groups")
     members = relationship("User", secondary=group_members, back_populates="groups")
     albums = relationship("GroupAlbum", back_populates="group")
+    settings = relationship("GroupSettings", back_populates="group", uselist=False, cascade="all, delete-orphan")

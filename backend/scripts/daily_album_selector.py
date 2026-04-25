@@ -24,8 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.database import Base
-from app.models import Group  # noqa: F401 — ensure all models are registered
-from app.models import GroupAlbum  # noqa: F401
+from app.models import Group, GroupAlbum, GroupSettings  # noqa: F401 — ensure all models are registered
 from app.services.group_album_service import GroupAlbumService
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -34,14 +33,18 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 
-def run(n: int, group_id: int | None, db: Session) -> None:
+def run(n: int | None, group_id: int | None, db: Session) -> None:
     svc = GroupAlbumService(db)
 
     groups = db.query(Group).all() if group_id is None else [_get_group(db, group_id)]
 
     for group in groups:
+        # --n flag overrides per-group setting; otherwise use the group's configured count.
+        group_n = n if n is not None else (
+            group.settings.daily_album_count if group.settings else 1
+        )
         try:
-            selected = svc.select_daily_albums(group.id, n=n)
+            selected = svc.select_daily_albums(group.id, n=group_n)
             titles = [ga.albums.title for ga in selected]
             log.info("Group %d (%s): selected %s", group.id, group.name, titles)
         except Exception as exc:
@@ -58,7 +61,7 @@ def _get_group(db: Session, group_id: int) -> Group:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Daily album selector")
-    parser.add_argument("--n", type=int, default=1, help="Albums to select per group")
+    parser.add_argument("--n", type=int, default=None, help="Albums to select per group (overrides per-group setting)")
     parser.add_argument("--group", type=int, default=None, help="Limit to a specific group ID")
     args = parser.parse_args()
 

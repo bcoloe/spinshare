@@ -2,8 +2,9 @@ import random
 
 import pytest
 from app.models.group import Group, GroupRole
-from app.schemas.group import GroupCreate, GroupModifyRequest
+from app.schemas.group import GroupCreate, GroupModifyRequest, GroupSettingsUpdate
 from fastapi import HTTPException, status
+from pydantic import ValidationError
 
 
 class TestGroupServiceCreate:
@@ -515,6 +516,14 @@ class TestGroupServiceMutators:
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
         assert exc_info.value.detail == f"Requires at least {GroupRole.Admin} role"
 
+    def test_update_group_settings_same_name_allowed(
+        self, sample_group, sample_group_service, sample_user
+    ):
+        """Saving a group with its current name (e.g. when only updating policy settings) must not raise."""
+        request = GroupModifyRequest(name=sample_group.name, is_public=sample_group.is_public)
+        sample_group_service.update_group_settings(sample_group.id, sample_user.id, request)
+        assert sample_group.name == sample_group.name
+
     def test_update_group_settings_name_conflict(
         self, sample_group, sample_group_service, sample_user, group_factory
     ):
@@ -533,6 +542,55 @@ class TestGroupServiceMutators:
         with pytest.raises(HTTPException) as exc_info:
             sample_group_service.update_group_settings(sample_group.id, sample_user.id, request)
         assert exc_info.value.status_code == status.HTTP_409_CONFLICT
+
+
+class TestGroupServiceSettings:
+    def test_create_group_initializes_settings(self, sample_group_service, sample_user):
+        """Creating a group initializes settings with defaults."""
+        group = sample_group_service.create_group(GroupCreate(name="SettingsTest"), sample_user)
+        assert group.settings is not None
+        assert group.settings.min_role_to_add_members == "admin"
+        assert group.settings.daily_album_count == 1
+
+    def test_update_settings_daily_count(self, sample_group, sample_group_service, sample_user):
+        """Owner can update daily_album_count."""
+        request = GroupModifyRequest(settings=GroupSettingsUpdate(daily_album_count=5))
+        sample_group_service.update_group_settings(sample_group.id, sample_user.id, request)
+        assert sample_group.settings.daily_album_count == 5
+
+    def test_update_settings_min_role(self, sample_group, sample_group_service, sample_user):
+        """Owner can update min_role_to_add_members."""
+        request = GroupModifyRequest(settings=GroupSettingsUpdate(min_role_to_add_members="member"))
+        sample_group_service.update_group_settings(sample_group.id, sample_user.id, request)
+        assert sample_group.settings.min_role_to_add_members == "member"
+
+    def test_update_settings_daily_count_exceeds_max(self):
+        """daily_album_count above 10 is rejected at schema validation."""
+        with pytest.raises(ValidationError):
+            GroupModifyRequest(settings=GroupSettingsUpdate(daily_album_count=11))
+
+    def test_update_settings_daily_count_below_min(self):
+        """daily_album_count below 1 is rejected at schema validation."""
+        with pytest.raises(ValidationError):
+            GroupModifyRequest(settings=GroupSettingsUpdate(daily_album_count=0))
+
+    def test_update_settings_invalid_role(self):
+        """Invalid role value is rejected at schema validation."""
+        with pytest.raises(ValidationError):
+            GroupModifyRequest(settings=GroupSettingsUpdate(min_role_to_add_members="superadmin"))
+
+    def test_update_settings_member_cannot_modify(
+        self, sample_group, sample_group_service, user_factory, set_user_role
+    ):
+        """Regular members cannot update group settings."""
+        member = user_factory(email="joe@test.com", username="joe_schmo")
+        sample_group_service.add_user(sample_group.id, member.id)
+        set_user_role(user_id=member.id, group_id=sample_group.id, role=GroupRole.Member)
+
+        request = GroupModifyRequest(settings=GroupSettingsUpdate(daily_album_count=3))
+        with pytest.raises(HTTPException) as exc_info:
+            sample_group_service.update_group_settings(sample_group.id, member.id, request)
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
 
 
 class TestGroupServiceSearch:

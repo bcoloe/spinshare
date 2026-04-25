@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 MIN_GROUP_NAME = 3
 MAX_GROUP_NAME = 50
+MAX_DAILY_ALBUM_COUNT = 10
 
 
 class GroupBase(BaseModel):
@@ -38,11 +39,47 @@ class GroupResponse(GroupBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class GroupSettingsResponse(BaseModel):
+    """Schema for group policy settings"""
+
+    min_role_to_add_members: str
+    daily_album_count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GroupSettingsUpdate(BaseModel):
+    """Schema for updating group policy settings"""
+
+    min_role_to_add_members: str | None = None
+    daily_album_count: int | None = None
+
+    @field_validator("min_role_to_add_members")
+    @classmethod
+    def validate_role(cls, v):
+        if v is None:
+            return v
+        valid = {"owner", "admin", "member"}
+        if v.lower() not in valid:
+            raise ValueError(f"Must be one of: {', '.join(sorted(valid))}")
+        return v.lower()
+
+    @field_validator("daily_album_count")
+    @classmethod
+    def validate_count(cls, v):
+        if v is None:
+            return v
+        if v < 1 or v > MAX_DAILY_ALBUM_COUNT:
+            raise ValueError(f"Must be between 1 and {MAX_DAILY_ALBUM_COUNT}")
+        return v
+
+
 class GroupModifyRequest(BaseModel):
-    """Schema for modifying group metadata"""
+    """Schema for modifying group metadata and policy settings"""
 
     name: str | None = None
     is_public: bool | None = None
+    settings: GroupSettingsUpdate | None = None
 
     @field_validator("name")
     @classmethod
@@ -58,11 +95,12 @@ class GroupModifyRequest(BaseModel):
 
 
 class GroupDetailResponse(GroupResponse):
-    """Extended group response with visibility and member count"""
+    """Extended group response with visibility, member count, and policy settings"""
 
     is_public: bool
     member_count: int
     current_user_role: str | None = None
+    settings: GroupSettingsResponse | None = None
 
 
 class GroupMemberResponse(BaseModel):
