@@ -1,18 +1,36 @@
-import { SimpleGrid, Skeleton, Stack, Text, Title } from '@mantine/core'
+import { useState } from 'react'
+import { ActionIcon, Group, SimpleGrid, Skeleton, Stack, Text, TextInput, Title } from '@mantine/core'
+import { IconSearch, IconStar, IconStarFilled } from '@tabler/icons-react'
 import { useNavigate } from 'react-router-dom'
 import AppShell from '../components/layout/AppShell'
 import { useAuth } from '../hooks/useAuth'
 import { useMyGroups } from '../hooks/useGroups'
+import { useFavoriteGroup } from '../context/FavoriteGroupContext'
 
 export default function DashboardPage() {
   const { user } = useAuth()
   const { data: groups, isLoading } = useMyGroups(user?.username ?? '')
   const navigate = useNavigate()
+  const [filter, setFilter] = useState('')
+  const { favoriteId, toggleFavorite } = useFavoriteGroup()
+
+  const filterLower = filter.toLowerCase()
+  const sorted = [...(groups ?? [])].sort((a, b) => a.name.localeCompare(b.name))
+  const filtered = filterLower ? sorted.filter((g) => g.name.toLowerCase().includes(filterLower)) : sorted
 
   return (
     <AppShell>
       <Stack gap="lg">
         <Title order={3}>Your Groups</Title>
+
+        {!isLoading && (groups?.length ?? 0) > 0 && (
+          <TextInput
+            placeholder="Filter groups..."
+            leftSection={<IconSearch size={16} />}
+            value={filter}
+            onChange={(e) => setFilter(e.currentTarget.value)}
+          />
+        )}
 
         {isLoading ? (
           <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
@@ -20,9 +38,11 @@ export default function DashboardPage() {
           </SimpleGrid>
         ) : groups?.length === 0 ? (
           <Text c="dimmed">You haven&apos;t joined any groups yet. Use the sidebar to find or create one.</Text>
+        ) : filtered.length === 0 ? (
+          <Text c="dimmed">No groups match &ldquo;{filter}&rdquo;.</Text>
         ) : (
           <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
-            {groups?.map((g) => (
+            {filtered.map((g) => (
               <Stack
                 key={g.id}
                 p="md"
@@ -30,7 +50,18 @@ export default function DashboardPage() {
                 onClick={() => navigate(`/groups/${g.id}`)}
                 gap="xs"
               >
-                <Text fw={600}>{g.name}</Text>
+                <Group justify="space-between" align="flex-start">
+                  <Text fw={600}>{g.name}</Text>
+                  <ActionIcon
+                    size="sm"
+                    variant="subtle"
+                    color={favoriteId === g.id ? 'yellow' : 'gray'}
+                    onClick={(e) => { e.stopPropagation(); toggleFavorite(g.id) }}
+                    aria-label={favoriteId === g.id ? 'Unset default group' : 'Set as default group'}
+                  >
+                    {favoriteId === g.id ? <IconStarFilled size={14} /> : <IconStar size={14} />}
+                  </ActionIcon>
+                </Group>
                 <Text size="xs" c="dimmed">{g.member_count} member{g.member_count !== 1 ? 's' : ''}</Text>
               </Stack>
             ))}
