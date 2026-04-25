@@ -6,7 +6,14 @@ interface Props {
   result: CheckGuessResponse
 }
 
+function formatNominators(usernames: string[]): string {
+  if (usernames.length === 1) return usernames[0]
+  if (usernames.length === 2) return `${usernames[0]} and ${usernames[1]}`
+  return `${usernames.slice(0, -1).join(', ')}, and ${usernames[usernames.length - 1]}`
+}
+
 export default function GuessResult({ result }: Props) {
+  const nominators = formatNominators(result.nominator_usernames)
   return (
     <Stack gap="xs">
       <Text size="sm" fw={600}>Your guess</Text>
@@ -16,7 +23,7 @@ export default function GuessResult({ result }: Props) {
         title={result.correct ? 'Correct!' : 'Not quite'}
       >
         This album was nominated by{' '}
-        <Text span fw={600}>{result.nominator_username}</Text>.
+        <Text span fw={600}>{nominators}</Text>.
       </Alert>
     </Stack>
   )

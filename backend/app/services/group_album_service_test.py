@@ -66,6 +66,47 @@ class TestSelectDailyAlbums:
             group_album_service.select_daily_albums(sample_group.id, n=1)
         assert exc_info.value.status_code == status.HTTP_409_CONFLICT
 
+    def test_multi_nomination_counts_as_one_album(
+        self, group_album_service, sample_group, sample_group_album, sample_user,
+        sample_group_service, user_factory, db_session
+    ):
+        """Two nominations for the same album should count as one selectable album."""
+        other = user_factory(email="other@test.com", username="other_user")
+        sample_group_service.add_user(sample_group.id, other.id)
+        ga2 = GroupAlbum(
+            group_id=sample_group.id,
+            album_id=sample_group_album.album_id,
+            added_by=other.id,
+        )
+        db_session.add(ga2)
+        db_session.commit()
+
+        results = group_album_service.select_daily_albums(sample_group.id, n=1)
+        assert len(results) == 1
+
+    def test_multi_nomination_all_marked_selected(
+        self, group_album_service, sample_group, sample_group_album, sample_user,
+        sample_group_service, user_factory, db_session
+    ):
+        """Selecting a multiply-nominated album marks ALL nominations as selected."""
+        other = user_factory(email="other@test.com", username="other_user")
+        sample_group_service.add_user(sample_group.id, other.id)
+        ga2 = GroupAlbum(
+            group_id=sample_group.id,
+            album_id=sample_group_album.album_id,
+            added_by=other.id,
+        )
+        db_session.add(ga2)
+        db_session.commit()
+        db_session.refresh(ga2)
+
+        group_album_service.select_daily_albums(sample_group.id, n=1)
+
+        db_session.refresh(sample_group_album)
+        db_session.refresh(ga2)
+        assert sample_group_album.selected_date is not None
+        assert ga2.selected_date is not None
+
 
 class TestGetTodaysAlbums:
     def test_returns_todays_selections(
@@ -118,8 +159,8 @@ class TestCheckGuess:
         )
 
         assert result.correct is True
-        assert result.nominator_user_id == sample_user.id
-        assert result.nominator_username == sample_user.username
+        assert sample_user.id in result.nominator_user_ids
+        assert sample_user.username in result.nominator_usernames
         assert result.guess.guessing_user_id == other.id
 
     def test_incorrect_guess(
@@ -146,7 +187,49 @@ class TestCheckGuess:
         )
 
         assert result.correct is False
-        assert result.nominator_user_id == sample_user.id  # actual nominator revealed anyway
+        assert sample_user.id in result.nominator_user_ids  # actual nominator revealed anyway
+
+    def test_correct_guess_for_co_nominator(
+        self,
+        group_album_service,
+        sample_group,
+        sample_group_album,
+        sample_user,
+        sample_group_service,
+        user_factory,
+        db_session,
+    ):
+        """Guessing any co-nominator of a multiply-nominated album should be correct."""
+        other = user_factory(email="other@test.com", username="other_user")
+        guesser = user_factory(email="guesser@test.com", username="guesser")
+        sample_group_service.add_user(sample_group.id, other.id)
+        sample_group_service.add_user(sample_group.id, guesser.id)
+
+        # other also nominates the same album
+        co_nomination = GroupAlbum(
+            group_id=sample_group.id,
+            album_id=sample_group_album.album_id,
+            added_by=other.id,
+        )
+        db_session.add(co_nomination)
+        db_session.commit()
+
+        # Mark both as selected
+        _mark_selected(db_session, sample_group_album)
+        co_nomination.selected_date = sample_group_album.selected_date
+        db_session.commit()
+
+        # Guessing the co-nominator should be correct
+        result = group_album_service.check_guess(
+            sample_group.id,
+            sample_group_album.id,
+            guesser,
+            NominationGuessCreate(guessed_user_id=other.id),
+        )
+
+        assert result.correct is True
+        assert other.id in result.nominator_user_ids
+        assert sample_user.id in result.nominator_user_ids
 
     def test_not_selected_raises(
         self,

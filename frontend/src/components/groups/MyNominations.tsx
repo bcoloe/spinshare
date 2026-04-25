@@ -86,7 +86,7 @@ export default function MyNominations({ groupId }: Props) {
   const [nominateOpened, { open: openNominate, close: closeNominate }] = useDisclosure(false)
 
   const myNominations = useMemo(
-    () => allAlbums.filter((ga) => ga.added_by === user?.id),
+    () => allAlbums.filter((ga) => user?.id !== undefined && ga.nominator_user_ids.includes(user.id)),
     [allAlbums, user],
   )
 

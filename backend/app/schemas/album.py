@@ -77,6 +77,8 @@ class GroupAlbumResponse(BaseModel):
     added_at: datetime
     selected_date: datetime | None = None
     album: AlbumResponse
+    nomination_count: int = 1
+    nominator_user_ids: list[int] = []
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -91,6 +93,8 @@ class GroupAlbumResponse(BaseModel):
             added_at=ga.added_at,
             selected_date=ga.selected_date,
             album=AlbumResponse.from_orm_with_genres(ga.albums),
+            nomination_count=getattr(ga, "nomination_count", 1),
+            nominator_user_ids=getattr(ga, "nominator_user_ids", [ga.added_by]),
         )
 
 

@@ -32,36 +32,56 @@ class GroupAlbumService:
     def select_daily_albums(self, group_id: int, n: int = 1) -> list[GroupAlbum]:
         """Randomly select N unselected albums as today's daily spins for a group.
 
-        Albums with selected_date IS NULL are eligible. Sets selected_date = now()
-        on each chosen album. Intended to be called by the daily cron job, not
-        directly by users.
+        Operates on distinct albums — if multiple members nominated the same album,
+        it counts as one candidate and all their nominations are marked selected together.
+        Returns one canonical GroupAlbum (earliest nomination) per selected album.
 
         Raises:
-            HTTPException 409: If fewer than N eligible albums are available.
+            HTTPException 409: If fewer than N eligible distinct albums are available.
         """
-        available = (
-            self.db.query(GroupAlbum)
+        available_album_ids = [
+            row[0]
+            for row in self.db.query(GroupAlbum.album_id)
             .filter(GroupAlbum.group_id == group_id, GroupAlbum.selected_date.is_(None))
+            .distinct()
             .all()
-        )
-        if len(available) < n:
+        ]
+        if len(available_album_ids) < n:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Not enough unselected albums: need {n}, have {len(available)}",
+                detail=f"Not enough unselected albums: need {n}, have {len(available_album_ids)}",
             )
 
-        chosen = random.sample(available, n)
+        chosen_album_ids = random.sample(available_album_ids, n)
         now = datetime.now(tz=timezone.utc)
-        for ga in chosen:
+
+        all_nominations = (
+            self.db.query(GroupAlbum)
+            .filter(
+                GroupAlbum.group_id == group_id,
+                GroupAlbum.album_id.in_(chosen_album_ids),
+                GroupAlbum.selected_date.is_(None),
+            )
+            .all()
+        )
+        for ga in all_nominations:
             ga.selected_date = now
 
         self.db.commit()
-        for ga in chosen:
+
+        # Return the canonical (earliest) nomination per selected album
+        canonical: dict[int, GroupAlbum] = {}
+        for ga in all_nominations:
             self.db.refresh(ga)
-        return chosen
+            if ga.album_id not in canonical or ga.id < canonical[ga.album_id].id:
+                canonical[ga.album_id] = ga
+        return list(canonical.values())
 
     def get_todays_albums(self, group_id: int, user: User) -> list[GroupAlbum]:
         """Return albums selected as today's daily spins for a group. Requires membership.
+
+        When an album has multiple nominations they are all selected together;
+        this returns one canonical GroupAlbum (earliest nomination) per album.
 
         Raises:
             HTTPException 403: If user is not a group member.
@@ -70,14 +90,24 @@ class GroupAlbumService:
         group_service.require_membership(user.id, group_id)
 
         today = date.today()
-        return (
+        all_today = (
             self.db.query(GroupAlbum)
             .filter(
                 GroupAlbum.group_id == group_id,
                 func.date(GroupAlbum.selected_date) == today,
             )
+            .order_by(GroupAlbum.id)
             .all()
         )
+
+        # Deduplicate by album_id, keeping the canonical (lowest id) row
+        seen: set[int] = set()
+        canonical = []
+        for ga in all_today:
+            if ga.album_id not in seen:
+                seen.add(ga.album_id)
+                canonical.append(ga)
+        return canonical
 
     # ==================== GUESSING ====================
 
@@ -114,7 +144,18 @@ class GroupAlbumService:
                 detail="You cannot guess yourself as the nominator",
             )
 
-        correct = data.guessed_user_id == group_album.added_by
+        # Collect all nominators for this album in this group
+        all_nominations = (
+            self.db.query(GroupAlbum)
+            .filter(
+                GroupAlbum.group_id == group_id,
+                GroupAlbum.album_id == group_album.album_id,
+            )
+            .all()
+        )
+        nominator_ids = {ga.added_by for ga in all_nominations}
+        correct = data.guessed_user_id in nominator_ids
+
         guess = NominationGuess(
             group_album_id=group_album_id,
             guessing_user_id=user.id,
@@ -140,13 +181,13 @@ class GroupAlbumService:
         self.db.commit()
         self.db.refresh(guess)
 
-        nominator = group_album.added_by_user
+        nominators = [ga.added_by_user for ga in all_nominations]
 
         return CheckGuessResponse(
             guess=NominationGuessResponse.model_validate(guess),
             correct=correct,
-            nominator_user_id=nominator.id,
-            nominator_username=nominator.username,
+            nominator_user_ids=[n.id for n in nominators],
+            nominator_usernames=[n.username for n in nominators],
         )
 
     def get_my_guess(self, group_id: int, group_album_id: int, user: User) -> NominationGuess:

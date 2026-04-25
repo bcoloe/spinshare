@@ -23,7 +23,7 @@ export default function AlbumRow({ groupAlbum, group }: Props) {
   const remove = useRemoveGroupAlbum(group.id)
 
   const canRemove =
-    groupAlbum.added_by === user?.id ||
+    (user?.id !== undefined && groupAlbum.nominator_user_ids.includes(user.id)) ||
     group.current_user_role === 'owner' ||
     group.current_user_role === 'admin'
 
@@ -54,6 +54,11 @@ export default function AlbumRow({ groupAlbum, group }: Props) {
         </div>
       </Group>
       <Group gap="sm" style={{ flexShrink: 0 }}>
+        {groupAlbum.nomination_count > 1 && (
+          <Badge size="xs" color="blue" variant="filled" circle>
+            {groupAlbum.nomination_count}
+          </Badge>
+        )}
         <Badge size="xs" color={STATUS_COLOR[groupAlbum.status]} variant="light">
           {groupAlbum.status}
         </Badge>

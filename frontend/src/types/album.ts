@@ -18,6 +18,8 @@ export interface GroupAlbumResponse {
   added_at: string
   selected_date: string | null
   album: AlbumResponse
+  nomination_count: number
+  nominator_user_ids: number[]
 }
 
 export interface ReviewCreate {
@@ -51,6 +53,6 @@ export interface NominationGuessResponse {
 export interface CheckGuessResponse {
   guess: NominationGuessResponse
   correct: boolean
-  nominator_user_id: number
-  nominator_username: string
+  nominator_user_ids: number[]
+  nominator_usernames: string[]
 }
