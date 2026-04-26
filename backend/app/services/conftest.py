@@ -35,6 +35,17 @@ def sample_user(db_session) -> User:
 
 
 @pytest.fixture(scope="function")
+def hashed_user(sample_user_service, test_password) -> User:
+    """User created via UserService so password_hash is a real bcrypt hash.
+
+    Only use this in tests that call authenticate_user or login — bcrypt is
+    intentionally avoided in other fixtures to keep the suite fast.
+    """
+    user_data = UserCreate(email="user@test.com", username="test_user", password=test_password)
+    return sample_user_service.create_user(user_data=user_data)
+
+
+@pytest.fixture(scope="function")
 def user_factory(db_session):
     """User creation factory — inserts rows directly to avoid bcrypt overhead."""
 

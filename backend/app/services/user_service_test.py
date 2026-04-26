@@ -306,16 +306,16 @@ class TestUserServiceDelete:
 class TestUserServiceAuthentication:
     """Unit tests for authentication endpoints of UserService"""
 
-    def test_authenticate_user_success(self, sample_user_service, sample_user):
+    def test_authenticate_user_success(self, sample_user_service, hashed_user):
         """Test user auth with valid credentials"""
-        user = sample_user_service.authenticate_user("a-Fine-Password123!", email=sample_user.email)
+        user = sample_user_service.authenticate_user("a-Fine-Password123!", email=hashed_user.email)
         assert user is not None
-        assert user == sample_user
+        assert user == hashed_user
 
-    def test_authenticate_user_fail(self, sample_user_service, sample_user):
-        """Test user auth with valid credentials"""
+    def test_authenticate_user_fail(self, sample_user_service, hashed_user):
+        """Test user auth with wrong password returns None"""
         user = sample_user_service.authenticate_user(
-            "wrong-password_WOMP123", email=sample_user.email
+            "wrong-password_WOMP123", email=hashed_user.email
         )
         assert user is None
 
@@ -340,19 +340,19 @@ class TestUserServiceAuthentication:
         assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
         assert exc_info.value.detail == "email or username not provided."
 
-    def test_login_successful(self, sample_user_service, sample_user, test_password):
+    def test_login_successful(self, sample_user_service, hashed_user, test_password):
         request = LoginRequest(
-            email=sample_user.email, username=sample_user.username, password=test_password
+            email=hashed_user.email, username=hashed_user.username, password=test_password
         )
         response = sample_user_service.login(request)
 
         assert response.access_token is not None
         assert response.refresh_token is not None
         assert response.token_type == "bearer"
-        assert response.user.id == sample_user.id
-        assert response.user.email == sample_user.email
-        assert response.user.username == sample_user.username
-        assert response.user.created_at == sample_user.created_at
+        assert response.user.id == hashed_user.id
+        assert response.user.email == hashed_user.email
+        assert response.user.username == hashed_user.username
+        assert response.user.created_at == hashed_user.created_at
 
     def test_login_invalid_user(self, sample_user_service, test_password):
         request = LoginRequest(email="bad@test.com", username="bad", password=test_password)
@@ -361,10 +361,10 @@ class TestUserServiceAuthentication:
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
         assert exc_info.value.detail == "Incorrect username or email"
 
-    def test_login_bad_password(self, sample_user_service, sample_user, test_password):
+    def test_login_bad_password(self, sample_user_service, hashed_user, test_password):
         request = LoginRequest(
-            email=sample_user.email,
-            username=sample_user.username,
+            email=hashed_user.email,
+            username=hashed_user.username,
             password=test_password + "bad",
         )
         with pytest.raises(HTTPException) as exc_info:
