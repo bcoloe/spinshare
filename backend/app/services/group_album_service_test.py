@@ -7,8 +7,9 @@ from fastapi import HTTPException, status
 
 
 def _mark_selected(db_session, group_album: GroupAlbum):
-    """Set selected_date to simulate cron having selected this album."""
+    """Set selected_date and status to simulate cron having selected this album."""
     group_album.selected_date = datetime.now(tz=timezone.utc)
+    group_album.status = "selected"
     db_session.commit()
     db_session.refresh(group_album)
 
@@ -25,6 +26,7 @@ class TestSelectDailyAlbums:
         assert len(results) == 1
         assert results[0].id == sample_group_album.id
         assert results[0].selected_date is not None
+        assert results[0].status == "selected"
 
     def test_select_multiple_albums(
         self, group_album_service, sample_group, sample_group_album, sample_user, db_session
@@ -45,6 +47,7 @@ class TestSelectDailyAlbums:
         results = group_album_service.select_daily_albums(sample_group.id, n=2)
         assert len(results) == 2
         assert all(ga.selected_date is not None for ga in results)
+        assert all(ga.status == "selected" for ga in results)
 
     def test_select_skips_already_selected(
         self, group_album_service, sample_group, sample_group_album, db_session
@@ -106,6 +109,8 @@ class TestSelectDailyAlbums:
         db_session.refresh(ga2)
         assert sample_group_album.selected_date is not None
         assert ga2.selected_date is not None
+        assert sample_group_album.status == "selected"
+        assert ga2.status == "selected"
 
 
 class TestGetTodaysAlbums:

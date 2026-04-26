@@ -66,6 +66,7 @@ class GroupAlbumService:
         )
         for ga in all_nominations:
             ga.selected_date = now
+            ga.status = "selected"
 
         self.db.commit()
 
