@@ -18,7 +18,6 @@ class AlbumSearchResult(BaseModel):
 class GroupAlbumStatus(StrEnum):
     Pending = "pending"
     Selected = "selected"
-    Reviewed = "reviewed"
 
 
 # ==================== ALBUM ====================

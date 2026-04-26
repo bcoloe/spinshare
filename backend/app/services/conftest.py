@@ -131,7 +131,6 @@ def sample_group_album(db_session, sample_group, sample_album, sample_user) -> G
         group_id=sample_group.id,
         album_id=sample_album.id,
         added_by=sample_user.id,
-        status="pending",
     )
     db_session.add(ga)
     db_session.commit()
