@@ -34,6 +34,19 @@ def get_todays_albums(
     return [GroupAlbumResponse.from_orm(ga) for ga in gas]
 
 
+@router.post("/{group_id}/albums/select-today", response_model=list[GroupAlbumResponse])
+def trigger_daily_selection(
+    group_id: int,
+    current_user: User = Depends(get_current_user),
+    svc: GroupAlbumService = Depends(get_group_album_service),
+):
+    """Trigger random daily album selection if none have been chosen today.
+    Idempotent — safe to call concurrently. Requires membership.
+    """
+    gas = svc.trigger_daily_selection(group_id, current_user)
+    return [GroupAlbumResponse.from_orm(ga) for ga in gas]
+
+
 # ==================== GUESSING ====================
 
 

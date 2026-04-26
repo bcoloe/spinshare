@@ -108,6 +108,58 @@ class TestSelectDailyAlbums:
         assert ga2.selected_date is not None
 
 
+class TestTriggerDailySelection:
+    def test_selects_when_none_today(
+        self, group_album_service, sample_group, sample_group_album, sample_user
+    ):
+        results = group_album_service.trigger_daily_selection(sample_group.id, sample_user)
+        assert len(results) == 1
+        assert results[0].selected_date is not None
+
+    def test_idempotent_returns_existing(
+        self, group_album_service, sample_group, sample_group_album, sample_user, db_session
+    ):
+        _mark_selected(db_session, sample_group_album)
+        results = group_album_service.trigger_daily_selection(sample_group.id, sample_user)
+        assert len(results) == 1
+        assert results[0].id == sample_group_album.id
+
+    def test_non_member_forbidden(
+        self, group_album_service, sample_group, user_factory
+    ):
+        outsider = user_factory(email="out@test.com", username="outsider")
+        with pytest.raises(HTTPException) as exc_info:
+            group_album_service.trigger_daily_selection(sample_group.id, outsider)
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_not_enough_albums_raises(
+        self, group_album_service, sample_group, sample_user
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            group_album_service.trigger_daily_selection(sample_group.id, sample_user)
+        assert exc_info.value.status_code == status.HTTP_409_CONFLICT
+
+    def test_respects_daily_album_count(
+        self, group_album_service, sample_group, sample_group_album, sample_user,
+        db_session
+    ):
+        from app.models import Album, GroupSettings
+
+        album2 = Album(spotify_album_id="spotify_2", title="Kid A", artist="Radiohead")
+        db_session.add(album2)
+        db_session.commit()
+        db_session.refresh(album2)
+        ga2 = GroupAlbum(group_id=sample_group.id, album_id=album2.id, added_by=sample_user.id)
+        db_session.add(ga2)
+
+        settings = db_session.query(GroupSettings).filter_by(group_id=sample_group.id).first()
+        settings.daily_album_count = 2
+        db_session.commit()
+
+        results = group_album_service.trigger_daily_selection(sample_group.id, sample_user)
+        assert len(results) == 2
+
+
 class TestGetTodaysAlbums:
     def test_returns_todays_selections(
         self, group_album_service, sample_group, sample_group_album, sample_user, db_session

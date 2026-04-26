@@ -12,6 +12,10 @@ export const albumService = {
     return apiFetch(`/groups/${groupId}/albums/today`)
   },
 
+  triggerDailySelection(groupId: number): Promise<GroupAlbumResponse[]> {
+    return apiFetch(`/groups/${groupId}/albums/select-today`, { method: 'POST' })
+  },
+
   getMyReview(albumId: number): Promise<ReviewResponse | null> {
     return apiFetch<ReviewResponse>(`/albums/${albumId}/reviews/me`).catch((err) => {
       if (err?.status === 404) return null

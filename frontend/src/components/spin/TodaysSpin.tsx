@@ -15,12 +15,12 @@ import {
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
+import { IconDice5, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
 import AlbumCard from './AlbumCard'
 import SpotifyPlayer from './SpotifyPlayer'
 import ReviewAndGuessForm from './ReviewAndGuessForm'
 import AlbumSearchModal from '../albums/AlbumSearchModal'
-import { useTodaysAlbums } from '../../hooks/useDailySpin'
+import { useTodaysAlbums, useTriggerDailySelection } from '../../hooks/useDailySpin'
 import { useGroupAlbums } from '../../hooks/useAlbums'
 import { useMyStats } from '../../hooks/useStats'
 import { albumSearchService } from '../../services/albumSearchService'
@@ -117,11 +117,21 @@ export default function TodaysSpin({ groupId, group }: Props) {
   const { data: stats } = useMyStats()
   const hasSpotify = stats?.has_spotify ?? false
   const [nominateOpened, { open: openNominate, close: closeNominate }] = useDisclosure()
+  const triggerSelection = useTriggerDailySelection(groupId)
 
   const canSelect =
     group?.current_user_role === 'owner' || group?.current_user_role === 'admin'
 
   const isEmpty = !isLoading && !isError && albums?.length === 0
+
+  const handleRollSpin = async () => {
+    try {
+      await triggerSelection.mutateAsync()
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Could not select albums'
+      notifications.show({ color: 'red', message })
+    }
+  }
 
   if (isLoading) return <Skeleton h={400} radius="md" />
 
@@ -138,18 +148,26 @@ export default function TodaysSpin({ groupId, group }: Props) {
       <>
         <Stack gap="md">
           <Alert icon={<IconInfoCircle size={16} />} color="blue" title="No spin selected yet">
-            {canSelect
-              ? "No album has been selected for today. Pick one from the pending nominations below, or nominate a new one."
-              : "No album has been selected for today yet. Check back later or ask a group admin to select one."}
+            No album has been selected for today yet. Roll a random spin or nominate a new one.
           </Alert>
           <Center>
-            <Button
-              variant="light"
-              leftSection={<IconPlus size={16} />}
-              onClick={openNominate}
-            >
-              Nominate an album
-            </Button>
+            <Group gap="sm">
+              <Button
+                variant="filled"
+                leftSection={<IconDice5 size={16} />}
+                loading={triggerSelection.isPending}
+                onClick={handleRollSpin}
+              >
+                Roll today&apos;s spin
+              </Button>
+              <Button
+                variant="light"
+                leftSection={<IconPlus size={16} />}
+                onClick={openNominate}
+              >
+                Nominate an album
+              </Button>
+            </Group>
           </Center>
           {canSelect && (
             <Center>

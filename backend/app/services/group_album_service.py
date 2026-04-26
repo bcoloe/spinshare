@@ -16,7 +16,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import GroupAlbum, NominationGuess, User
+from app.models import GroupAlbum, GroupSettings, NominationGuess, User
 from app.schemas.group_album import CheckGuessResponse, NominationGuessCreate, NominationGuessResponse
 from app.services import group_service as gs
 
@@ -76,6 +76,54 @@ class GroupAlbumService:
             if ga.album_id not in canonical or ga.id < canonical[ga.album_id].id:
                 canonical[ga.album_id] = ga
         return list(canonical.values())
+
+    def trigger_daily_selection(self, group_id: int, user: User) -> list[GroupAlbum]:
+        """Trigger random daily album selection if none have been chosen today.
+
+        Idempotent — returns existing selections if today's albums are already chosen.
+        Race-condition safe: acquires a row-level lock on group_settings to serialize
+        concurrent calls from multiple members clicking simultaneously.
+        Any group member may trigger selection (not restricted to admins).
+
+        Raises:
+            HTTPException 403: If user is not a group member.
+            HTTPException 409: If not enough unselected albums are available.
+        """
+        group_service = gs.GroupService(self.db)
+        group_service.require_membership(user.id, group_id)
+
+        settings = (
+            self.db.query(GroupSettings)
+            .filter(GroupSettings.group_id == group_id)
+            .with_for_update()
+            .first()
+        )
+        if settings is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Group settings not found",
+            )
+
+        today = date.today()
+        existing = (
+            self.db.query(GroupAlbum)
+            .filter(
+                GroupAlbum.group_id == group_id,
+                func.date(GroupAlbum.selected_date) == today,
+            )
+            .order_by(GroupAlbum.id)
+            .all()
+        )
+        if existing:
+            seen: set[int] = set()
+            canonical = []
+            for ga in existing:
+                if ga.album_id not in seen:
+                    seen.add(ga.album_id)
+                    canonical.append(ga)
+            return canonical
+
+        return self.select_daily_albums(group_id, n=settings.daily_album_count)
 
     def get_todays_albums(self, group_id: int, user: User) -> list[GroupAlbum]:
         """Return albums selected as today's daily spins for a group. Requires membership.
