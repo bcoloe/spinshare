@@ -71,7 +71,7 @@ class Creators:
         return User(email=f"{name}@test.com", username=name, password_hash=f"{name}_pw")
 
     def group(self, name: str, creator: User, exception: Exception | None = None) -> Group:
-        group = Group(name=name, created_by=creator.id)
+        group = Group(name=name, created_by=creator.id, is_public=True)
         self._add_and_commit(group, exception)
         return group
 

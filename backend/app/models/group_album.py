@@ -1,6 +1,7 @@
 """Group album table definition."""
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, UniqueConstraint, case, exists
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -14,7 +15,6 @@ class GroupAlbum(Base):
     group_id = Column(Integer, ForeignKey("groups.id"), nullable=False)
     album_id = Column(Integer, ForeignKey("albums.id"), nullable=False)
     added_by = Column(Integer, ForeignKey("users.id"), nullable=False)
-    status = Column(String, default="pending")
     selected_date = Column(DateTime(timezone=True), nullable=True)
     added_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -27,3 +27,21 @@ class GroupAlbum(Base):
     __table_args__ = (
         UniqueConstraint("group_id", "album_id", "added_by", name="unique_user_album_per_group"),
     )
+
+    @hybrid_property
+    def status(self) -> str:
+        if self.selected_date is None:
+            return "pending"
+        if self.albums and self.albums.reviews:
+            return "reviewed"
+        return "selected"
+
+    @status.expression
+    def status(cls):
+        from app.models.review import Review  # local import avoids circular dependency
+        has_review = exists().where(Review.album_id == cls.album_id)
+        return case(
+            (cls.selected_date.is_(None), "pending"),
+            (has_review, "reviewed"),
+            else_="selected",
+        )

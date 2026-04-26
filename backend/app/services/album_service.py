@@ -93,7 +93,6 @@ class AlbumService:
             group_id=group_id,
             album_id=album_id,
             added_by=user.id,
-            status=GroupAlbumStatus.Pending,
         )
         try:
             self.db.add(group_album)
@@ -166,7 +165,10 @@ class AlbumService:
     def update_group_album_status(
         self, group_id: int, group_album_id: int, update: GroupAlbumStatusUpdate, user: User
     ) -> GroupAlbum:
-        """Update status for all nominations of an album. Requires Admin or Owner.
+        """Select or deselect an album for all its nominations. Requires Admin or Owner.
+
+        Sets selected_date to now when marking selected; clears it when marking pending.
+        The "reviewed" state is derived automatically and cannot be set here.
 
         Raises:
             HTTPException 403: If user is not an admin/owner.
@@ -184,11 +186,9 @@ class AlbumService:
             )
             .all()
         )
-        now = datetime.now(timezone.utc) if update.status == GroupAlbumStatus.Selected else None
+        new_date = datetime.now(timezone.utc) if update.status == GroupAlbumStatus.Selected else None
         for ga in all_nominations:
-            ga.status = update.status.value
-            if now:
-                ga.selected_date = now
+            ga.selected_date = new_date
         self.db.commit()
         self.db.refresh(canonical_ga)
         return canonical_ga

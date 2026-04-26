@@ -56,7 +56,7 @@ class TestGroupRelationships:
         users = creators.users(["foo", "bar", "baz"])
 
         # Create group and add users.
-        group = Group(name="Test Group", created_by=users[0].id)
+        group = Group(name="Test Group", created_by=users[0].id, is_public=True)
         for user in users:
             group.members.append(user)
         db_session.add(group)
@@ -68,7 +68,7 @@ class TestGroupRelationships:
             assert group in user.groups
 
     def test_group_creator(self, db_session, sample_user):
-        group = Group(name="My Group", created_by=sample_user.id)
+        group = Group(name="My Group", created_by=sample_user.id, is_public=True)
         db_session.add(group)
         db_session.commit()
 
