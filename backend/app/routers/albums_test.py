@@ -436,3 +436,50 @@ class TestAlbumSearch:
         ):
             resp = client.get("/albums/search?q=radiohead")
         assert resp.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    def test_search_no_params_returns_400(self, client):
+        resp = client.get("/albums/search")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_search_artist_filter_only(self, client):
+        from app.utils.spotify_client import SpotifyAlbumResult
+
+        mock_result = SpotifyAlbumResult(
+            spotify_album_id="abc123",
+            title="OK Computer",
+            artist="Radiohead",
+            release_date="1997-05-21",
+            cover_url=None,
+            genres=[],
+        )
+        with patch("app.routers.albums.spotify_client.search_albums", return_value=[mock_result]) as mock_search:
+            resp = client.get("/albums/search?artist=Radiohead")
+
+        assert resp.status_code == status.HTTP_200_OK
+        mock_search.assert_called_once_with("", artist="Radiohead", album=None)
+
+    def test_search_album_filter_only(self, client):
+        from app.utils.spotify_client import SpotifyAlbumResult
+
+        mock_result = SpotifyAlbumResult(
+            spotify_album_id="abc123",
+            title="OK Computer",
+            artist="Radiohead",
+            release_date="1997-05-21",
+            cover_url=None,
+            genres=[],
+        )
+        with patch("app.routers.albums.spotify_client.search_albums", return_value=[mock_result]) as mock_search:
+            resp = client.get("/albums/search?album=OK+Computer")
+
+        assert resp.status_code == status.HTTP_200_OK
+        mock_search.assert_called_once_with("", artist=None, album="OK Computer")
+
+    def test_search_combined_filters(self, client):
+        from app.utils.spotify_client import SpotifyAlbumResult
+
+        with patch("app.routers.albums.spotify_client.search_albums", return_value=[]) as mock_search:
+            resp = client.get("/albums/search?q=rock&artist=Radiohead&album=OK+Computer")
+
+        assert resp.status_code == status.HTTP_200_OK
+        mock_search.assert_called_once_with("rock", artist="Radiohead", album="OK Computer")

@@ -10,9 +10,19 @@ export interface AlbumSearchResult {
   genres: string[]
 }
 
+export interface AlbumSearchParams {
+  q?: string
+  artist?: string
+  album?: string
+}
+
 export const albumSearchService = {
-  search(query: string): Promise<AlbumSearchResult[]> {
-    return apiFetch(`/albums/search?q=${encodeURIComponent(query)}`)
+  search(params: AlbumSearchParams): Promise<AlbumSearchResult[]> {
+    const qs = new URLSearchParams()
+    if (params.q) qs.set('q', params.q)
+    if (params.artist) qs.set('artist', params.artist)
+    if (params.album) qs.set('album', params.album)
+    return apiFetch(`/albums/search?${qs.toString()}`)
   },
 
   getOrCreate(data: AlbumSearchResult): Promise<AlbumResponse> {
