@@ -1,5 +1,6 @@
 """Thin client for the Spotify Web API using Client Credentials and Authorization Code flows."""
 
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
@@ -9,6 +10,20 @@ from fastapi import HTTPException, status
 from jose import jwt
 
 from app.config import get_settings
+
+# Matches common edition/remaster suffixes so variants of the same album collapse to one result.
+_EDITION_RE = re.compile(
+    r"[\s\-]*[\(\[]?\s*("
+    r"deluxe(\s+edition)?|remastered(\s+\d{4})?|remaster(\s+\d{4})?|"
+    r"\d{4}\s+remaster(ed)?|bonus\s+tracks?|anniversary\s+edition|"
+    r"expanded\s+edition|special\s+edition|super\s+deluxe(\s+edition)?"
+    r")\s*[\)\]]?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _normalized_title(title: str) -> str:
+    return _EDITION_RE.sub("", title).strip().lower()
 
 
 @dataclass
@@ -189,11 +204,16 @@ def search_albums(
         )
 
     items = resp.json().get("albums", {}).get("items", [])
+    seen: set[tuple[str, str]] = set()
     results = []
     for item in items:
         images = item.get("images", [])
         cover = images[0]["url"] if images else None
         artists = ", ".join(a["name"] for a in item.get("artists", []))
+        key = (_normalized_title(item["name"]), artists.lower())
+        if key in seen:
+            continue
+        seen.add(key)
         results.append(
             SpotifyAlbumResult(
                 spotify_album_id=item["id"],
