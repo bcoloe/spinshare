@@ -23,6 +23,10 @@ export const albumService = {
     })
   },
 
+  getAllReviews(albumId: number): Promise<ReviewResponse[]> {
+    return apiFetch(`/albums/${albumId}/reviews`)
+  },
+
   submitReview(albumId: number, data: ReviewCreate): Promise<ReviewResponse> {
     return apiFetch(`/albums/${albumId}/reviews`, {
       method: 'POST',
