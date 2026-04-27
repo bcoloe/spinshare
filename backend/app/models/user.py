@@ -28,6 +28,10 @@ class User(Base):
         "GroupAlbum", foreign_keys="GroupAlbum.added_by", back_populates="added_by_user"
     )
 
+    @property
+    def has_spotify(self) -> bool:
+        return self.spotify_connection is not None
+
     # Validations
     @validates("email")
     def convert_lower(self, key, value):

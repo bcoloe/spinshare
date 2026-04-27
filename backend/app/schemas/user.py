@@ -64,6 +64,7 @@ class UserResponse(UserBase):
 
     id: int
     created_at: datetime
+    has_spotify: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -75,7 +76,6 @@ class UserWithStats(UserResponse):
     created_groups: int
     total_reviews: int
     albums_added: int
-    has_spotify: bool
 
 
 class LoginRequest(BaseModel):
