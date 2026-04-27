@@ -5,6 +5,7 @@ import {
   Collapse,
   Group,
   Image,
+  Paper,
   Skeleton,
   Slider,
   Stack,
@@ -49,6 +50,22 @@ function formatDate(dateStr: string | null): string {
 
 function getNominator(ga: GroupAlbumResponse, members: GroupMemberResponse[]): string {
   return members.find((m) => m.user_id === ga.added_by)?.username ?? '—'
+}
+
+function ratingColor(rating: number): string {
+  if (rating < 3) return 'red.7'
+  if (rating < 5) return '#6b4226'
+  if (rating < 7) return 'orange.5'
+  if (rating < 9) return 'lime.5'
+  return 'green.7'
+}
+
+function ratingBg(rating: number): string {
+  if (rating < 3) return 'color-mix(in srgb, var(--mantine-color-red-7) 12%, transparent)'
+  if (rating < 5) return 'color-mix(in srgb, #6b4226 12%, transparent)'
+  if (rating < 7) return 'color-mix(in srgb, var(--mantine-color-orange-5) 12%, transparent)'
+  if (rating < 9) return 'color-mix(in srgb, var(--mantine-color-lime-5) 12%, transparent)'
+  return 'color-mix(in srgb, var(--mantine-color-green-7) 12%, transparent)'
 }
 
 function sortAlbums(
@@ -193,17 +210,35 @@ function UnreviewedRow({ ga, groupId, members: _members, isExpanded, onToggle }:
 interface ReviewedRowProps {
   ga: GroupAlbumResponse
   review: ReviewResponse
+  allReviews: ReviewResponse[]
   members: GroupMemberResponse[]
   isExpanded: boolean
   onToggle: () => void
 }
 
-function ReviewedRow({ ga, review, members, isExpanded, onToggle }: ReviewedRowProps) {
+function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: ReviewedRowProps) {
   const { album } = ga
   const [editMode, setEditMode] = useState(false)
   const [editRating, setEditRating] = useState(review.rating)
   const [editComment, setEditComment] = useState(review.comment ?? '')
+  const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set())
   const updateReview = useUpdateReview(ga.album_id)
+
+  const toggleCard = (id: number) =>
+    setExpandedCards((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  const groupAvg = useMemo(() => {
+    if (allReviews.length === 0) return null
+    const sum = allReviews.reduce((s, r) => s + r.rating, 0)
+    return Math.round((sum / allReviews.length) * 10) / 10
+  }, [allReviews])
+
+  const displayReviews = allReviews.length > 0 ? allReviews : [review]
 
   const handleEditOpen = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -227,10 +262,6 @@ function ReviewedRow({ ga, review, members, isExpanded, onToggle }: ReviewedRowP
     }
   }
 
-  const handleCancel = () => {
-    setEditMode(false)
-  }
-
   return (
     <>
       <Table.Tr style={{ cursor: 'pointer' }} onClick={onToggle}>
@@ -247,7 +278,12 @@ function ReviewedRow({ ga, review, members, isExpanded, onToggle }: ReviewedRowP
           <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{formatDate(ga.selected_date)}</Text>
         </Table.Td>
         <Table.Td>
-          <Text size="sm" fw={500}>{review.rating} / 10</Text>
+          <Text size="sm" fw={700} c={ratingColor(review.rating)}>{review.rating}</Text>
+        </Table.Td>
+        <Table.Td>
+          <Text size="sm" c={groupAvg !== null ? ratingColor(groupAvg) : 'dimmed'} fw={groupAvg !== null ? 600 : undefined}>
+            {groupAvg !== null ? groupAvg : '—'}
+          </Text>
         </Table.Td>
         <Table.Td>
           <Text size="sm" c="dimmed">{getNominator(ga, members)}</Text>
@@ -265,41 +301,101 @@ function ReviewedRow({ ga, review, members, isExpanded, onToggle }: ReviewedRowP
       {isExpanded && (
         <Table.Tr>
           <Table.Td
-            colSpan={7}
+            colSpan={8}
             style={{ background: 'var(--mantine-color-dark-7)', padding: '16px 20px' }}
           >
-            {editMode ? (
-              <Stack gap="md" maw={480}>
-                <div>
-                  <Group justify="space-between" mb={4}>
-                    <Text size="sm">Rating</Text>
-                    <Text size="sm" fw={500} c="violet">{editRating} / 10</Text>
-                  </Group>
-                  <Slider
-                    min={0} max={10} step={0.1}
-                    value={editRating} onChange={setEditRating}
-                    marks={[0, 2, 4, 6, 8, 10].map((v) => ({ value: v, label: String(v) }))}
-                    mb="lg"
-                  />
-                </div>
-                <Textarea
-                  label="Comment (optional)"
-                  value={editComment}
-                  onChange={(e) => setEditComment(e.currentTarget.value)}
-                  maxLength={1000}
-                  autosize
-                  minRows={2}
-                />
-                <Group gap="xs">
-                  <Button size="xs" loading={updateReview.isPending} onClick={handleSave}>Save</Button>
-                  <Button size="xs" variant="default" onClick={handleCancel}>Cancel</Button>
-                </Group>
-              </Stack>
-            ) : (
-              <Text size="sm" c={review.comment ? undefined : 'dimmed'} fs={review.comment ? 'italic' : undefined}>
-                {review.comment ? `"${review.comment}"` : 'No notes left.'}
-              </Text>
-            )}
+            <Stack gap="sm">
+              {displayReviews.map((r) => {
+                const memberName = members.find((m) => m.user_id === r.user_id)?.username ?? 'Unknown'
+                const isMine = r.user_id === review.user_id
+                const isCardExpanded = expandedCards.has(r.id) || (isMine && editMode)
+                const previewLine = r.comment?.split('\n')[0]
+
+                return (
+                  <Paper key={r.id} withBorder p="sm" style={{ background: ratingBg(r.rating) }}>
+                    <Group
+                      justify="space-between"
+                      wrap="nowrap"
+                      mb={isCardExpanded || previewLine ? 6 : 0}
+                      style={{ cursor: 'pointer' }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (!(isMine && editMode)) toggleCard(r.id)
+                      }}
+                    >
+                      <Group gap={4}>
+                        <Text size="sm" fw={600}>{memberName}</Text>
+                        {isMine && <Text size="xs" c="dimmed">(you)</Text>}
+                      </Group>
+                      <Group gap={4} wrap="nowrap">
+                        <Text size="sm" fw={700} c={ratingColor(r.rating)}>{r.rating}</Text>
+                        {isMine && !editMode && (
+                          <ActionIcon
+                            size="xs"
+                            variant="subtle"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setEditRating(r.rating)
+                              setEditComment(r.comment ?? '')
+                              setEditMode(true)
+                            }}
+                          >
+                            <IconPencil size={11} />
+                          </ActionIcon>
+                        )}
+                        {!(isMine && editMode) && (
+                          isCardExpanded
+                            ? <IconChevronUp size={13} />
+                            : <IconChevronDown size={13} />
+                        )}
+                      </Group>
+                    </Group>
+
+                    {!isCardExpanded && previewLine && (
+                      <Text size="xs" c="dimmed" fs="italic" lineClamp={1}>
+                        {previewLine}
+                      </Text>
+                    )}
+
+                    {isCardExpanded && (
+                      isMine && editMode ? (
+                        <Stack gap="sm">
+                          <div>
+                            <Group justify="space-between" mb={4}>
+                              <Text size="xs">Rating</Text>
+                              <Text size="xs" fw={500} c={ratingColor(editRating)}>{editRating} / 10</Text>
+                            </Group>
+                            <Slider
+                              min={0} max={10} step={0.1}
+                              value={editRating} onChange={setEditRating}
+                              marks={[0, 2, 4, 6, 8, 10].map((v) => ({ value: v, label: String(v) }))}
+                              mb="lg"
+                            />
+                          </div>
+                          <Textarea
+                            label="Comment (optional)"
+                            value={editComment}
+                            onChange={(e) => setEditComment(e.currentTarget.value)}
+                            maxLength={1000}
+                            autosize
+                            minRows={2}
+                            size="xs"
+                          />
+                          <Group gap="xs">
+                            <Button size="xs" loading={updateReview.isPending} onClick={handleSave}>Save</Button>
+                            <Button size="xs" variant="default" onClick={() => setEditMode(false)}>Cancel</Button>
+                          </Group>
+                        </Stack>
+                      ) : (
+                        <Text size="sm" c={r.comment ? undefined : 'dimmed'} fs={r.comment ? 'italic' : undefined} style={{ whiteSpace: 'pre-wrap' }}>
+                          {r.comment ? `"${r.comment}"` : 'No notes left.'}
+                        </Text>
+                      )
+                    )}
+                  </Paper>
+                )
+              })}
+            </Stack>
           </Table.Td>
         </Table.Tr>
       )}
@@ -344,7 +440,16 @@ export default function ReviewHistory({ groupId, albums, members, isLoading }: P
     })),
   })
 
-  const reviewsLoading = reviewQueries.some((q) => q.isLoading)
+  const allReviewQueries = useQueries({
+    queries: albums.map((ga) => ({
+      queryKey: ['reviews', ga.album_id, 'all'],
+      queryFn: () => albumService.getAllReviews(ga.album_id),
+      enabled: !!ga.album_id,
+    })),
+  })
+
+  const reviewsLoading =
+    reviewQueries.some((q) => q.isLoading) || allReviewQueries.some((q) => q.isLoading)
 
   const reviewMap = useMemo(() => {
     const map = new Map<number, ReviewResponse | null>()
@@ -354,6 +459,15 @@ export default function ReviewHistory({ groupId, albums, members, isLoading }: P
     return map
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [albums, reviewQueries])
+
+  const allReviewsMap = useMemo(() => {
+    const map = new Map<number, ReviewResponse[]>()
+    albums.forEach((ga, i) => {
+      map.set(ga.album_id, allReviewQueries[i]?.data ?? [])
+    })
+    return map
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [albums, allReviewQueries])
 
   const unreviewed = useMemo(
     () => albums.filter((ga) => !reviewMap.get(ga.album_id)),
@@ -471,6 +585,7 @@ export default function ReviewHistory({ groupId, albums, members, isLoading }: P
                   <SortButton field="date" label="Date" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
                 </Table.Th>
                 <Table.Th>Rating</Table.Th>
+                <Table.Th>Group Avg</Table.Th>
                 <Table.Th>
                   <SortButton field="nominator" label="Nominated By" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
                 </Table.Th>
@@ -483,6 +598,7 @@ export default function ReviewHistory({ groupId, albums, members, isLoading }: P
                   key={ga.id}
                   ga={ga}
                   review={reviewMap.get(ga.album_id)!}
+                  allReviews={allReviewsMap.get(ga.album_id) ?? []}
                   members={members}
                   isExpanded={expandedReviewedId === ga.id}
                   onToggle={() => setExpandedReviewedId((prev) => (prev === ga.id ? null : ga.id))}
