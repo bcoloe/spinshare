@@ -2,6 +2,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { albumSearchService } from '../services/albumSearchService'
 import type { AlbumSearchParams, AlbumSearchResult } from '../services/albumSearchService'
 
+export function useSpotifyLibrary(offset = 0) {
+  return useQuery({
+    queryKey: ['albums', 'library', offset],
+    queryFn: () => albumSearchService.getLibraryAlbums(offset),
+  })
+}
+
 export function useAlbumSearch(params: AlbumSearchParams) {
   const hasInput =
     (params.q?.length ?? 0) >= 2 ||

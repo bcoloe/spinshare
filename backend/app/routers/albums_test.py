@@ -483,3 +483,70 @@ class TestAlbumSearch:
 
         assert resp.status_code == status.HTTP_200_OK
         mock_search.assert_called_once_with("rock", artist="Radiohead", album="OK Computer")
+
+
+class TestSpotifyLibrary:
+    def test_library_requires_auth(self, unauthed_client):
+        resp = unauthed_client.get("/albums/library")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_library_returns_page(self, client):
+        from app.utils.spotify_client import SpotifyAlbumResult
+        from app.dependencies import get_user_service
+
+        mock_user_service = MagicMock()
+        mock_user_service.get_valid_spotify_token.return_value = "tok"
+
+        mock_result = SpotifyAlbumResult(
+            spotify_album_id="lib1",
+            title="Kid A",
+            artist="Radiohead",
+            release_date="2000-10-02",
+            cover_url=None,
+            genres=[],
+        )
+        library_payload = {"items": [mock_result], "total": 42, "offset": 0, "limit": 20}
+
+        app.dependency_overrides[get_user_service] = lambda: mock_user_service
+        with patch("app.routers.albums.spotify_client.get_user_saved_albums", return_value=library_payload):
+            resp = client.get("/albums/library")
+        app.dependency_overrides.pop(get_user_service)
+
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["total"] == 42
+        assert data["offset"] == 0
+        assert len(data["items"]) == 1
+        assert data["items"][0]["spotify_album_id"] == "lib1"
+
+    def test_library_no_spotify_connection_returns_404(self, client):
+        from app.dependencies import get_user_service
+
+        mock_user_service = MagicMock()
+        mock_user_service.get_valid_spotify_token.side_effect = HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No Spotify account connected"
+        )
+
+        app.dependency_overrides[get_user_service] = lambda: mock_user_service
+        resp = client.get("/albums/library")
+        app.dependency_overrides.pop(get_user_service)
+
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_library_pagination(self, client):
+        from app.utils.spotify_client import SpotifyAlbumResult
+        from app.dependencies import get_user_service
+
+        mock_user_service = MagicMock()
+        mock_user_service.get_valid_spotify_token.return_value = "tok"
+        library_payload = {"items": [], "total": 100, "offset": 40, "limit": 20}
+
+        app.dependency_overrides[get_user_service] = lambda: mock_user_service
+        with patch(
+            "app.routers.albums.spotify_client.get_user_saved_albums", return_value=library_payload
+        ) as mock_lib:
+            resp = client.get("/albums/library?offset=40&limit=20")
+        app.dependency_overrides.pop(get_user_service)
+
+        assert resp.status_code == status.HTTP_200_OK
+        mock_lib.assert_called_once_with("tok", limit=20, offset=40)

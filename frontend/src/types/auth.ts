@@ -3,6 +3,7 @@ export interface UserResponse {
   email: string
   username: string
   created_at: string
+  has_spotify: boolean
 }
 
 export interface UserWithStats extends UserResponse {

@@ -174,6 +174,59 @@ def refresh_access_token(refresh_token: str) -> dict:
     return result
 
 
+def get_user_saved_albums(
+    access_token: str,
+    limit: int = 20,
+    offset: int = 0,
+) -> dict:
+    """Fetch a page of albums from the authenticated user's Spotify saved library.
+
+    Returns a dict with keys: items (list[SpotifyAlbumResult]), total, offset, limit.
+
+    Raises:
+        HTTPException 502: If the Spotify API call fails.
+    """
+    resp = httpx.get(
+        "https://api.spotify.com/v1/me/albums",
+        params={"limit": min(limit, 50), "offset": offset},
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=10,
+    )
+    if not resp.is_success:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not fetch Spotify library",
+        )
+    data = resp.json()
+    seen: set[tuple[str, str]] = set()
+    results: list[SpotifyAlbumResult] = []
+    for entry in data.get("items", []):
+        item = entry.get("album", {})
+        images = item.get("images", [])
+        cover = images[0]["url"] if images else None
+        artists = ", ".join(a["name"] for a in item.get("artists", []))
+        key = (_normalized_title(item["name"]), artists.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append(
+            SpotifyAlbumResult(
+                spotify_album_id=item["id"],
+                title=item["name"],
+                artist=artists,
+                release_date=item.get("release_date"),
+                cover_url=cover,
+                genres=item.get("genres", []),
+            )
+        )
+    return {
+        "items": results,
+        "total": data.get("total", 0),
+        "offset": data.get("offset", 0),
+        "limit": data.get("limit", limit),
+    }
+
+
 def search_albums(
     query: str = "",
     limit: int = 10,

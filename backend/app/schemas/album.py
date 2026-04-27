@@ -15,6 +15,13 @@ class AlbumSearchResult(BaseModel):
     genres: list[str] = []
 
 
+class AlbumLibraryResponse(BaseModel):
+    items: list[AlbumSearchResult]
+    total: int
+    offset: int
+    limit: int
+
+
 class GroupAlbumStatus(StrEnum):
     Pending = "pending"
     Selected = "selected"
