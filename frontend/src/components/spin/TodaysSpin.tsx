@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Carousel } from '@mantine/carousel'
 import {
   Alert,
   Button,
@@ -11,16 +10,19 @@ import {
   Paper,
   Skeleton,
   Stack,
+  Tabs,
   Text,
+  ThemeIcon,
+  Tooltip,
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { IconDice5, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
+import { IconCheck, IconDice5, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
 import AlbumCard from './AlbumCard'
 import SpotifyPlayer from './SpotifyPlayer'
 import ReviewAndGuessForm from './ReviewAndGuessForm'
 import AlbumSearchModal from '../albums/AlbumSearchModal'
-import { useTodaysAlbums, useTriggerDailySelection } from '../../hooks/useDailySpin'
+import { useMyReview, useTodaysAlbums, useTriggerDailySelection } from '../../hooks/useDailySpin'
 import { useGroupAlbums } from '../../hooks/useAlbums'
 import { useMyStats } from '../../hooks/useStats'
 import { albumSearchService } from '../../services/albumSearchService'
@@ -46,6 +48,32 @@ function SpinSlide({ groupAlbum, groupId, hasSpotify }: { groupAlbum: GroupAlbum
         />
       </Stack>
     </Paper>
+  )
+}
+
+function AlbumTab({ albumId, title, coverUrl }: { albumId: number; title: string; coverUrl: string | null }) {
+  const { data: review } = useMyReview(albumId)
+  const reviewed = !!review
+  return (
+    <Tooltip label={title} openDelay={400} disabled={title.length <= 22}>
+      <Group gap={6} wrap="nowrap">
+        <Image
+          src={coverUrl ?? undefined}
+          w={20}
+          h={20}
+          radius="xs"
+          fallbackSrc="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Crect width='20' height='20' fill='%23373A40'/%3E%3C/svg%3E"
+        />
+        <Text size="sm" lineClamp={1} style={{ maxWidth: 110 }}>
+          {title}
+        </Text>
+        {reviewed && (
+          <ThemeIcon size={14} radius="xl" color="green" variant="filled">
+            <IconCheck size={9} />
+          </ThemeIcon>
+        )}
+      </Group>
+    </Tooltip>
   )
 }
 
@@ -117,6 +145,7 @@ export default function TodaysSpin({ groupId, group }: Props) {
   const { data: stats } = useMyStats()
   const hasSpotify = stats?.has_spotify ?? false
   const [nominateOpened, { open: openNominate, close: closeNominate }] = useDisclosure()
+  const [activeAlbumValue, setActiveAlbumValue] = useState<string | null>(null)
   const triggerSelection = useTriggerDailySelection(groupId)
 
   const canSelect =
@@ -186,13 +215,22 @@ export default function TodaysSpin({ groupId, group }: Props) {
     return <SpinSlide groupAlbum={albums[0]} groupId={groupId} hasSpotify={hasSpotify} />
   }
 
+  const definedAlbums = albums!
+  const currentValue = activeAlbumValue ?? String(definedAlbums[0].id)
+  const activeAlbum = definedAlbums.find((a) => String(a.id) === currentValue) ?? definedAlbums[0]
+
   return (
-    <Carousel withIndicators loop>
-      {albums?.map((a) => (
-        <Carousel.Slide key={a.id}>
-          <SpinSlide groupAlbum={a} groupId={groupId} hasSpotify={hasSpotify} />
-        </Carousel.Slide>
-      ))}
-    </Carousel>
+    <Stack gap="md">
+      <Tabs value={currentValue} onChange={setActiveAlbumValue}>
+        <Tabs.List>
+          {definedAlbums.map((a) => (
+            <Tabs.Tab key={a.id} value={String(a.id)}>
+              <AlbumTab albumId={a.album_id} title={a.album.title} coverUrl={a.album.cover_url} />
+            </Tabs.Tab>
+          ))}
+        </Tabs.List>
+      </Tabs>
+      <SpinSlide key={activeAlbum.id} groupAlbum={activeAlbum} groupId={groupId} hasSpotify={hasSpotify} />
+    </Stack>
   )
 }
