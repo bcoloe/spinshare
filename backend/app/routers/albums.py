@@ -16,7 +16,7 @@ from app.schemas.album import (
 from app.services.album_service import AlbumService
 from app.services.review_service import ReviewService
 from app.utils import spotify_client
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 albums_router = APIRouter(prefix="/albums", tags=["albums"])
 group_albums_router = APIRouter(prefix="/groups", tags=["group-albums"])
@@ -27,11 +27,18 @@ group_albums_router = APIRouter(prefix="/groups", tags=["group-albums"])
 
 @albums_router.get("/search", response_model=list[AlbumSearchResult])
 def search_albums(
-    q: str = Query(..., min_length=2),
+    q: str | None = Query(default=None, min_length=2),
+    artist: str | None = Query(default=None),
+    album: str | None = Query(default=None),
     current_user: User = Depends(get_current_user),
 ):
-    """Search for albums via Spotify. Requires SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET."""
-    results = spotify_client.search_albums(q)
+    """Search for albums via Spotify. At least one of q, artist, or album is required."""
+    if not any([q, artist, album]):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one search parameter (q, artist, album) is required",
+        )
+    results = spotify_client.search_albums(q or "", artist=artist, album=album)
     return [
         AlbumSearchResult(
             spotify_album_id=r.spotify_album_id,

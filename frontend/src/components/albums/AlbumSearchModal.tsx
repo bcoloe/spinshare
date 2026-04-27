@@ -5,6 +5,7 @@ import {
   Image,
   Loader,
   Modal,
+  SimpleGrid,
   Stack,
   Text,
   TextInput,
@@ -22,9 +23,24 @@ interface Props {
 
 export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
   const [query, setQuery] = useState('')
+  const [artistFilter, setArtistFilter] = useState('')
+  const [albumFilter, setAlbumFilter] = useState('')
   const [nominated, setNominated] = useState<Set<string>>(new Set())
+
   const [debouncedQuery] = useDebouncedValue(query, 300)
-  const { data: results, isLoading } = useAlbumSearch(debouncedQuery)
+  const [debouncedArtist] = useDebouncedValue(artistFilter, 300)
+  const [debouncedAlbum] = useDebouncedValue(albumFilter, 300)
+
+  const searchParams = {
+    q: debouncedQuery || undefined,
+    artist: debouncedArtist || undefined,
+    album: debouncedAlbum || undefined,
+  }
+  const isSearching =
+    (debouncedQuery?.length ?? 0) >= 2 ||
+    (debouncedArtist?.length ?? 0) >= 2 ||
+    (debouncedAlbum?.length ?? 0) >= 2
+  const { data: results, isLoading } = useAlbumSearch(searchParams)
   const nominate = useNominateAlbum(groupId)
 
   const handleNominate = async (spotifyId: string, title: string, result: NonNullable<typeof results>[number]) => {
@@ -41,6 +57,8 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
 
   const handleClose = () => {
     setQuery('')
+    setArtistFilter('')
+    setAlbumFilter('')
     setNominated(new Set())
     onClose()
   }
@@ -53,8 +71,22 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
           value={query}
           onChange={(e) => setQuery(e.currentTarget.value)}
           autoFocus
-          rightSection={isLoading && debouncedQuery ? <Loader size="xs" /> : null}
+          rightSection={isLoading && isSearching ? <Loader size="xs" /> : null}
         />
+        <SimpleGrid cols={2} spacing="sm">
+          <TextInput
+            placeholder="Filter by artist…"
+            value={artistFilter}
+            onChange={(e) => setArtistFilter(e.currentTarget.value)}
+            size="sm"
+          />
+          <TextInput
+            placeholder="Filter by album…"
+            value={albumFilter}
+            onChange={(e) => setAlbumFilter(e.currentTarget.value)}
+            size="sm"
+          />
+        </SimpleGrid>
         {results?.map((r) => (
           <Group key={r.spotify_album_id} justify="space-between" wrap="nowrap">
             <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
@@ -83,7 +115,7 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
             </Button>
           </Group>
         ))}
-        {results?.length === 0 && debouncedQuery.length >= 2 && !isLoading && (
+        {results?.length === 0 && isSearching && !isLoading && (
           <Text size="sm" c="dimmed">No albums found</Text>
         )}
       </Stack>

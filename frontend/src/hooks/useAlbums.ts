@@ -1,12 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { albumSearchService } from '../services/albumSearchService'
-import type { AlbumSearchResult } from '../services/albumSearchService'
+import type { AlbumSearchParams, AlbumSearchResult } from '../services/albumSearchService'
 
-export function useAlbumSearch(query: string) {
+export function useAlbumSearch(params: AlbumSearchParams) {
+  const hasInput =
+    (params.q?.length ?? 0) >= 2 ||
+    (params.artist?.length ?? 0) >= 2 ||
+    (params.album?.length ?? 0) >= 2
   return useQuery({
-    queryKey: ['albums', 'search', query],
-    queryFn: () => albumSearchService.search(query),
-    enabled: query.length >= 2,
+    queryKey: ['albums', 'search', params.q ?? '', params.artist ?? '', params.album ?? ''],
+    queryFn: () => albumSearchService.search(params),
+    enabled: hasInput,
   })
 }
 

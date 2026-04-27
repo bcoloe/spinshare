@@ -159,12 +159,26 @@ def refresh_access_token(refresh_token: str) -> dict:
     return result
 
 
-def search_albums(query: str, limit: int = 10) -> list[SpotifyAlbumResult]:
-    """Search Spotify for albums matching the query string."""
+def search_albums(
+    query: str = "",
+    limit: int = 10,
+    *,
+    artist: str | None = None,
+    album: str | None = None,
+) -> list[SpotifyAlbumResult]:
+    """Search Spotify for albums, with optional artist/album field filters."""
     token = _get_client_token()
+    parts: list[str] = []
+    if artist:
+        parts.append(f"artist:{artist}")
+    if album:
+        parts.append(f"album:{album}")
+    if query:
+        parts.append(query)
+    q = " ".join(parts)
     resp = httpx.get(
         "https://api.spotify.com/v1/search",
-        params={"q": query, "type": "album", "limit": limit},
+        params={"q": q, "type": "album", "limit": limit},
         headers={"Authorization": f"Bearer {token}"},
         timeout=10,
     )
