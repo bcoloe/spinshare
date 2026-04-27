@@ -1,9 +1,10 @@
 # backend/app/routers/albums.py
 
-from app.dependencies import get_album_service, get_current_user, get_review_service
+from app.dependencies import get_album_service, get_current_user, get_review_service, get_user_service
 from app.models import User
 from app.schemas.album import (
     AlbumCreate,
+    AlbumLibraryResponse,
     AlbumResponse,
     AlbumSearchResult,
     GroupAlbumCreate,
@@ -15,6 +16,7 @@ from app.schemas.album import (
 )
 from app.services.album_service import AlbumService
 from app.services.review_service import ReviewService
+from app.services.user_service import UserService
 from app.utils import spotify_client
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -50,6 +52,38 @@ def search_albums(
         )
         for r in results
     ]
+
+
+@albums_router.get("/library", response_model=AlbumLibraryResponse)
+def get_spotify_library(
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=50),
+    current_user: User = Depends(get_current_user),
+    user_service: UserService = Depends(get_user_service),
+):
+    """Return a page of albums from the current user's Spotify saved library.
+
+    Requires the user to have a connected Spotify account. Returns 404 if no
+    Spotify connection exists.
+    """
+    token = user_service.get_valid_spotify_token(current_user.id)
+    result = spotify_client.get_user_saved_albums(token, limit=limit, offset=offset)
+    return AlbumLibraryResponse(
+        items=[
+            AlbumSearchResult(
+                spotify_album_id=r.spotify_album_id,
+                title=r.title,
+                artist=r.artist,
+                release_date=r.release_date,
+                cover_url=r.cover_url,
+                genres=r.genres,
+            )
+            for r in result["items"]
+        ],
+        total=result["total"],
+        offset=result["offset"],
+        limit=result["limit"],
+    )
 
 
 @albums_router.post("/", response_model=AlbumResponse, status_code=status.HTTP_201_CREATED)

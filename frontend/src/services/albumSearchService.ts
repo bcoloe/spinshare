@@ -10,6 +10,13 @@ export interface AlbumSearchResult {
   genres: string[]
 }
 
+export interface AlbumLibraryPage {
+  items: AlbumSearchResult[]
+  total: number
+  offset: number
+  limit: number
+}
+
 export interface AlbumSearchParams {
   q?: string
   artist?: string
@@ -60,5 +67,9 @@ export const albumSearchService = {
       method: 'PATCH',
       body: JSON.stringify({ status }),
     })
+  },
+
+  getLibraryAlbums(offset = 0, limit = 20): Promise<AlbumLibraryPage> {
+    return apiFetch(`/albums/library?offset=${offset}&limit=${limit}`)
   },
 }
