@@ -145,6 +145,7 @@ export default function TodaysSpin({ groupId, group }: Props) {
   const { data: stats } = useMyStats()
   const hasSpotify = stats?.has_spotify ?? false
   const [nominateOpened, { open: openNominate, close: closeNominate }] = useDisclosure()
+  const [activeAlbumValue, setActiveAlbumValue] = useState<string | null>(null)
   const triggerSelection = useTriggerDailySelection(groupId)
 
   const canSelect =
@@ -215,21 +216,21 @@ export default function TodaysSpin({ groupId, group }: Props) {
   }
 
   const definedAlbums = albums!
+  const currentValue = activeAlbumValue ?? String(definedAlbums[0].id)
+  const activeAlbum = definedAlbums.find((a) => String(a.id) === currentValue) ?? definedAlbums[0]
 
   return (
-    <Tabs defaultValue={String(definedAlbums[0].id)}>
-      <Tabs.List>
-        {definedAlbums.map((a) => (
-          <Tabs.Tab key={a.id} value={String(a.id)}>
-            <AlbumTab albumId={a.album_id} title={a.album.title} coverUrl={a.album.cover_url} />
-          </Tabs.Tab>
-        ))}
-      </Tabs.List>
-      {definedAlbums.map((a) => (
-        <Tabs.Panel key={a.id} value={String(a.id)} pt="md">
-          <SpinSlide groupAlbum={a} groupId={groupId} hasSpotify={hasSpotify} />
-        </Tabs.Panel>
-      ))}
-    </Tabs>
+    <Stack gap="md">
+      <Tabs value={currentValue} onChange={setActiveAlbumValue}>
+        <Tabs.List>
+          {definedAlbums.map((a) => (
+            <Tabs.Tab key={a.id} value={String(a.id)}>
+              <AlbumTab albumId={a.album_id} title={a.album.title} coverUrl={a.album.cover_url} />
+            </Tabs.Tab>
+          ))}
+        </Tabs.List>
+      </Tabs>
+      <SpinSlide key={activeAlbum.id} groupAlbum={activeAlbum} groupId={groupId} hasSpotify={hasSpotify} />
+    </Stack>
   )
 }
