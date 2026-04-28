@@ -30,13 +30,13 @@ import { ApiError } from '../../services/apiClient'
 import type { GroupAlbumResponse } from '../../types/album'
 import type { GroupDetailResponse } from '../../types/group'
 
-function SpinSlide({ groupAlbum, groupId, hasSpotify }: { groupAlbum: GroupAlbumResponse; groupId: number; hasSpotify: boolean }) {
+function SpinSlide({ groupAlbum, groupId, hasSpotify, showPlayer = true }: { groupAlbum: GroupAlbumResponse; groupId: number; hasSpotify: boolean; showPlayer?: boolean }) {
   const spotifyId = groupAlbum.album.spotify_album_id
   return (
     <Paper p="lg" radius="md" withBorder>
       <Stack gap="xl">
         <AlbumCard album={groupAlbum.album} />
-        {spotifyId && (
+        {showPlayer && spotifyId && (
           <SpotifyPlayer spotifyAlbumId={spotifyId} hasSpotify={hasSpotify} />
         )}
         <Divider />
@@ -51,7 +51,54 @@ function SpinSlide({ groupAlbum, groupId, hasSpotify }: { groupAlbum: GroupAlbum
   )
 }
 
-function AlbumTab({ albumId, title, coverUrl }: { albumId: number; title: string; coverUrl: string | null }) {
+function MultiAlbumSpin({ albums, groupId, hasSpotify }: { albums: GroupAlbumResponse[]; groupId: number; hasSpotify: boolean }) {
+  const [activeAlbumValue, setActiveAlbumValue] = useState<string | null>(null)
+  const [playingSpotifyAlbumId, setPlayingSpotifyAlbumId] = useState<string | null>(null)
+  const currentValue = activeAlbumValue ?? String(albums[0].id)
+  const activeAlbum = albums.find((a) => String(a.id) === currentValue) ?? albums[0]
+  const spotifyId = activeAlbum.album.spotify_album_id
+
+  return (
+    <Stack gap="md">
+      <Tabs value={currentValue} onChange={setActiveAlbumValue}>
+        <Tabs.List>
+          {albums.map((a) => (
+            <Tabs.Tab key={a.id} value={String(a.id)}>
+              <AlbumTab
+                albumId={a.album_id}
+                title={a.album.title}
+                coverUrl={a.album.cover_url}
+                isPlaying={!!a.album.spotify_album_id && a.album.spotify_album_id === playingSpotifyAlbumId}
+              />
+            </Tabs.Tab>
+          ))}
+        </Tabs.List>
+      </Tabs>
+      <Paper p="lg" radius="md" withBorder>
+        <Stack gap="xl">
+          <AlbumCard album={activeAlbum.album} />
+          {spotifyId && (
+            <SpotifyPlayer
+              spotifyAlbumId={spotifyId}
+              hasSpotify={hasSpotify}
+              onPlayingAlbumChange={setPlayingSpotifyAlbumId}
+            />
+          )}
+          <Divider />
+          <ReviewAndGuessForm
+            key={activeAlbum.id}
+            albumId={activeAlbum.album_id}
+            groupId={groupId}
+            groupAlbumId={activeAlbum.id}
+            addedBy={activeAlbum.added_by}
+          />
+        </Stack>
+      </Paper>
+    </Stack>
+  )
+}
+
+function AlbumTab({ albumId, title, coverUrl, isPlaying = false }: { albumId: number; title: string; coverUrl: string | null; isPlaying?: boolean }) {
   const { data: review } = useMyReview(albumId)
   const reviewed = !!review
   return (
@@ -67,7 +114,12 @@ function AlbumTab({ albumId, title, coverUrl }: { albumId: number; title: string
         <Text size="sm" lineClamp={1} style={{ maxWidth: 110 }}>
           {title}
         </Text>
-        {reviewed && (
+        {isPlaying && (
+          <ThemeIcon size={14} radius="xl" color="green" variant="light">
+            <IconMusic size={9} />
+          </ThemeIcon>
+        )}
+        {reviewed && !isPlaying && (
           <ThemeIcon size={14} radius="xl" color="green" variant="filled">
             <IconCheck size={9} />
           </ThemeIcon>
@@ -145,7 +197,6 @@ export default function TodaysSpin({ groupId, group }: Props) {
   const { data: stats } = useMyStats()
   const hasSpotify = stats?.has_spotify ?? false
   const [nominateOpened, { open: openNominate, close: closeNominate }] = useDisclosure()
-  const [activeAlbumValue, setActiveAlbumValue] = useState<string | null>(null)
   const triggerSelection = useTriggerDailySelection(groupId)
 
   const canSelect =
@@ -215,22 +266,5 @@ export default function TodaysSpin({ groupId, group }: Props) {
     return <SpinSlide groupAlbum={albums[0]} groupId={groupId} hasSpotify={hasSpotify} />
   }
 
-  const definedAlbums = albums!
-  const currentValue = activeAlbumValue ?? String(definedAlbums[0].id)
-  const activeAlbum = definedAlbums.find((a) => String(a.id) === currentValue) ?? definedAlbums[0]
-
-  return (
-    <Stack gap="md">
-      <Tabs value={currentValue} onChange={setActiveAlbumValue}>
-        <Tabs.List>
-          {definedAlbums.map((a) => (
-            <Tabs.Tab key={a.id} value={String(a.id)}>
-              <AlbumTab albumId={a.album_id} title={a.album.title} coverUrl={a.album.cover_url} />
-            </Tabs.Tab>
-          ))}
-        </Tabs.List>
-      </Tabs>
-      <SpinSlide key={activeAlbum.id} groupAlbum={activeAlbum} groupId={groupId} hasSpotify={hasSpotify} />
-    </Stack>
-  )
+  return <MultiAlbumSpin albums={albums!} groupId={groupId} hasSpotify={hasSpotify} />
 }

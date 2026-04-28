@@ -56,11 +56,16 @@ function formatDuration(ms: number): string {
 interface Props {
   spotifyAlbumId: string
   hasSpotify: boolean
+  onPlayingAlbumChange?: (spotifyAlbumId: string | null) => void
 }
 
-export default function SpotifyPlayer({ spotifyAlbumId, hasSpotify }: Props) {
-  const { status, currentTrackUri, position, duration, togglePlay, skipNext, skipPrevious, seekTo, startAlbum } =
+export default function SpotifyPlayer({ spotifyAlbumId, hasSpotify, onPlayingAlbumChange }: Props) {
+  const { status, currentTrackUri, position, duration, playingSpotifyAlbumId, togglePlay, skipNext, skipPrevious, seekTo, startAlbum } =
     useSpotifyPlayer(hasSpotify, spotifyAlbumId)
+
+  useEffect(() => {
+    onPlayingAlbumChange?.(playingSpotifyAlbumId)
+  }, [playingSpotifyAlbumId, onPlayingAlbumChange])
 
   const [tracks, setTracks] = useState<AlbumTrack[]>([])
   const [tracksLoading, setTracksLoading] = useState(false)
@@ -74,6 +79,13 @@ export default function SpotifyPlayer({ spotifyAlbumId, hasSpotify }: Props) {
   const [pickerOpened, { open: openPicker, close: closePicker }] = useDisclosure(false)
 
   const activeTrackRef = useRef<HTMLDivElement | null>(null)
+
+  // Reset per-album state when the album changes (component may persist across tab switches)
+  useEffect(() => {
+    setTracks([])
+    setAlbumSaved(false)
+    setSeekValue(null)
+  }, [spotifyAlbumId])
 
   // Fetch tracklist once the player is in an active state
   useEffect(() => {
