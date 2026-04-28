@@ -1,5 +1,5 @@
 import { apiFetch } from './apiClient'
-import type { AlbumResponse, GroupAlbumResponse } from '../types/album'
+import type { AlbumResponse, GroupAlbumResponse, UserNominationResponse } from '../types/album'
 
 export interface AlbumSearchResult {
   spotify_album_id: string
@@ -49,6 +49,10 @@ export const albumSearchService = {
   getGroupAlbums(groupId: number, status?: string): Promise<GroupAlbumResponse[]> {
     const qs = status ? `?status=${encodeURIComponent(status)}` : ''
     return apiFetch(`/groups/${groupId}/albums${qs}`)
+  },
+
+  getMyNominations(): Promise<UserNominationResponse[]> {
+    return apiFetch('/users/me/nominations')
   },
 
   removeGroupAlbum(groupId: number, groupAlbumId: number): Promise<void> {

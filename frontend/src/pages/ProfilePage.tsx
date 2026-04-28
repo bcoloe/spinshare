@@ -17,6 +17,7 @@ import { IconBrandSpotify } from '@tabler/icons-react'
 import AppShell from '../components/layout/AppShell'
 import StatsGrid from '../components/profile/StatsGrid'
 import GroupStatsList from '../components/profile/GroupStatsList'
+import MyNominationsPool from '../components/profile/MyNominationsPool'
 import { useAuth } from '../hooks/useAuth'
 import { useMyStats } from '../hooks/useStats'
 import { useMyGroups } from '../hooks/useGroups'
@@ -223,6 +224,13 @@ export default function ProfilePage() {
         <div>
           <Title order={5} mb="md">Guess accuracy by group</Title>
           <GroupStatsList groups={groups ?? []} />
+        </div>
+
+        <Divider />
+
+        <div>
+          <Title order={5} mb="md">My nominations pool</Title>
+          <MyNominationsPool />
         </div>
       </Stack>
     </AppShell>

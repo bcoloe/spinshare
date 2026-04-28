@@ -97,6 +97,14 @@ class GroupAlbumResponse(BaseModel):
         )
 
 
+# ==================== USER NOMINATION POOL ====================
+
+
+class UserNominationResponse(BaseModel):
+    album: AlbumResponse
+    nominated_group_ids: list[int]
+
+
 # ==================== REVIEW ====================
 
 

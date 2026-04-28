@@ -50,6 +50,11 @@ export interface NominationGuessResponse {
   created_at: string
 }
 
+export interface UserNominationResponse {
+  album: AlbumResponse
+  nominated_group_ids: number[]
+}
+
 export interface CheckGuessResponse {
   guess: NominationGuessResponse
   correct: boolean

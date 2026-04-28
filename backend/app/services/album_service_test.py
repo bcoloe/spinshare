@@ -3,6 +3,7 @@ from app.models import Album, GroupAlbum
 from app.models.group import GroupRole
 from app.schemas.album import AlbumCreate, GroupAlbumStatus, GroupAlbumStatusUpdate
 from fastapi import HTTPException, status
+from sqlalchemy.orm import Session
 
 
 class TestAlbumServiceCreate:
@@ -188,3 +189,46 @@ class TestAlbumServiceUpdateStatus:
                 sample_group.id, sample_group_album.id, update_data, member
             )
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestAlbumServiceGetMyNominations:
+    def test_returns_empty_for_user_with_no_nominations(self, album_service, sample_user):
+        result = album_service.get_my_nominations(sample_user.id)
+        assert result == []
+
+    def test_returns_single_nomination(
+        self, album_service, sample_user, sample_group, sample_group_album
+    ):
+        result = album_service.get_my_nominations(sample_user.id)
+        assert len(result) == 1
+        album, group_ids = result[0]
+        assert album.id == sample_group_album.album_id
+        assert group_ids == [sample_group.id]
+
+    def test_deduplicates_album_nominated_to_multiple_groups(
+        self, album_service, sample_group_service, sample_user, sample_album, sample_group, db_session
+    ):
+        from app.schemas.group import GroupCreate
+        ga1 = GroupAlbum(
+            group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id
+        )
+        db_session.add(ga1)
+        second_group = sample_group_service.create_group(GroupCreate(name="Second"), sample_user)
+        ga2 = GroupAlbum(
+            group_id=second_group.id, album_id=sample_album.id, added_by=sample_user.id
+        )
+        db_session.add(ga2)
+        db_session.commit()
+
+        result = album_service.get_my_nominations(sample_user.id)
+        assert len(result) == 1
+        album, group_ids = result[0]
+        assert album.id == sample_album.id
+        assert set(group_ids) == {sample_group.id, second_group.id}
+
+    def test_does_not_return_other_users_nominations(
+        self, album_service, sample_group_album, user_factory
+    ):
+        other = user_factory(email="other@test.com", username="other_user")
+        result = album_service.get_my_nominations(other.id)
+        assert result == []

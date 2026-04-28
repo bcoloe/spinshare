@@ -289,6 +289,29 @@ class AlbumService:
             result.append(ga)
         return result
 
+    def get_my_nominations(self, user_id: int) -> list[tuple]:
+        """Return distinct albums the user has nominated, with all nominated group IDs per album.
+
+        Returns a list of (Album, [group_id, ...]) tuples, one entry per unique album.
+        """
+        all_nominations = (
+            self.db.query(GroupAlbum)
+            .filter(GroupAlbum.added_by == user_id)
+            .all()
+        )
+
+        group_ids_by_album: dict[int, list[int]] = {}
+        canonical_by_album: dict[int, GroupAlbum] = {}
+        for ga in all_nominations:
+            group_ids_by_album.setdefault(ga.album_id, []).append(ga.group_id)
+            if ga.album_id not in canonical_by_album:
+                canonical_by_album[ga.album_id] = ga
+
+        return [
+            (canonical_by_album[album_id].albums, group_ids)
+            for album_id, group_ids in group_ids_by_album.items()
+        ]
+
     def get_group_album(self, group_id: int, group_album_id: int) -> GroupAlbum:
         """Get a specific group album entry.
 
