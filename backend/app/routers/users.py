@@ -1,8 +1,10 @@
 # backend/app/routers/users.py
 
 from app.config import get_settings
-from app.dependencies import get_current_user, get_user_service
+from app.dependencies import get_album_service, get_current_user, get_user_service
 from app.models import User
+from app.schemas.album import AlbumResponse, UserNominationResponse
+from app.services.album_service import AlbumService
 from app.schemas.user import (
     LoginRequest,
     LoginResponse,
@@ -44,6 +46,22 @@ def refresh_access_token(refresh_token: str, user_service: UserService = Depends
 def get_current_user_info(current_user: User = Depends(get_current_user)):
     """Get current user information via ACCESS token"""
     return current_user
+
+
+@router.get("/me/nominations", response_model=list[UserNominationResponse])
+def get_my_nominations(
+    current_user: User = Depends(get_current_user),
+    album_service: AlbumService = Depends(get_album_service),
+):
+    """Get all distinct albums the current user has nominated across all groups."""
+    entries = album_service.get_my_nominations(current_user.id)
+    return [
+        UserNominationResponse(
+            album=AlbumResponse.from_orm_with_genres(album),
+            nominated_group_ids=group_ids,
+        )
+        for album, group_ids in entries
+    ]
 
 
 @router.get("/me/stats", response_model=UserWithStats)

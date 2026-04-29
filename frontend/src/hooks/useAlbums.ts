@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { albumSearchService } from '../services/albumSearchService'
 import type { AlbumSearchParams, AlbumSearchResult } from '../services/albumSearchService'
+import type { UserNominationResponse } from '../types/album'
 
 export function useAlbumSearch(params: AlbumSearchParams) {
   const hasInput =
@@ -22,6 +23,13 @@ export function useGroupAlbums(groupId: number, status?: string) {
   })
 }
 
+export function useMyNominations() {
+  return useQuery<UserNominationResponse[]>({
+    queryKey: ['users', 'me', 'nominations'],
+    queryFn: () => albumSearchService.getMyNominations(),
+  })
+}
+
 export function useNominateAlbum(groupId: number) {
   const qc = useQueryClient()
   return useMutation({
@@ -29,7 +37,21 @@ export function useNominateAlbum(groupId: number) {
       const album = await albumSearchService.getOrCreate(result)
       return albumSearchService.nominateToGroup(groupId, album.id)
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'albums'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['groups', groupId, 'albums'] })
+      qc.invalidateQueries({ queryKey: ['users', 'me', 'nominations'] })
+    },
+  })
+}
+
+export function useNominateFromPool(groupId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (albumId: number) => albumSearchService.nominateToGroup(groupId, albumId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['groups', groupId, 'albums'] })
+      qc.invalidateQueries({ queryKey: ['users', 'me', 'nominations'] })
+    },
   })
 }
 

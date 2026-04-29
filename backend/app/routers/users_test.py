@@ -12,9 +12,10 @@ from fastapi.testclient import TestClient
 from jose import jwt
 
 from app.config import get_settings
-from app.dependencies import get_current_user, get_user_service
+from app.dependencies import get_album_service, get_current_user, get_user_service
 from app.main import app
 from app.routers.conftest import make_mock_user
+from app.services.album_service import AlbumService
 from app.services.user_service import UserService
 
 _NOW = datetime(2026, 1, 1, tzinfo=UTC)
@@ -195,3 +196,49 @@ class TestSpotifyCallback:
             )
         assert resp.status_code in (302, 307)
         assert "spotify=error" in resp.headers["location"]
+
+
+# ==================== MY NOMINATIONS ====================
+
+def _make_mock_album_obj(id: int = 1):
+    a = MagicMock()
+    a.id = id
+    a.spotify_album_id = "spotify_abc"
+    a.title = "OK Computer"
+    a.artist = "Radiohead"
+    a.release_date = "1997-05"
+    a.cover_url = None
+    a.added_at = _NOW
+    a.genres = []
+    return a
+
+
+class TestGetMyNominations:
+    def test_returns_nominations(self, client):
+        mock_album_svc = MagicMock(spec=AlbumService)
+        mock_album_svc.get_my_nominations.return_value = [(_make_mock_album_obj(), [1, 2])]
+
+        app.dependency_overrides[get_album_service] = lambda: mock_album_svc
+        resp = client.get("/users/me/nominations")
+        app.dependency_overrides.pop(get_album_service)
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["album"]["title"] == "OK Computer"
+        assert data[0]["nominated_group_ids"] == [1, 2]
+
+    def test_returns_empty_list(self, client):
+        mock_album_svc = MagicMock(spec=AlbumService)
+        mock_album_svc.get_my_nominations.return_value = []
+
+        app.dependency_overrides[get_album_service] = lambda: mock_album_svc
+        resp = client.get("/users/me/nominations")
+        app.dependency_overrides.pop(get_album_service)
+
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_requires_auth(self, unauthed_client):
+        resp = unauthed_client.get("/users/me/nominations")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED

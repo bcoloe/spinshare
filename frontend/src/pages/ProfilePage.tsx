@@ -224,6 +224,7 @@ export default function ProfilePage() {
           <Title order={5} mb="md">Guess accuracy by group</Title>
           <GroupStatsList groups={groups ?? []} />
         </div>
+
       </Stack>
     </AppShell>
   )
