@@ -131,6 +131,7 @@ export default function GroupPage() {
               albums={reviewedAlbums}
               members={members}
               isLoading={albumsLoading || membersLoading}
+              allowGuessing={group?.settings?.allow_guessing ?? true}
             />
           </ScrollArea>
         )}

@@ -150,9 +150,10 @@ interface UnreviewedRowProps {
   members: GroupMemberResponse[]
   isExpanded: boolean
   onToggle: () => void
+  allowGuessing?: boolean
 }
 
-function UnreviewedRow({ ga, groupId, members: _members, isExpanded, onToggle }: UnreviewedRowProps) {
+function UnreviewedRow({ ga, groupId, members: _members, isExpanded, onToggle, allowGuessing = true }: UnreviewedRowProps) {
   const { album } = ga
 
   return (
@@ -197,6 +198,7 @@ function UnreviewedRow({ ga, groupId, members: _members, isExpanded, onToggle }:
               groupId={groupId}
               groupAlbumId={ga.id}
               addedBy={ga.added_by}
+              allowGuessing={allowGuessing}
             />
           </Table.Td>
         </Table.Tr>
@@ -410,9 +412,10 @@ interface Props {
   albums: GroupAlbumResponse[]
   members: GroupMemberResponse[]
   isLoading: boolean
+  allowGuessing?: boolean
 }
 
-export default function ReviewHistory({ groupId, albums, members, isLoading }: Props) {
+export default function ReviewHistory({ groupId, albums, members, isLoading, allowGuessing = true }: Props) {
   const [pendingOpen, { toggle: togglePending }] = useDisclosure(true)
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [expandedReviewedId, setExpandedReviewedId] = useState<number | null>(null)
@@ -551,6 +554,7 @@ export default function ReviewHistory({ groupId, albums, members, isLoading }: P
                     members={members}
                     isExpanded={expandedId === ga.id}
                     onToggle={() => toggleExpand(ga.id)}
+                    allowGuessing={allowGuessing}
                   />
                 ))}
               </Table.Tbody>

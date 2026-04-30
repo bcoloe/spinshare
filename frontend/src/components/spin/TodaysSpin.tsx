@@ -30,7 +30,7 @@ import { ApiError } from '../../services/apiClient'
 import type { GroupAlbumResponse } from '../../types/album'
 import type { GroupDetailResponse } from '../../types/group'
 
-function SpinSlide({ groupAlbum, groupId, hasSpotify, showPlayer = true }: { groupAlbum: GroupAlbumResponse; groupId: number; hasSpotify: boolean; showPlayer?: boolean }) {
+function SpinSlide({ groupAlbum, groupId, hasSpotify, allowGuessing = true, showPlayer = true }: { groupAlbum: GroupAlbumResponse; groupId: number; hasSpotify: boolean; allowGuessing?: boolean; showPlayer?: boolean }) {
   const spotifyId = groupAlbum.album.spotify_album_id
   return (
     <Paper p="lg" radius="md" withBorder>
@@ -45,13 +45,14 @@ function SpinSlide({ groupAlbum, groupId, hasSpotify, showPlayer = true }: { gro
           groupId={groupId}
           groupAlbumId={groupAlbum.id}
           addedBy={groupAlbum.added_by}
+          allowGuessing={allowGuessing}
         />
       </Stack>
     </Paper>
   )
 }
 
-function MultiAlbumSpin({ albums, groupId, hasSpotify }: { albums: GroupAlbumResponse[]; groupId: number; hasSpotify: boolean }) {
+function MultiAlbumSpin({ albums, groupId, hasSpotify, allowGuessing = true }: { albums: GroupAlbumResponse[]; groupId: number; hasSpotify: boolean; allowGuessing?: boolean }) {
   const [activeAlbumValue, setActiveAlbumValue] = useState<string | null>(null)
   const [playingSpotifyAlbumId, setPlayingSpotifyAlbumId] = useState<string | null>(null)
   const currentValue = activeAlbumValue ?? String(albums[0].id)
@@ -91,6 +92,7 @@ function MultiAlbumSpin({ albums, groupId, hasSpotify }: { albums: GroupAlbumRes
             groupId={groupId}
             groupAlbumId={activeAlbum.id}
             addedBy={activeAlbum.added_by}
+            allowGuessing={allowGuessing}
           />
         </Stack>
       </Paper>
@@ -199,6 +201,7 @@ export default function TodaysSpin({ groupId, group }: Props) {
   const [nominateOpened, { open: openNominate, close: closeNominate }] = useDisclosure()
   const triggerSelection = useTriggerDailySelection(groupId)
 
+  const allowGuessing = group?.settings?.allow_guessing ?? true
   const canSelect =
     group?.current_user_role === 'owner' || group?.current_user_role === 'admin'
 
@@ -263,8 +266,8 @@ export default function TodaysSpin({ groupId, group }: Props) {
   }
 
   if (albums?.length === 1) {
-    return <SpinSlide groupAlbum={albums[0]} groupId={groupId} hasSpotify={hasSpotify} />
+    return <SpinSlide groupAlbum={albums[0]} groupId={groupId} hasSpotify={hasSpotify} allowGuessing={allowGuessing} />
   }
 
-  return <MultiAlbumSpin albums={albums!} groupId={groupId} hasSpotify={hasSpotify} />
+  return <MultiAlbumSpin albums={albums!} groupId={groupId} hasSpotify={hasSpotify} allowGuessing={allowGuessing} />
 }

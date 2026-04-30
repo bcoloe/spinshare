@@ -82,10 +82,19 @@ class GroupService:
         """Delete an existing group.
 
         TODO: add notification hooks for all group members impacted to send email
+
+        Raises:
+            HTTPException 403: If group is the global group or user lacks permission.
         """
+        group = self.get_group_by_id(group_id)
+        if group.is_global:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="The global group cannot be deleted",
+            )
+
         self.require_permission(deleted_by_user_id, group_id, GroupRole.Owner)
 
-        group = self.get_group_by_id(group_id)
         try:
             self.db.delete(group)
             self.db.commit()
@@ -145,7 +154,7 @@ class GroupService:
                 detail="Cannot remove user due to existing dependencies",
             ) from None
 
-        if not group.members:
+        if not group.members and not group.is_global:
             try:
                 self.db.delete(group)
                 self.db.commit()
@@ -174,6 +183,10 @@ class GroupService:
     def get_group_by_name(self, group_name: str) -> Group | None:
         """Get group by name."""
         return self.db.query(Group).filter(Group.name_uniform == group_name.lower()).first()
+
+    def get_global_group(self) -> Group | None:
+        """Return the platform-wide global group, or None if it hasn't been seeded yet."""
+        return self.db.query(Group).filter(Group.is_global == True).first()  # noqa: E712
 
     def get_group_join_date(self, user_id: int, group_id: int) -> datetime | None:
         """Get user join date."""
@@ -301,8 +314,13 @@ class GroupService:
     def update_group_settings(
         self, group_id: int, modified_by_user_id: int, update_data: GroupModifyRequest
     ):
-        self.require_permission(modified_by_user_id, group_id, GroupRole.Admin)
         group = self.get_group_by_id(group_id)
+        if group.is_global:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="The global group settings cannot be modified",
+            )
+        self.require_permission(modified_by_user_id, group_id, GroupRole.Admin)
 
         # Change name
         if update_data.name is not None:

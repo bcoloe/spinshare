@@ -90,6 +90,24 @@ class TestUserServiceCreate:
             UserCreate(email="user@test.com", username="test_user", password=password)
 
 
+    def test_create_user_joins_global_group(
+        self, sample_user_service, global_group, test_password
+    ):
+        """New users are automatically added to the global group when it exists."""
+        user_data = UserCreate(email="user@test.com", username="test_user", password=test_password)
+        user = sample_user_service.create_user(user_data=user_data)
+
+        assert any(g.id == global_group.id for g in user.groups)
+
+    def test_create_user_succeeds_without_global_group(
+        self, sample_user_service, test_password
+    ):
+        """User creation succeeds normally when the global group has not been seeded."""
+        user_data = UserCreate(email="user@test.com", username="test_user", password=test_password)
+        user = sample_user_service.create_user(user_data=user_data)
+        assert user.id is not None
+
+
 class TestUserServiceRead:
     """Unit tests of read endpoints from UserService"""
 

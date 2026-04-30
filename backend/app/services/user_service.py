@@ -62,13 +62,21 @@ class UserService:
             self.db.add(user)
             self.db.commit()
             self.db.refresh(user)
-            return user
         except IntegrityError:
             self.db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="User creation failed due to constraint violation",
             ) from None
+
+        # Auto-enroll in the global group if it exists
+        from app.services import group_service as gs_module
+        gs = gs_module.GroupService(self.db)
+        global_group = gs.get_global_group()
+        if global_group:
+            gs.add_user(global_group.id, user.id)
+
+        return user
 
     # ==================== READ ====================
 

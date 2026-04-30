@@ -1,6 +1,7 @@
 import pytest
 from app.models import Album, GroupAlbum
 from app.models.group import Group, GroupRole, group_members
+from app.models.group_settings import GroupSettings
 from app.models.user import User
 from app.schemas.group import GroupCreate
 from app.schemas.user import UserCreate
@@ -134,6 +135,19 @@ def sample_album(db_session) -> Album:
     db_session.commit()
     db_session.refresh(album)
     return album
+
+
+@pytest.fixture(scope="function")
+def global_group(db_session) -> Group:
+    """Create the platform global group directly (bypasses create_group to avoid needing an owner)."""
+    group = Group(name="spinshare", is_public=True, is_global=True, created_by=None)
+    db_session.add(group)
+    db_session.commit()
+    db_session.refresh(group)
+    settings = GroupSettings(group_id=group.id, allow_guessing=False)
+    db_session.add(settings)
+    db_session.commit()
+    return group
 
 
 @pytest.fixture(scope="function")

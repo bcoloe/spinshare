@@ -1,6 +1,6 @@
 """GroupSettings table definition."""
 
-from sqlalchemy import Column, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -18,5 +18,6 @@ class GroupSettings(Base):
     )
     min_role_to_add_members = Column(String, nullable=False, default="admin", server_default="admin")
     daily_album_count = Column(Integer, nullable=False, default=1, server_default="1")
+    allow_guessing = Column(Boolean, nullable=False, default=True, server_default="true")
 
     group = relationship("Group", back_populates="settings")
