@@ -28,6 +28,7 @@ interface Props {
   groupId: number
   groupAlbumId: number
   addedBy: number
+  allowGuessing?: boolean
 }
 
 // ==================== AVATAR SELECTOR ====================
@@ -89,7 +90,7 @@ function ReviewSummary({ review }: { review: ReviewResponse }) {
 
 // ==================== MAIN COMPONENT ====================
 
-export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, addedBy }: Props) {
+export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, addedBy, allowGuessing = true }: Props) {
   const { user } = useAuth()
   const { data: existingReview, isLoading: reviewLoading } = useMyReview(albumId)
   const { data: existingGuess, isLoading: guessLoading } = useMyGuess(groupId, groupAlbumId)
@@ -175,6 +176,20 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
           <Button variant="default" onClick={() => setIsEditing(false)}>
             Cancel
           </Button>
+        </Group>
+      </Stack>
+    )
+  }
+
+  // ── Already reviewed (guessing disabled) ────────────────────────────────
+  if (existingReview && !allowGuessing) {
+    return (
+      <Stack gap="md">
+        <Group justify="space-between" align="flex-start">
+          <ReviewSummary review={existingReview} />
+          <ActionIcon variant="subtle" size="sm" onClick={() => startEditing(existingReview)}>
+            <IconPencil size={14} />
+          </ActionIcon>
         </Group>
       </Stack>
     )
@@ -268,10 +283,10 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
       notifications.show({ color: 'red', message: 'Please set a rating' })
       return
     }
-    if (!isSelfNominated && !guessedUserId) {
-      openConfirm()
+    if (!allowGuessing || isSelfNominated || guessedUserId) {
+      doSubmit(!allowGuessing)
     } else {
-      doSubmit(false)
+      openConfirm()
     }
   }
 
@@ -305,32 +320,34 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
           autosize
           minRows={2}
         />
-        {isSelfNominated ? (
+        {allowGuessing && (isSelfNominated ? (
           selfNominatedBanner
         ) : (
           <Stack gap="xs">
             <Text size="sm">Who nominated this? (optional)</Text>
             <AvatarSelector groupId={groupId} selected={guessedUserId} onChange={setGuessedUserId} />
           </Stack>
-        )}
+        ))}
         <Button onClick={handleSubmitClick} loading={isPending} disabled={rating === null}>
           Submit review
         </Button>
       </Stack>
 
-      <Modal opened={confirmOpen} onClose={closeConfirm} title="Submit without a guess?">
-        <Text size="sm" mb="lg">
-          You haven&apos;t selected who nominated this album. Submit your review without a guess?
-        </Text>
-        <Group justify="flex-end">
-          <Button variant="default" onClick={closeConfirm}>
-            Go back
-          </Button>
-          <Button loading={isPending} onClick={() => doSubmit(true)}>
-            Submit anyway
-          </Button>
-        </Group>
-      </Modal>
+      {allowGuessing && (
+        <Modal opened={confirmOpen} onClose={closeConfirm} title="Submit without a guess?">
+          <Text size="sm" mb="lg">
+            You haven&apos;t selected who nominated this album. Submit your review without a guess?
+          </Text>
+          <Group justify="flex-end">
+            <Button variant="default" onClick={closeConfirm}>
+              Go back
+            </Button>
+            <Button loading={isPending} onClick={() => doSubmit(true)}>
+              Submit anyway
+            </Button>
+          </Group>
+        </Modal>
+      )}
     </>
   )
 }

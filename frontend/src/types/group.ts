@@ -7,10 +7,12 @@ export interface GroupResponse {
 export interface GroupSettings {
   min_role_to_add_members: 'owner' | 'admin' | 'member'
   daily_album_count: number
+  allow_guessing: boolean
 }
 
 export interface GroupDetailResponse extends GroupResponse {
   is_public: boolean
+  is_global: boolean
   member_count: number
   current_user_role: 'owner' | 'admin' | 'member' | null
   settings: GroupSettings | null

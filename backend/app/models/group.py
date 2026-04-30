@@ -51,6 +51,7 @@ class Group(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     is_public = Column(Boolean, nullable=False)
+    is_global = Column(Boolean, nullable=False, default=False, server_default="false")
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

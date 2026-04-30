@@ -649,6 +649,52 @@ class TestGroupServiceSettings:
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
 
 
+class TestGlobalGroup:
+    def test_delete_global_group_forbidden(self, sample_group_service, global_group, sample_user):
+        """The global group cannot be deleted by anyone."""
+        sample_group_service.add_user(global_group.id, sample_user.id)
+
+        with pytest.raises(HTTPException) as exc_info:
+            sample_group_service.delete_group(global_group.id, sample_user.id)
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+        assert "global group" in exc_info.value.detail
+
+    def test_global_group_not_deleted_when_empty(
+        self, db_session, sample_group_service, global_group, sample_user
+    ):
+        """Removing the last member of the global group must not delete it."""
+        sample_group_service.add_user(global_group.id, sample_user.id)
+        group_id = global_group.id
+
+        sample_group_service.remove_user(global_group.id, sample_user.id, sample_user.id)
+
+        assert db_session.get(Group, group_id) is not None
+
+    def test_update_global_group_settings_forbidden(
+        self, sample_group_service, global_group, sample_user
+    ):
+        """Settings changes on the global group are blocked regardless of caller."""
+        from app.schemas.group import GroupModifyRequest
+
+        sample_group_service.add_user(global_group.id, sample_user.id)
+        with pytest.raises(HTTPException) as exc_info:
+            sample_group_service.update_group_settings(
+                global_group.id, sample_user.id, GroupModifyRequest(name="renamed")
+            )
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_get_global_group(self, sample_group_service, global_group):
+        """get_global_group returns the seeded global group."""
+        result = sample_group_service.get_global_group()
+        assert result is not None
+        assert result.id == global_group.id
+        assert result.is_global
+
+    def test_get_global_group_returns_none_when_absent(self, sample_group_service):
+        """get_global_group returns None when no global group exists."""
+        assert sample_group_service.get_global_group() is None
+
+
 class TestGroupServiceSearch:
     def test_search_by_username_includes_private_groups(
         self, sample_group_service, sample_user, group_factory

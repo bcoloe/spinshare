@@ -16,7 +16,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import GroupAlbum, GroupSettings, NominationGuess, User
+from app.models import Group, GroupAlbum, GroupSettings, NominationGuess, User
 from app.schemas.group_album import CheckGuessResponse, NominationGuessCreate, NominationGuessResponse
 from app.services import group_service as gs
 
@@ -32,13 +32,16 @@ class GroupAlbumService:
     def select_daily_albums(self, group_id: int, n: int = 1) -> list[GroupAlbum]:
         """Randomly select N unselected albums as today's daily spins for a group.
 
-        Operates on distinct albums — if multiple members nominated the same album,
-        it counts as one candidate and all their nominations are marked selected together.
-        Returns one canonical GroupAlbum (earliest nomination) per selected album.
+        For the global group, samples from all nominations across every non-global group.
+        For regular groups, operates on distinct pending nominations within the group.
 
         Raises:
             HTTPException 409: If fewer than N eligible distinct albums are available.
         """
+        group = self.db.query(Group).filter(Group.id == group_id).first()
+        if group and group.is_global:
+            return self._select_global_daily_albums(group_id, n)
+
         available_album_ids = [
             row[0]
             for row in self.db.query(GroupAlbum.album_id)
@@ -76,6 +79,63 @@ class GroupAlbumService:
             if ga.album_id not in canonical or ga.id < canonical[ga.album_id].id:
                 canonical[ga.album_id] = ga
         return list(canonical.values())
+
+    def _select_global_daily_albums(self, global_group_id: int, n: int) -> list[GroupAlbum]:
+        """Select N albums for the global group by sampling across all non-global-group nominations.
+
+        Albums already spun in the global group are excluded. Creates a GroupAlbum record in the
+        global group for each chosen album, attributed to the original nominator.
+        """
+        already_spun = {
+            row[0]
+            for row in self.db.query(GroupAlbum.album_id)
+            .filter(GroupAlbum.group_id == global_group_id)
+            .distinct()
+            .all()
+        }
+
+        q = (
+            self.db.query(GroupAlbum.album_id)
+            .join(Group, GroupAlbum.group_id == Group.id)
+            .filter(Group.is_global == False)  # noqa: E712
+            .distinct()
+        )
+        if already_spun:
+            q = q.filter(GroupAlbum.album_id.notin_(already_spun))
+
+        available_album_ids = [row[0] for row in q.all()]
+
+        if len(available_album_ids) < n:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Not enough unselected albums: need {n}, have {len(available_album_ids)}",
+            )
+
+        chosen_album_ids = random.sample(available_album_ids, n)
+        now = datetime.now(tz=timezone.utc)
+
+        result = []
+        for album_id in chosen_album_ids:
+            original = (
+                self.db.query(GroupAlbum)
+                .join(Group, GroupAlbum.group_id == Group.id)
+                .filter(GroupAlbum.album_id == album_id, Group.is_global == False)  # noqa: E712
+                .order_by(GroupAlbum.id)
+                .first()
+            )
+            ga = GroupAlbum(
+                group_id=global_group_id,
+                album_id=album_id,
+                added_by=original.added_by if original else None,
+                selected_date=now,
+            )
+            self.db.add(ga)
+            result.append(ga)
+
+        self.db.commit()
+        for ga in result:
+            self.db.refresh(ga)
+        return result
 
     def trigger_daily_selection(self, group_id: int, user: User) -> list[GroupAlbum]:
         """Trigger random daily album selection if none have been chosen today.

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 import pytest
-from app.models import GroupAlbum
+from app.models import Album, GroupAlbum
 from app.schemas.group_album import NominationGuessCreate
 from fastapi import HTTPException, status
 
@@ -416,3 +416,81 @@ class TestGetMyGuess:
                 sample_group.id, sample_group_album.id, outsider
             )
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+
+
+# ==================== GLOBAL GROUP SELECTION ====================
+
+
+def _make_album(db_session, spotify_id: str, title: str) -> Album:
+    album = Album(spotify_album_id=spotify_id, title=title, artist="Test Artist")
+    db_session.add(album)
+    db_session.commit()
+    db_session.refresh(album)
+    return album
+
+
+class TestGlobalGroupSelection:
+    def test_global_group_samples_from_all_nominations(
+        self,
+        db_session,
+        group_album_service,
+        global_group,
+        sample_group,
+        sample_album,
+        sample_user,
+    ):
+        """Global group selection pulls from nominations in other groups."""
+        ga = GroupAlbum(group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id)
+        db_session.add(ga)
+        db_session.commit()
+
+        results = group_album_service.select_daily_albums(global_group.id, n=1)
+
+        assert len(results) == 1
+        assert results[0].album_id == sample_album.id
+        assert results[0].group_id == global_group.id
+        assert results[0].selected_date is not None
+
+    def test_global_group_excludes_already_spun(
+        self,
+        db_session,
+        group_album_service,
+        global_group,
+        sample_group,
+        sample_album,
+        sample_user,
+    ):
+        """Albums already spun in the global group are not re-selected."""
+        ga = GroupAlbum(group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id)
+        db_session.add(ga)
+        db_session.commit()
+
+        # Spin once to mark it as already-spun in the global group
+        group_album_service.select_daily_albums(global_group.id, n=1)
+
+        with pytest.raises(HTTPException) as exc_info:
+            group_album_service.select_daily_albums(global_group.id, n=1)
+        assert exc_info.value.status_code == status.HTTP_409_CONFLICT
+
+    def test_global_group_pools_across_multiple_groups(
+        self,
+        db_session,
+        group_album_service,
+        global_group,
+        sample_group,
+        sample_album,
+        sample_user,
+        group_factory,
+    ):
+        """Nominations from different groups are all eligible."""
+        album2 = _make_album(db_session, "spot_2", "Kid A")
+
+        other_group = group_factory(name="other-group")
+        ga1 = GroupAlbum(group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id)
+        ga2 = GroupAlbum(group_id=other_group.id, album_id=album2.id, added_by=sample_user.id)
+        db_session.add_all([ga1, ga2])
+        db_session.commit()
+
+        results = group_album_service.select_daily_albums(global_group.id, n=2)
+        selected_album_ids = {r.album_id for r in results}
+        assert selected_album_ids == {sample_album.id, album2.id}

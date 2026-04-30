@@ -44,6 +44,7 @@ class GroupSettingsResponse(BaseModel):
 
     min_role_to_add_members: str
     daily_album_count: int
+    allow_guessing: bool
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -98,6 +99,7 @@ class GroupDetailResponse(GroupResponse):
     """Extended group response with visibility, member count, and policy settings"""
 
     is_public: bool
+    is_global: bool
     member_count: int
     current_user_role: str | None = None
     settings: GroupSettingsResponse | None = None
