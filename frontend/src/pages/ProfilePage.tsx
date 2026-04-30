@@ -3,6 +3,7 @@ import {
   Button,
   Divider,
   Group,
+  Modal,
   PasswordInput,
   Skeleton,
   Stack,
@@ -10,6 +11,7 @@ import {
   TextInput,
   Title,
 } from '@mantine/core'
+import { useDisclosure } from '@mantine/hooks'
 import { useForm } from '@mantine/form'
 import { notifications } from '@mantine/notifications'
 import { useQueryClient } from '@tanstack/react-query'
@@ -27,6 +29,21 @@ interface EditFormValues {
   username: string
   email: string
   password: string
+  confirmPassword: string
+}
+
+const SPECIAL_CHARS = /[!@#$%^&*(),.?":{}|<>]/
+
+function validatePassword(v: string): string | null {
+  if (!v) return null
+  if (v.length < 8) return 'At least 8 characters required'
+  if (v.length > 50) return 'Maximum 50 characters'
+  if (!/[A-Z]/.test(v)) return 'Must contain an uppercase letter'
+  if (!/[a-z]/.test(v)) return 'Must contain a lowercase letter'
+  if (!/[0-9]/.test(v)) return 'Must contain a number'
+  if (!SPECIAL_CHARS.test(v)) return 'Must contain a special character (!@#$%^&*…)'
+  if (/\s/.test(v)) return 'Must not contain spaces'
+  return null
 }
 
 export default function ProfilePage() {
@@ -38,6 +55,8 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false)
   const [connectingSpotify, setConnectingSpotify] = useState(false)
   const [disconnectingSpotify, setDisconnectingSpotify] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteOpened, { open: openDelete, close: closeDelete }] = useDisclosure(false)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -84,6 +103,7 @@ export default function ProfilePage() {
       username: user?.username ?? '',
       email: user?.email ?? '',
       password: '',
+      confirmPassword: '',
     },
     validate: {
       username: (v) => {
@@ -93,6 +113,9 @@ export default function ProfilePage() {
         return null
       },
       email: (v) => (/^\S+@\S+\.\S+$/.test(v) ? null : 'Valid email required'),
+      password: validatePassword,
+      confirmPassword: (v, values) =>
+        values.password && v !== values.password ? 'Passwords do not match' : null,
     },
   })
 
@@ -113,6 +136,7 @@ export default function ProfilePage() {
       await qc.invalidateQueries({ queryKey: ['stats', 'me'] })
       await qc.invalidateQueries({ queryKey: ['groups', 'mine'] })
       notifications.show({ color: 'green', message: 'Profile updated' })
+      form.reset()
       setEditing(false)
 
       // If username changed, re-login is required as the token references the old state.
@@ -126,6 +150,21 @@ export default function ProfilePage() {
       notifications.show({ color: 'red', message })
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleDeleteAccount = async () => {
+    setDeleting(true)
+    try {
+      await apiFetch('/users/me', { method: 'DELETE' })
+      closeDelete()
+      notifications.show({ color: 'green', message: 'Account deleted' })
+      logout()
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Could not delete account'
+      notifications.show({ color: 'red', message })
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -149,11 +188,19 @@ export default function ProfilePage() {
               <PasswordInput
                 label="New password"
                 description="Leave blank to keep current password"
+                autoComplete="new-password"
                 {...form.getInputProps('password')}
               />
+              {form.values.password && (
+                <PasswordInput
+                  label="Confirm new password"
+                  autoComplete="new-password"
+                  {...form.getInputProps('confirmPassword')}
+                />
+              )}
               <Group gap="xs">
                 <Button type="submit" loading={saving} size="sm">Save</Button>
-                <Button variant="subtle" size="sm" onClick={() => setEditing(false)}>Cancel</Button>
+                <Button variant="subtle" size="sm" onClick={() => { form.reset(); setEditing(false) }}>Cancel</Button>
               </Group>
             </Stack>
           </form>
@@ -164,7 +211,7 @@ export default function ProfilePage() {
                 <Text fw={500}>{user?.username}</Text>
                 <Text size="sm" c="dimmed">{user?.email}</Text>
               </div>
-              <Button size="xs" variant="light" onClick={() => setEditing(true)}>Edit</Button>
+              <Button size="xs" variant="light" onClick={() => { form.setValues({ username: user?.username ?? '', email: user?.email ?? '', password: '', confirmPassword: '' }); setEditing(true) }}>Edit</Button>
             </Group>
           </Stack>
         )}
@@ -225,7 +272,36 @@ export default function ProfilePage() {
           <GroupStatsList groups={groups ?? []} />
         </div>
 
+        <Divider />
+
+        <div>
+          <Title order={5} mb="xs" c="red">Danger zone</Title>
+          <Text size="sm" c="dimmed" mb="md">
+            Permanently delete your account and all your data. This cannot be undone.
+          </Text>
+          <Button color="red" variant="outline" size="xs" onClick={openDelete}>
+            Delete account
+          </Button>
+        </div>
+
       </Stack>
+
+      <Modal opened={deleteOpened} onClose={closeDelete} title="Delete account" centered>
+        <Stack gap="md">
+          <Text size="sm">
+            Are you sure? This will permanently delete your account. Any albums
+            you've nominated that haven't been selected yet will be removed from
+            their groups. Albums already selected will remain.
+          </Text>
+          <Group justify="flex-end" gap="xs">
+            <Button variant="subtle" size="sm" onClick={closeDelete}>Cancel</Button>
+            <Button color="red" size="sm" loading={deleting} onClick={handleDeleteAccount}>
+              Delete my account
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
     </AppShell>
   )
 }

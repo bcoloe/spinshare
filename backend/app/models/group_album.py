@@ -14,7 +14,7 @@ class GroupAlbum(Base):
     id = Column(Integer, primary_key=True, index=True)
     group_id = Column(Integer, ForeignKey("groups.id"), nullable=False)
     album_id = Column(Integer, ForeignKey("albums.id"), nullable=False)
-    added_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    added_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     selected_date = Column(DateTime(timezone=True), nullable=True)
     added_at = Column(DateTime(timezone=True), server_default=func.now())
 

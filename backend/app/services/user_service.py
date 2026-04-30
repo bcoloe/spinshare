@@ -2,10 +2,12 @@
 
 from datetime import UTC, datetime, timedelta
 
-from app.models import Group, Review, SpotifyConnection, User
+from app.models import Group, GroupAlbum, NominationGuess, Review, SpotifyConnection, User
+from app.models.group import group_members
 from app.schemas.user import LoginRequest, LoginResponse, UserCreate, UserResponse, UserUpdate
 from app.utils import security
 from fastapi import HTTPException, status
+from sqlalchemy import delete as sa_delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -157,15 +159,57 @@ class UserService:
     # ==================== DELETE ====================
 
     def delete_user(self, user_id: int):
-        """Delete a user.
+        """Delete a user account.
+
+        Pending nominations are removed from their groups. Already-selected
+        nominations are preserved but anonymized (added_by set to NULL).
+        Reviews and nomination guesses are deleted. Created groups remain.
 
         Raises:
             HTTPException 404: If user not found
         """
-        user = self.get_user_by_id(user_id)
+        self.get_user_by_id(user_id)
+
+        # Delete nomination guesses made by or about this user
+        self.db.query(NominationGuess).filter(
+            (NominationGuess.guessing_user_id == user_id)
+            | (NominationGuess.guessed_user_id == user_id)
+        ).delete(synchronize_session=False)
+
+        # Delete reviews written by this user
+        self.db.query(Review).filter(
+            Review.user_id == user_id
+        ).delete(synchronize_session=False)
+
+        # Remove pending nominations from groups
+        self.db.query(GroupAlbum).filter(
+            GroupAlbum.added_by == user_id,
+            GroupAlbum.selected_date.is_(None),
+        ).delete(synchronize_session=False)
+
+        # Anonymize already-selected nominations so the album stays in the group
+        self.db.query(GroupAlbum).filter(
+            GroupAlbum.added_by == user_id,
+            GroupAlbum.selected_date.isnot(None),
+        ).update({"added_by": None}, synchronize_session=False)
+
+        # Preserve groups but remove creator attribution
+        self.db.query(Group).filter(
+            Group.created_by == user_id
+        ).update({"created_by": None}, synchronize_session=False)
+
+        # Delete Spotify connection (nullable FK would orphan it otherwise)
+        self.db.query(SpotifyConnection).filter(
+            SpotifyConnection.user_id == user_id
+        ).delete(synchronize_session=False)
+
+        # Remove group memberships (many-to-many secondary table)
+        self.db.execute(sa_delete(group_members).where(group_members.c.user_id == user_id))
+
+        # Delete the user (notifications cascade via ondelete="CASCADE")
+        self.db.query(User).filter(User.id == user_id).delete(synchronize_session=False)
 
         try:
-            self.db.delete(user)
             self.db.commit()
         except IntegrityError:
             self.db.rollback()
