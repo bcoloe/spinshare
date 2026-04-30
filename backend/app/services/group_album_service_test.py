@@ -54,12 +54,29 @@ class TestSelectDailyAlbums:
             group_album_service.select_daily_albums(sample_group.id, n=1)
         assert exc_info.value.status_code == status.HTTP_409_CONFLICT
 
-    def test_select_not_enough_available(
+    def test_select_partial_pool_returns_available(
         self, group_album_service, sample_group, sample_group_album
     ):
-        with pytest.raises(HTTPException) as exc_info:
-            group_album_service.select_daily_albums(sample_group.id, n=5)
-        assert exc_info.value.status_code == status.HTTP_409_CONFLICT
+        """When pool has fewer albums than requested, select all available instead of failing."""
+        results = group_album_service.select_daily_albums(sample_group.id, n=5)
+        assert len(results) == 1
+        assert results[0].selected_date is not None
+
+    def test_select_partial_pool_sends_notifications(
+        self, group_album_service, sample_group, sample_group_album, sample_user, db_session
+    ):
+        """Partial pool selection creates a pool-low notification for each group member."""
+        from app.models.notification import Notification
+        from app.schemas.notification import NotificationType
+
+        group_album_service.select_daily_albums(sample_group.id, n=5)
+
+        notif = db_session.query(Notification).filter(
+            Notification.user_id == sample_user.id,
+            Notification.type == NotificationType.nomination_pool_low,
+        ).first()
+        assert notif is not None
+        assert notif.group_id == sample_group.id
 
     def test_select_empty_group_raises(self, group_album_service, sample_group):
         with pytest.raises(HTTPException) as exc_info:
@@ -106,6 +123,85 @@ class TestSelectDailyAlbums:
         db_session.refresh(ga2)
         assert sample_group_album.selected_date is not None
         assert ga2.selected_date is not None
+
+
+class TestGetPendingNominationCount:
+    def test_counts_pending_nominations(
+        self, group_album_service, sample_group, sample_group_album, sample_user
+    ):
+        count = group_album_service.get_pending_nomination_count(sample_group.id, sample_user)
+        assert count == 1
+
+    def test_excludes_selected_nominations(
+        self, group_album_service, sample_group, sample_group_album, sample_user, db_session
+    ):
+        _mark_selected(db_session, sample_group_album)
+        count = group_album_service.get_pending_nomination_count(sample_group.id, sample_user)
+        assert count == 0
+
+    def test_deduplicates_multi_nominated_album(
+        self, group_album_service, sample_group, sample_group_album, sample_user,
+        sample_group_service, user_factory, db_session
+    ):
+        """Two nominations for the same album should count as 1 pending album."""
+        other = user_factory(email="other2@test.com", username="other2")
+        sample_group_service.add_user(sample_group.id, other.id)
+        ga2 = GroupAlbum(
+            group_id=sample_group.id,
+            album_id=sample_group_album.album_id,
+            added_by=other.id,
+        )
+        db_session.add(ga2)
+        db_session.commit()
+
+        count = group_album_service.get_pending_nomination_count(sample_group.id, sample_user)
+        assert count == 1
+
+    def test_non_member_forbidden(self, group_album_service, sample_group, user_factory):
+        outsider = user_factory(email="out2@test.com", username="outsider2")
+        with pytest.raises(HTTPException) as exc_info:
+            group_album_service.get_pending_nomination_count(sample_group.id, outsider)
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_global_group_counts_all_non_global_nominations(
+        self,
+        group_album_service,
+        sample_group_service,
+        global_group,
+        sample_group,
+        sample_album,
+        sample_user,
+        db_session,
+    ):
+        """Global group pool count reflects unspun nominations across all non-global groups."""
+        sample_group_service.add_user(global_group.id, sample_user.id)
+        ga = GroupAlbum(group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id)
+        db_session.add(ga)
+        db_session.commit()
+
+        count = group_album_service.get_pending_nomination_count(global_group.id, sample_user)
+        assert count == 1
+
+    def test_global_group_excludes_already_spun(
+        self,
+        group_album_service,
+        sample_group_service,
+        global_group,
+        sample_group,
+        sample_album,
+        sample_user,
+        db_session,
+    ):
+        """Albums already spun in the global group are excluded from the pool count."""
+        sample_group_service.add_user(global_group.id, sample_user.id)
+        ga = GroupAlbum(group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id)
+        db_session.add(ga)
+        db_session.commit()
+
+        group_album_service.select_daily_albums(global_group.id, n=1)
+
+        count = group_album_service.get_pending_nomination_count(global_group.id, sample_user)
+        assert count == 0
 
 
 class TestTriggerDailySelection:

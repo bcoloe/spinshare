@@ -25,6 +25,7 @@ export function useTriggerDailySelection(groupId: number) {
     mutationFn: () => albumService.triggerDailySelection(groupId),
     onSuccess: (albums) => {
       qc.setQueryData(['groups', groupId, 'albums', 'today'], albums)
+      qc.invalidateQueries({ queryKey: ['groups', groupId, 'nominations', 'count'] })
     },
   })
 }

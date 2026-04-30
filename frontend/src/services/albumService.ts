@@ -2,6 +2,7 @@ import { apiFetch } from './apiClient'
 import type {
   CheckGuessResponse,
   GroupAlbumResponse,
+  NominationCountResponse,
   NominationGuessCreate,
   ReviewCreate,
   ReviewResponse,
@@ -59,5 +60,9 @@ export const albumService = {
       method: 'POST',
       body: JSON.stringify(data),
     })
+  },
+
+  getNominationCount(groupId: number): Promise<NominationCountResponse> {
+    return apiFetch(`/groups/${groupId}/nominations/count`)
   },
 }

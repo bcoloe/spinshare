@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 class NotificationType(str, Enum):
     invitation_accepted = "invitation_accepted"
     invitation_declined = "invitation_declined"
+    nomination_pool_low = "nomination_pool_low"
 
 
 class NotificationResponse(BaseModel):

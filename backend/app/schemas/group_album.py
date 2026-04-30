@@ -27,3 +27,7 @@ class CheckGuessResponse(BaseModel):
     correct: bool
     nominator_user_ids: list[int]
     nominator_usernames: list[str]
+
+
+class NominationCountResponse(BaseModel):
+    pending_count: int

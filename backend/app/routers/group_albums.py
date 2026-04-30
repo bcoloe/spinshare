@@ -12,6 +12,7 @@ from app.models import User
 from app.schemas.album import GroupAlbumResponse
 from app.schemas.group_album import (
     CheckGuessResponse,
+    NominationCountResponse,
     NominationGuessCreate,
 )
 from app.services.group_album_service import GroupAlbumService
@@ -45,6 +46,20 @@ def trigger_daily_selection(
     """
     gas = svc.trigger_daily_selection(group_id, current_user)
     return [GroupAlbumResponse.from_orm(ga) for ga in gas]
+
+
+# ==================== NOMINATION POOL ====================
+
+
+@router.get("/{group_id}/nominations/count", response_model=NominationCountResponse)
+def get_nomination_count(
+    group_id: int,
+    current_user: User = Depends(get_current_user),
+    svc: GroupAlbumService = Depends(get_group_album_service),
+):
+    """Return the number of pending (unselected) nominations remaining in the pool."""
+    count = svc.get_pending_nomination_count(group_id, current_user)
+    return NominationCountResponse(pending_count=count)
 
 
 # ==================== GUESSING ====================
