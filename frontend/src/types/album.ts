@@ -61,3 +61,7 @@ export interface CheckGuessResponse {
   nominator_user_ids: number[]
   nominator_usernames: string[]
 }
+
+export interface NominationCountResponse {
+  pending_count: number
+}

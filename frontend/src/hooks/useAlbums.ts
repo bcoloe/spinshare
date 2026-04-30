@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { albumSearchService } from '../services/albumSearchService'
+import { albumService } from '../services/albumService'
 import type { AlbumSearchParams, AlbumSearchResult } from '../services/albumSearchService'
 import type { UserNominationResponse } from '../types/album'
 
@@ -40,6 +41,7 @@ export function useNominateAlbum(groupId: number) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['groups', groupId, 'albums'] })
       qc.invalidateQueries({ queryKey: ['users', 'me', 'nominations'] })
+      qc.invalidateQueries({ queryKey: ['groups', groupId, 'nominations', 'count'] })
     },
   })
 }
@@ -51,6 +53,7 @@ export function useNominateFromPool(groupId: number) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['groups', groupId, 'albums'] })
       qc.invalidateQueries({ queryKey: ['users', 'me', 'nominations'] })
+      qc.invalidateQueries({ queryKey: ['groups', groupId, 'nominations', 'count'] })
     },
   })
 }
@@ -60,6 +63,17 @@ export function useRemoveGroupAlbum(groupId: number) {
   return useMutation({
     mutationFn: (groupAlbumId: number) =>
       albumSearchService.removeGroupAlbum(groupId, groupAlbumId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'albums'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['groups', groupId, 'albums'] })
+      qc.invalidateQueries({ queryKey: ['groups', groupId, 'nominations', 'count'] })
+    },
+  })
+}
+
+export function useNominationCount(groupId: number) {
+  return useQuery({
+    queryKey: ['groups', groupId, 'nominations', 'count'],
+    queryFn: () => albumService.getNominationCount(groupId),
+    enabled: !!groupId,
   })
 }

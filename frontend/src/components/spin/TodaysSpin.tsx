@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Alert,
+  Badge,
   Button,
   Center,
   Divider,
@@ -23,7 +24,7 @@ import SpotifyPlayer from './SpotifyPlayer'
 import ReviewAndGuessForm from './ReviewAndGuessForm'
 import AlbumSearchModal from '../albums/AlbumSearchModal'
 import { useMyReview, useTodaysAlbums, useTriggerDailySelection } from '../../hooks/useDailySpin'
-import { useGroupAlbums } from '../../hooks/useAlbums'
+import { useGroupAlbums, useNominationCount } from '../../hooks/useAlbums'
 import { useMyStats } from '../../hooks/useStats'
 import { albumSearchService } from '../../services/albumSearchService'
 import { ApiError } from '../../services/apiClient'
@@ -197,6 +198,7 @@ interface Props {
 export default function TodaysSpin({ groupId, group }: Props) {
   const { data: albums, isLoading, isError } = useTodaysAlbums(groupId)
   const { data: stats } = useMyStats()
+  const { data: nominationCountData } = useNominationCount(groupId)
   const hasSpotify = stats?.has_spotify ?? false
   const [nominateOpened, { open: openNominate, close: closeNominate }] = useDisclosure()
   const triggerSelection = useTriggerDailySelection(groupId)
@@ -206,6 +208,36 @@ export default function TodaysSpin({ groupId, group }: Props) {
     group?.current_user_role === 'owner' || group?.current_user_role === 'admin'
 
   const isEmpty = !isLoading && !isError && albums?.length === 0
+
+  const dailyAlbumCount = group?.settings?.daily_album_count ?? 1
+  const pendingCount = nominationCountData?.pending_count ?? 0
+  const poolColor =
+    pendingCount >= 10 * dailyAlbumCount
+      ? 'green'
+      : pendingCount >= 5 * dailyAlbumCount
+        ? 'yellow'
+        : pendingCount >= 2 * dailyAlbumCount
+          ? 'orange'
+          : 'red'
+  const poolTooltip =
+    pendingCount === 0
+      ? 'Nomination pool is empty — add albums to continue daily spins!'
+      : pendingCount < 2 * dailyAlbumCount
+        ? 'Pool is critically low — add more nominations soon!'
+        : pendingCount < 5 * dailyAlbumCount
+          ? 'Pool is running low — consider adding more nominations'
+          : pendingCount < 10 * dailyAlbumCount
+            ? 'Pool is moderate — keep nominations coming'
+            : 'Pool is healthy'
+  const poolBadge = nominationCountData !== undefined ? (
+    <Group justify="flex-end">
+      <Tooltip label={poolTooltip}>
+        <Badge size="sm" color={poolColor} variant="light" style={{ cursor: 'default' }}>
+          {pendingCount} nomination{pendingCount !== 1 ? 's' : ''} in pool
+        </Badge>
+      </Tooltip>
+    </Group>
+  ) : null
 
   const handleRollSpin = async () => {
     try {
@@ -230,6 +262,7 @@ export default function TodaysSpin({ groupId, group }: Props) {
     return (
       <>
         <Stack gap="md">
+          {poolBadge}
           <Alert icon={<IconInfoCircle size={16} />} color="blue" title="No spin selected yet">
             No album has been selected for today yet. Roll a random spin or nominate a new one.
           </Alert>
@@ -266,8 +299,18 @@ export default function TodaysSpin({ groupId, group }: Props) {
   }
 
   if (albums?.length === 1) {
-    return <SpinSlide groupAlbum={albums[0]} groupId={groupId} hasSpotify={hasSpotify} allowGuessing={allowGuessing} />
+    return (
+      <Stack gap="md">
+        {poolBadge}
+        <SpinSlide groupAlbum={albums[0]} groupId={groupId} hasSpotify={hasSpotify} allowGuessing={allowGuessing} />
+      </Stack>
+    )
   }
 
-  return <MultiAlbumSpin albums={albums!} groupId={groupId} hasSpotify={hasSpotify} allowGuessing={allowGuessing} />
+  return (
+    <Stack gap="md">
+      {poolBadge}
+      <MultiAlbumSpin albums={albums!} groupId={groupId} hasSpotify={hasSpotify} allowGuessing={allowGuessing} />
+    </Stack>
+  )
 }

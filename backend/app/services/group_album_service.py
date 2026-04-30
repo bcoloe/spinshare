@@ -12,13 +12,16 @@ import random
 from datetime import date, datetime, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import Group, GroupAlbum, GroupSettings, NominationGuess, User
+from app.models.group import group_members
 from app.schemas.group_album import CheckGuessResponse, NominationGuessCreate, NominationGuessResponse
+from app.schemas.notification import NotificationType
 from app.services import group_service as gs
+from app.services.notification_service import NotificationService
 
 
 class GroupAlbumService:
@@ -35,8 +38,11 @@ class GroupAlbumService:
         For the global group, samples from all nominations across every non-global group.
         For regular groups, operates on distinct pending nominations within the group.
 
+        If fewer than N albums are available (but at least 1), selects all available and
+        notifies group members that the pool is exhausted.
+
         Raises:
-            HTTPException 409: If fewer than N eligible distinct albums are available.
+            HTTPException 409: If no eligible distinct albums are available.
         """
         group = self.db.query(Group).filter(Group.id == group_id).first()
         if group and group.is_global:
@@ -49,13 +55,15 @@ class GroupAlbumService:
             .distinct()
             .all()
         ]
-        if len(available_album_ids) < n:
+        if len(available_album_ids) == 0:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Not enough unselected albums: need {n}, have {len(available_album_ids)}",
+                detail="No unselected albums available",
             )
 
-        chosen_album_ids = random.sample(available_album_ids, n)
+        pool_short = len(available_album_ids) < n
+        actual_n = len(available_album_ids) if pool_short else n
+        chosen_album_ids = random.sample(available_album_ids, actual_n)
         now = datetime.now(tz=timezone.utc)
 
         all_nominations = (
@@ -78,6 +86,10 @@ class GroupAlbumService:
             self.db.refresh(ga)
             if ga.album_id not in canonical or ga.id < canonical[ga.album_id].id:
                 canonical[ga.album_id] = ga
+
+        if pool_short and group:
+            self._notify_pool_exhausted(group_id, group.name, actual_n, n)
+
         return list(canonical.values())
 
     def _select_global_daily_albums(self, global_group_id: int, n: int) -> list[GroupAlbum]:
@@ -329,7 +341,72 @@ class GroupAlbumService:
             nominator_usernames=[n.username for n in nominators],
         )
 
+    # ==================== NOMINATION POOL ====================
+
+    def get_pending_nomination_count(self, group_id: int, user: User) -> int:
+        """Return the number of distinct albums available for future selection.
+
+        For regular groups: distinct unselected nominations within the group.
+        For the global group: distinct albums nominated in any non-global group
+        that have not yet been spun globally.
+
+        Raises:
+            HTTPException 403: If user is not a group member.
+        """
+        group_service = gs.GroupService(self.db)
+        group_service.require_membership(user.id, group_id)
+
+        group = self.db.query(Group).filter(Group.id == group_id).first()
+        if group and group.is_global:
+            already_spun = {
+                row[0]
+                for row in self.db.query(GroupAlbum.album_id)
+                .filter(GroupAlbum.group_id == group_id)
+                .distinct()
+                .all()
+            }
+            q = (
+                self.db.query(GroupAlbum.album_id)
+                .join(Group, GroupAlbum.group_id == Group.id)
+                .filter(Group.is_global == False)  # noqa: E712
+                .distinct()
+            )
+            if already_spun:
+                q = q.filter(GroupAlbum.album_id.notin_(already_spun))
+            return q.count()
+
+        return (
+            self.db.query(GroupAlbum.album_id)
+            .filter(GroupAlbum.group_id == group_id, GroupAlbum.selected_date.is_(None))
+            .distinct()
+            .count()
+        )
+
     # ==================== HELPERS ====================
+
+    def _notify_pool_exhausted(
+        self, group_id: int, group_name: str, selected: int, requested: int
+    ) -> None:
+        """Send a pool-low notification to every member of the group."""
+        member_ids = list(
+            self.db.scalars(
+                select(group_members.c.user_id).where(
+                    group_members.c.group_id == group_id
+                )
+            ).all()
+        )
+        message = (
+            f"Today's spin for {group_name} could only pull {selected} of {requested} albums — "
+            f"the nomination pool is now empty. Add more albums to keep the daily spin going!"
+        )
+        ns = NotificationService(self.db)
+        for uid in member_ids:
+            ns.create(
+                user_id=uid,
+                type=NotificationType.nomination_pool_low,
+                message=message,
+                group_id=group_id,
+            )
 
     def _get_group_album_or_404(self, group_id: int, group_album_id: int) -> GroupAlbum:
         ga = (
