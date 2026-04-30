@@ -1,8 +1,10 @@
 """Unit tests of the UserService interactions."""
 
+from datetime import UTC, datetime
+
 import pydantic
 import pytest
-from app.models import User
+from app.models import GroupAlbum, NominationGuess, User
 from app.schemas.user import LoginRequest, UserCreate, UserUpdate
 from app.utils import security
 from fastapi import HTTPException, status
@@ -289,10 +291,11 @@ class TestUserServiceDelete:
 
     def test_delete_valid_user(self, sample_user_service, sample_user):
         """Test that user deletion works."""
-        assert sample_user_service.get_user_by_email(sample_user.email) is not None
+        email = sample_user.email
+        assert sample_user_service.get_user_by_email(email) is not None
 
         sample_user_service.delete_user(sample_user.id)
-        assert sample_user_service.get_user_by_email(sample_user.email) is None
+        assert sample_user_service.get_user_by_email(email) is None
 
     def test_delete_invalid_user(self, sample_user_service):
         """Test that user deletion works."""
@@ -301,6 +304,53 @@ class TestUserServiceDelete:
 
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
         assert exc_info.value.detail == "User not found"
+
+    def test_delete_user_removes_pending_nominations(
+        self, sample_user_service, sample_user, sample_group_album, db_session
+    ):
+        """Pending nominations (no selected_date) are deleted with the user."""
+        assert sample_group_album.selected_date is None
+        ga_id = sample_group_album.id
+
+        sample_user_service.delete_user(sample_user.id)
+
+        assert db_session.query(GroupAlbum).filter(GroupAlbum.id == ga_id).first() is None
+
+    def test_delete_user_preserves_selected_nominations(
+        self, sample_user_service, sample_user, sample_group_album, db_session
+    ):
+        """Selected nominations (selected_date set) are kept but anonymized."""
+        sample_group_album.selected_date = datetime.now(UTC)
+        db_session.commit()
+        ga_id = sample_group_album.id
+
+        sample_user_service.delete_user(sample_user.id)
+
+        remaining = db_session.query(GroupAlbum).filter(GroupAlbum.id == ga_id).first()
+        assert remaining is not None
+        assert remaining.added_by is None
+
+    def test_delete_user_with_nomination_guesses(
+        self, sample_user_service, sample_user, sample_group_album, db_session, user_factory
+    ):
+        """Nomination guesses referencing the deleted user are removed."""
+        other_user = user_factory(email="other@test.com", username="other_user")
+        sample_group_album.selected_date = datetime.now(UTC)
+        db_session.commit()
+
+        guess = NominationGuess(
+            group_album_id=sample_group_album.id,
+            guessing_user_id=other_user.id,
+            guessed_user_id=sample_user.id,
+            correct=True,
+        )
+        db_session.add(guess)
+        db_session.commit()
+        guess_id = guess.id
+
+        sample_user_service.delete_user(sample_user.id)
+
+        assert db_session.query(NominationGuess).filter(NominationGuess.id == guess_id).first() is None
 
 
 class TestUserServiceAuthentication:
