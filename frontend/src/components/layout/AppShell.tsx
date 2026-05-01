@@ -214,7 +214,13 @@ export default function AppShell({ children }: AppShellProps) {
                                 size="sm"
                                 style={{ cursor: n.group_id ? 'pointer' : 'default' }}
                                 onClick={() => {
-                                  if (n.group_id) { closeBell(); navigate(`/groups/${n.group_id}`) }
+                                  if (n.group_id) {
+                                    closeBell()
+                                    const dest = n.type === 'member_reviewed_album'
+                                      ? `/groups/${n.group_id}?tab=history`
+                                      : `/groups/${n.group_id}`
+                                    navigate(dest)
+                                  }
                                 }}
                               >
                                 {n.message}

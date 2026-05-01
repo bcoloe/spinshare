@@ -10,6 +10,8 @@ class NotificationType(str, Enum):
     invitation_accepted = "invitation_accepted"
     invitation_declined = "invitation_declined"
     nomination_pool_low = "nomination_pool_low"
+    member_reviewed_album = "member_reviewed_album"
+    new_member_joined = "new_member_joined"
 
 
 class NotificationResponse(BaseModel):

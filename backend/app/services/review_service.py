@@ -1,8 +1,11 @@
 """Review service."""
 
-from app.models import Review
+from app.models import Album, Group, GroupAlbum, Review, User, group_members
 from app.schemas.album import ReviewCreate, ReviewUpdate
+from app.schemas.notification import NotificationType
+from app.services.notification_service import NotificationService
 from fastapi import HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -37,7 +40,50 @@ class ReviewService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="You have already reviewed this album",
             ) from None
+        self._notify_co_reviewers(album_id, user_id)
         return review
+
+    def _notify_co_reviewers(self, album_id: int, reviewer_id: int) -> None:
+        """Notify group members who already reviewed this album that a new review was posted.
+
+        Only fires for non-global groups; one notification per (member, group) pair.
+        """
+        album = self.db.get(Album, album_id)
+        reviewer = self.db.get(User, reviewer_id)
+        if not album or not reviewer:
+            return
+
+        groups_with_album = (
+            self.db.scalars(
+                select(GroupAlbum)
+                .join(Group, GroupAlbum.group_id == Group.id)
+                .where(GroupAlbum.album_id == album_id, Group.is_global == False)  # noqa: E712
+            ).all()
+        )
+
+        ns = NotificationService(self.db)
+        for ga in groups_with_album:
+            member_ids = list(
+                self.db.scalars(
+                    select(group_members.c.user_id).where(group_members.c.group_id == ga.group_id)
+                ).all()
+            )
+            co_reviewer_ids = list(
+                self.db.scalars(
+                    select(Review.user_id).where(
+                        Review.album_id == album_id,
+                        Review.user_id.in_(member_ids),
+                        Review.user_id != reviewer_id,
+                    )
+                ).all()
+            )
+            for uid in co_reviewer_ids:
+                ns.create(
+                    user_id=uid,
+                    type=NotificationType.member_reviewed_album,
+                    message=f"{reviewer.username} also reviewed {album.title}",
+                    group_id=ga.group_id,
+                )
 
     # ==================== GET ====================
 
