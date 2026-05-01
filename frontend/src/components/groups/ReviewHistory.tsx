@@ -221,7 +221,7 @@ interface ReviewedRowProps {
 function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: ReviewedRowProps) {
   const { album } = ga
   const [editMode, setEditMode] = useState(false)
-  const [editRating, setEditRating] = useState(review.rating)
+  const [editRating, setEditRating] = useState<number>(review.rating ?? 0)
   const [editComment, setEditComment] = useState(review.comment ?? '')
   const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set())
   const updateReview = useUpdateReview(ga.album_id)
@@ -235,16 +235,17 @@ function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: 
     })
 
   const groupAvg = useMemo(() => {
-    if (allReviews.length === 0) return null
-    const sum = allReviews.reduce((s, r) => s + r.rating, 0)
-    return Math.round((sum / allReviews.length) * 10) / 10
+    const rated = allReviews.filter((r) => r.rating !== null)
+    if (rated.length === 0) return null
+    const sum = rated.reduce((s, r) => s + r.rating!, 0)
+    return Math.round((sum / rated.length) * 10) / 10
   }, [allReviews])
 
   const displayReviews = allReviews.length > 0 ? allReviews : [review]
 
   const handleEditOpen = (e: React.MouseEvent) => {
     e.stopPropagation()
-    setEditRating(review.rating)
+    setEditRating(review.rating ?? 0)
     setEditComment(review.comment ?? '')
     setEditMode(true)
     if (!isExpanded) onToggle()
@@ -280,7 +281,7 @@ function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: 
           <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{formatDate(ga.selected_date)}</Text>
         </Table.Td>
         <Table.Td>
-          <Text size="sm" fw={700} c={ratingColor(review.rating)}>{review.rating}</Text>
+          <Text size="sm" fw={700} c={ratingColor(review.rating ?? 0)}>{review.rating}</Text>
         </Table.Td>
         <Table.Td>
           <Text size="sm" c={groupAvg !== null ? ratingColor(groupAvg) : 'dimmed'} fw={groupAvg !== null ? 600 : undefined}>
@@ -314,7 +315,7 @@ function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: 
                 const previewLine = r.comment?.split('\n')[0]
 
                 return (
-                  <Paper key={r.id} withBorder p="sm" style={{ background: ratingBg(r.rating) }}>
+                  <Paper key={r.id} withBorder p="sm" style={{ background: ratingBg(r.rating ?? 0) }}>
                     <Group
                       justify="space-between"
                       wrap="nowrap"
@@ -330,14 +331,14 @@ function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: 
                         {isMine && <Text size="xs" c="dimmed">(you)</Text>}
                       </Group>
                       <Group gap={4} wrap="nowrap">
-                        <Text size="sm" fw={700} c={ratingColor(r.rating)}>{r.rating}</Text>
+                        <Text size="sm" fw={700} c={ratingColor(r.rating ?? 0)}>{r.rating}</Text>
                         {isMine && !editMode && (
                           <ActionIcon
                             size="xs"
                             variant="subtle"
                             onClick={(e) => {
                               e.stopPropagation()
-                              setEditRating(r.rating)
+                              setEditRating(r.rating ?? 0)
                               setEditComment(r.comment ?? '')
                               setEditMode(true)
                             }}
@@ -473,11 +474,17 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
   }, [albums, allReviewQueries])
 
   const unreviewed = useMemo(
-    () => albums.filter((ga) => !reviewMap.get(ga.album_id)),
+    () => albums.filter((ga) => {
+      const review = reviewMap.get(ga.album_id)
+      return !review || review.is_draft
+    }),
     [albums, reviewMap],
   )
   const reviewed = useMemo(
-    () => albums.filter((ga) => !!reviewMap.get(ga.album_id)),
+    () => albums.filter((ga) => {
+      const review = reviewMap.get(ga.album_id)
+      return review && !review.is_draft
+    }),
     [albums, reviewMap],
   )
 
