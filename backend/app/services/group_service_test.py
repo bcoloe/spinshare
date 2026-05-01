@@ -5,6 +5,8 @@ import pytest
 from app.models import GroupAlbum
 from app.models.group import Group, GroupRole
 from app.schemas.group import GroupCreate, GroupModifyRequest, GroupSettingsUpdate
+from app.schemas.notification import NotificationType
+from app.services.notification_service import NotificationService
 from fastapi import HTTPException, status
 from pydantic import ValidationError
 
@@ -718,3 +720,48 @@ class TestGroupServiceSearch:
         public_group = group_factory(name="Open-Spins", is_public=True)
         results = sample_group_service.search_groups(query="open")
         assert any(g.id == public_group.id for g in results)
+
+
+class TestGroupJoinNotifications:
+    def test_existing_members_notified_when_user_joins(
+        self, db_session, sample_group_service, sample_group, sample_user, user_factory
+    ):
+        new_user = user_factory(email="new@test.com", username="newmember")
+        sample_group_service.add_user(sample_group.id, new_user.id)
+
+        ns = NotificationService(db_session)
+        unread = ns.get_unread(sample_user)
+        assert len(unread) == 1
+        assert unread[0].type == NotificationType.new_member_joined
+        assert unread[0].group_id == sample_group.id
+        assert "newmember" in unread[0].message
+
+    def test_no_notification_when_first_member_added(
+        self, db_session, sample_group_service, sample_user
+    ):
+        from app.schemas.group import GroupCreate
+        group = sample_group_service.create_group(GroupCreate(name="fresh-group"), sample_user)
+
+        ns = NotificationService(db_session)
+        assert ns.get_unread(sample_user) == []
+
+    def test_no_notification_for_global_group_join(
+        self, db_session, sample_group_service, global_group, sample_user, user_factory
+    ):
+        global_group.members.append(sample_user)
+        db_session.commit()
+        new_user = user_factory(email="new@test.com", username="globaljoiner")
+
+        sample_group_service.add_user(global_group.id, new_user.id)
+
+        ns = NotificationService(db_session)
+        assert ns.get_unread(sample_user) == []
+
+    def test_joiner_does_not_receive_their_own_join_notification(
+        self, db_session, sample_group_service, sample_group, sample_user, user_factory
+    ):
+        new_user = user_factory(email="new@test.com", username="newmember")
+        sample_group_service.add_user(sample_group.id, new_user.id)
+
+        ns = NotificationService(db_session)
+        assert ns.get_unread(new_user) == []

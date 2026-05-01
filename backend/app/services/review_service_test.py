@@ -1,5 +1,9 @@
 import pytest
+from app.models import GroupAlbum
+from app.models.notification import Notification
 from app.schemas.album import ReviewCreate, ReviewUpdate
+from app.schemas.notification import NotificationType
+from app.services.notification_service import NotificationService
 from fastapi import HTTPException, status
 
 
@@ -123,3 +127,61 @@ class TestReviewServiceDelete:
         with pytest.raises(HTTPException) as exc_info:
             review_service.delete_review(review.id, other.id)
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestReviewNotifications:
+    def _link_album_to_group(self, db_session, group_id, album_id, added_by_id):
+        ga = GroupAlbum(group_id=group_id, album_id=album_id, added_by=added_by_id)
+        db_session.add(ga)
+        db_session.commit()
+
+    def test_notifies_co_reviewer_in_same_group(
+        self, db_session, review_service, sample_album, sample_user, sample_group, user_factory
+    ):
+        other = user_factory(email="other@test.com", username="other_reviewer")
+        sample_group.members.append(other)
+        db_session.commit()
+        self._link_album_to_group(db_session, sample_group.id, sample_album.id, sample_user.id)
+
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=7.0))
+        review_service.create_review(sample_album.id, other.id, ReviewCreate(rating=8.0))
+
+        ns = NotificationService(db_session)
+        unread = ns.get_unread(sample_user)
+        assert len(unread) == 1
+        assert unread[0].type == NotificationType.member_reviewed_album
+        assert unread[0].group_id == sample_group.id
+        assert "other_reviewer" in unread[0].message
+
+    def test_no_notification_when_no_prior_reviewers(
+        self, db_session, review_service, sample_album, sample_user, sample_group
+    ):
+        self._link_album_to_group(db_session, sample_group.id, sample_album.id, sample_user.id)
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=7.0))
+
+        ns = NotificationService(db_session)
+        assert ns.get_unread(sample_user) == []
+
+    def test_no_notification_for_global_group(
+        self, db_session, review_service, sample_album, sample_user, global_group, user_factory
+    ):
+        other = user_factory(email="other@test.com", username="other_reviewer")
+        global_group.members.append(sample_user)
+        global_group.members.append(other)
+        db_session.commit()
+        self._link_album_to_group(db_session, global_group.id, sample_album.id, sample_user.id)
+
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=7.0))
+        review_service.create_review(sample_album.id, other.id, ReviewCreate(rating=8.0))
+
+        ns = NotificationService(db_session)
+        assert ns.get_unread(sample_user) == []
+
+    def test_reviewer_does_not_notify_themselves(
+        self, db_session, review_service, sample_album, sample_user, sample_group
+    ):
+        self._link_album_to_group(db_session, sample_group.id, sample_album.id, sample_user.id)
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=7.0))
+
+        ns = NotificationService(db_session)
+        assert ns.get_unread(sample_user) == []

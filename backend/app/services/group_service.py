@@ -5,7 +5,9 @@ from datetime import datetime
 from app.models import Group, GroupAlbum, GroupSettings, User, group_members
 from app.models.group import GroupRole
 from app.schemas.group import GroupCreate, GroupModifyRequest
+from app.schemas.notification import NotificationType
 from app.services import user_service
+from app.services.notification_service import NotificationService
 from fastapi import HTTPException, status
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
@@ -64,6 +66,13 @@ class GroupService:
             return None
         group = self.get_group_by_id(group_id)
         user = user_service.UserService(self.db).get_user_by_id(user_id)
+
+        existing_member_ids = (
+            [m["user_id"] for m in self.get_group_members(group_id)]
+            if not group.is_global
+            else []
+        )
+
         group.members.append(user)
         try:
             self.db.add(group)
@@ -75,6 +84,16 @@ class GroupService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Add user failed due to constraint violation",
             ) from None
+
+        if existing_member_ids:
+            ns = NotificationService(self.db)
+            for member_id in existing_member_ids:
+                ns.create(
+                    user_id=member_id,
+                    type=NotificationType.new_member_joined,
+                    message=f"{user.username} joined {group.name}",
+                    group_id=group_id,
+                )
 
     # ==================== DELETE ====================
 

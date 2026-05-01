@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ActionIcon,
   Badge,
@@ -33,7 +33,13 @@ export default function GroupPage() {
   const { groupId } = useParams<{ groupId: string }>()
   const gid = Number(groupId)
   const navigate = useNavigate()
-  const [tab, setTab] = useState<Tab>('spin')
+  const [searchParams] = useSearchParams()
+  const [tab, setTab] = useState<Tab>((searchParams.get('tab') as Tab) ?? 'spin')
+
+  useEffect(() => {
+    const paramTab = searchParams.get('tab') as Tab | null
+    if (paramTab) setTab(paramTab)
+  }, [searchParams])
   const [leaveOpened, { open: openLeave, close: closeLeave }] = useDisclosure(false)
   const [inviteOpened, { open: openInvite, close: closeInvite }] = useDisclosure(false)
 
