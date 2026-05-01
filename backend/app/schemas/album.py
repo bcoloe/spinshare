@@ -3,7 +3,7 @@
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class AlbumSearchResult(BaseModel):
@@ -109,21 +109,30 @@ class UserNominationResponse(BaseModel):
 
 
 class ReviewCreate(BaseModel):
-    rating: float = Field(..., ge=0, le=10)
+    rating: float | None = Field(None, ge=0, le=10)
     comment: str | None = None
+    is_draft: bool = False
+
+    @model_validator(mode="after")
+    def rating_required_when_published(self) -> "ReviewCreate":
+        if not self.is_draft and self.rating is None:
+            raise ValueError("rating is required when submitting a review")
+        return self
 
 
 class ReviewUpdate(BaseModel):
     rating: float | None = Field(None, ge=0, le=10)
     comment: str | None = None
+    is_draft: bool | None = None
 
 
 class ReviewResponse(BaseModel):
     id: int
     album_id: int
     user_id: int
-    rating: float
+    rating: float | None
     comment: str | None = None
+    is_draft: bool
     reviewed_at: datetime
     updated_at: datetime | None = None
 

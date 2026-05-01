@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { albumService } from '../services/albumService'
-import type { NominationGuessCreate, ReviewCreate } from '../types/album'
+import type { NominationGuessCreate, ReviewCreate, ReviewUpdate } from '../types/album'
 
 export function useUpdateReview(albumId: number) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ reviewId, data }: { reviewId: number; data: Partial<ReviewCreate> }) =>
+    mutationFn: ({ reviewId, data }: { reviewId: number; data: ReviewUpdate }) =>
       albumService.updateReview(albumId, reviewId, data),
     onSuccess: (updated) => qc.setQueryData(['reviews', albumId, 'me'], updated),
   })

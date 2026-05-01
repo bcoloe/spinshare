@@ -103,7 +103,7 @@ function MultiAlbumSpin({ albums, groupId, hasSpotify, allowGuessing = true }: {
 
 function AlbumTab({ albumId, title, coverUrl, isPlaying = false }: { albumId: number; title: string; coverUrl: string | null; isPlaying?: boolean }) {
   const { data: review } = useMyReview(albumId)
-  const reviewed = !!review
+  const reviewed = !!review && !review.is_draft
   return (
     <Tooltip label={title} openDelay={400} disabled={title.length <= 22}>
       <Group gap={6} wrap="nowrap">

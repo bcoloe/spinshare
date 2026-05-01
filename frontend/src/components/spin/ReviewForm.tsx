@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button, Group, Slider, Stack, Text, Textarea } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { useSubmitReview } from '../../hooks/useDailySpin'
+import { useSubmitReview, useUpdateReview } from '../../hooks/useDailySpin'
 import { ApiError } from '../../services/apiClient'
 import type { ReviewResponse } from '../../types/album'
 
@@ -11,11 +11,21 @@ interface Props {
 }
 
 export default function ReviewForm({ albumId, existingReview }: Props) {
+  const isDraft = !!existingReview?.is_draft
+
   const [rating, setRating] = useState<number | null>(existingReview?.rating ?? null)
   const [comment, setComment] = useState(existingReview?.comment ?? '')
   const submitReview = useSubmitReview(albumId)
+  const updateReview = useUpdateReview(albumId)
 
-  if (existingReview) {
+  useEffect(() => {
+    if (isDraft && existingReview) {
+      setRating(existingReview.rating)
+      setComment(existingReview.comment ?? '')
+    }
+  }, [existingReview?.id])
+
+  if (existingReview && !isDraft) {
     return (
       <Stack gap="xs">
         <Text size="sm" fw={600}>Your review</Text>
@@ -30,13 +40,37 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
     )
   }
 
+  const handleSaveDraft = async () => {
+    try {
+      if (isDraft && existingReview) {
+        await updateReview.mutateAsync({
+          reviewId: existingReview.id,
+          data: { rating: rating ?? undefined, comment: comment || undefined, is_draft: true },
+        })
+      } else {
+        await submitReview.mutateAsync({ rating: rating ?? undefined, comment: comment || undefined, is_draft: true })
+      }
+      notifications.show({ color: 'teal', message: 'Draft saved' })
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Could not save draft'
+      notifications.show({ color: 'red', message })
+    }
+  }
+
   const handleSubmit = async () => {
     if (rating === null) {
       notifications.show({ color: 'red', message: 'Please set a rating' })
       return
     }
     try {
-      await submitReview.mutateAsync({ rating, comment: comment || undefined })
+      if (isDraft && existingReview) {
+        await updateReview.mutateAsync({
+          reviewId: existingReview.id,
+          data: { rating: rating ?? undefined, comment: comment || undefined, is_draft: false },
+        })
+      } else {
+        await submitReview.mutateAsync({ rating: rating ?? undefined, comment: comment || undefined })
+      }
       notifications.show({ color: 'green', message: 'Review submitted' })
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Could not submit review'
@@ -44,9 +78,11 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
     }
   }
 
+  const isLoading = submitReview.isPending || updateReview.isPending
+
   return (
     <Stack gap="md">
-      <Text size="sm" fw={600}>Your review</Text>
+      <Text size="sm" fw={600}>{isDraft ? 'Your draft review' : 'Your review'}</Text>
       <div>
         <Group justify="space-between" mb={4}>
           <Text size="sm">Rating</Text>
@@ -73,9 +109,14 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
         autosize
         minRows={2}
       />
-      <Button onClick={handleSubmit} loading={submitReview.isPending} disabled={rating === null}>
-        Submit review
-      </Button>
+      <Group gap="xs">
+        <Button variant="default" onClick={handleSaveDraft} loading={isLoading}>
+          Save draft
+        </Button>
+        <Button onClick={handleSubmit} loading={isLoading} disabled={rating === null}>
+          Submit review
+        </Button>
+      </Group>
     </Stack>
   )
 }

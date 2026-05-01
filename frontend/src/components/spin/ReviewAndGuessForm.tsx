@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   ActionIcon,
   Alert,
@@ -79,7 +79,7 @@ function ReviewSummary({ review }: { review: ReviewResponse }) {
       <Text size="sm" fw={600}>Your review</Text>
       <Group gap="xs">
         <Text size="sm" c="dimmed">Rating:</Text>
-        <Text size="sm" fw={500}>{review.rating} / 10</Text>
+        <Text size="sm" fw={500}>{review.rating !== null ? `${review.rating} / 10` : '—'}</Text>
       </Group>
       {review.comment && (
         <Text size="sm" c="dimmed" fs="italic">&ldquo;{review.comment}&rdquo;</Text>
@@ -96,6 +96,8 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
   const { data: existingGuess, isLoading: guessLoading } = useMyGuess(groupId, groupAlbumId)
 
   const isSelfNominated = user?.id === addedBy
+  const isDraft = !!existingReview?.is_draft
+  const hasPublishedReview = existingReview && !existingReview.is_draft ? existingReview : null
 
   const submitReview = useSubmitReview(albumId)
   const updateReview = useUpdateReview(albumId)
@@ -109,10 +111,18 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
   const [editComment, setEditComment] = useState('')
   const [confirmOpen, { open: openConfirm, close: closeConfirm }] = useDisclosure(false)
 
-  const isPending = submitReview.isPending || checkGuess.isPending
+  // Pre-fill form state when a draft exists (data may arrive asynchronously)
+  useEffect(() => {
+    if (isDraft && existingReview) {
+      setRating(existingReview.rating)
+      setComment(existingReview.comment ?? '')
+    }
+  }, [existingReview?.id])
+
+  const isPending = submitReview.isPending || checkGuess.isPending || updateReview.isPending
 
   const startEditing = (r: ReviewResponse) => {
-    setEditRating(r.rating)
+    setEditRating(r.rating ?? 0)
     setEditComment(r.comment ?? '')
     setIsEditing(true)
   }
@@ -139,8 +149,8 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
     </Alert>
   )
 
-  // ── Edit mode (existing review) ──────────────────────────────────────────
-  if (existingReview && isEditing) {
+  // ── Edit mode (published review) ─────────────────────────────────────────
+  if (hasPublishedReview && isEditing) {
     return (
       <Stack gap="md">
         <Group justify="space-between" align="center">
@@ -170,7 +180,7 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
           minRows={2}
         />
         <Group gap="xs">
-          <Button loading={updateReview.isPending} onClick={() => handleUpdate(existingReview)}>
+          <Button loading={updateReview.isPending} onClick={() => handleUpdate(hasPublishedReview)}>
             Save
           </Button>
           <Button variant="default" onClick={() => setIsEditing(false)}>
@@ -181,13 +191,13 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
     )
   }
 
-  // ── Already reviewed (guessing disabled) ────────────────────────────────
-  if (existingReview && !allowGuessing) {
+  // ── Published review (guessing disabled) ─────────────────────────────────
+  if (hasPublishedReview && !allowGuessing) {
     return (
       <Stack gap="md">
         <Group justify="space-between" align="flex-start">
-          <ReviewSummary review={existingReview} />
-          <ActionIcon variant="subtle" size="sm" onClick={() => startEditing(existingReview)}>
+          <ReviewSummary review={hasPublishedReview} />
+          <ActionIcon variant="subtle" size="sm" onClick={() => startEditing(hasPublishedReview)}>
             <IconPencil size={14} />
           </ActionIcon>
         </Group>
@@ -195,13 +205,13 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
     )
   }
 
-  // ── Already reviewed + already guessed (or self-nominated) ───────────────
-  if (existingReview && (existingGuess || isSelfNominated)) {
+  // ── Published review + already guessed (or self-nominated) ───────────────
+  if (hasPublishedReview && (existingGuess || isSelfNominated)) {
     return (
       <Stack gap="md">
         <Group justify="space-between" align="flex-start">
-          <ReviewSummary review={existingReview} />
-          <ActionIcon variant="subtle" size="sm" onClick={() => startEditing(existingReview)}>
+          <ReviewSummary review={hasPublishedReview} />
+          <ActionIcon variant="subtle" size="sm" onClick={() => startEditing(hasPublishedReview)}>
             <IconPencil size={14} />
           </ActionIcon>
         </Group>
@@ -210,8 +220,8 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
     )
   }
 
-  // ── Already reviewed, no guess yet ──────────────────────────────────────
-  if (existingReview) {
+  // ── Published review, no guess yet ───────────────────────────────────────
+  if (hasPublishedReview) {
     const handleGuessSubmit = async () => {
       if (!guessedUserId) return
       try {
@@ -225,8 +235,8 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
     return (
       <Stack gap="md">
         <Group justify="space-between" align="flex-start">
-          <ReviewSummary review={existingReview} />
-          <ActionIcon variant="subtle" size="sm" onClick={() => startEditing(existingReview)}>
+          <ReviewSummary review={hasPublishedReview} />
+          <ActionIcon variant="subtle" size="sm" onClick={() => startEditing(hasPublishedReview)}>
             <IconPencil size={14} />
           </ActionIcon>
         </Group>
@@ -247,7 +257,24 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
     )
   }
 
-  // ── Not yet reviewed ─────────────────────────────────────────────────────
+  // ── No review yet / Draft ─────────────────────────────────────────────────
+  const handleSaveDraft = async () => {
+    try {
+      if (isDraft && existingReview) {
+        await updateReview.mutateAsync({
+          reviewId: existingReview.id,
+          data: { rating: rating ?? undefined, comment: comment || undefined, is_draft: true },
+        })
+      } else {
+        await submitReview.mutateAsync({ rating: rating ?? undefined, comment: comment || undefined, is_draft: true })
+      }
+      notifications.show({ color: 'teal', message: 'Draft saved' })
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Could not save draft'
+      notifications.show({ color: 'red', message })
+    }
+  }
+
   const doSubmit = async (skipGuess: boolean) => {
     if (rating === null) {
       notifications.show({ color: 'red', message: 'Please set a rating' })
@@ -255,7 +282,14 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
     }
     closeConfirm()
     try {
-      await submitReview.mutateAsync({ rating, comment: comment || undefined })
+      if (isDraft && existingReview) {
+        await updateReview.mutateAsync({
+          reviewId: existingReview.id,
+          data: { rating: rating ?? undefined, comment: comment || undefined, is_draft: false },
+        })
+      } else {
+        await submitReview.mutateAsync({ rating: rating ?? undefined, comment: comment || undefined })
+      }
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Could not submit review'
       notifications.show({ color: 'red', message })
@@ -293,7 +327,7 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
   return (
     <>
       <Stack gap="md">
-        <Text size="sm" fw={600}>Your review</Text>
+        <Text size="sm" fw={600}>{isDraft ? 'Your draft review' : 'Your review'}</Text>
         <div>
           <Group justify="space-between" mb={4}>
             <Text size="sm">Rating</Text>
@@ -328,9 +362,14 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
             <AvatarSelector groupId={groupId} selected={guessedUserId} onChange={setGuessedUserId} />
           </Stack>
         ))}
-        <Button onClick={handleSubmitClick} loading={isPending} disabled={rating === null}>
-          Submit review
-        </Button>
+        <Group gap="xs">
+          <Button variant="default" onClick={handleSaveDraft} loading={isPending}>
+            Save draft
+          </Button>
+          <Button onClick={handleSubmitClick} loading={isPending} disabled={rating === null}>
+            Submit review
+          </Button>
+        </Group>
       </Stack>
 
       {allowGuessing && (

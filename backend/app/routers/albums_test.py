@@ -70,6 +70,7 @@ def make_mock_review(
     user_id=1,
     rating=8.5,
     comment="Great album",
+    is_draft=False,
     reviewed_at=None,
     updated_at=None,
 ):
@@ -79,6 +80,7 @@ def make_mock_review(
     review.user_id = user_id
     review.rating = rating
     review.comment = comment
+    review.is_draft = is_draft
     review.reviewed_at = reviewed_at or _NOW
     review.updated_at = updated_at
     return review

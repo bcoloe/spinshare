@@ -29,6 +29,7 @@ class ReviewService:
             user_id=user_id,
             rating=data.rating,
             comment=data.comment,
+            is_draft=data.is_draft,
         )
         try:
             self.db.add(review)
@@ -40,7 +41,8 @@ class ReviewService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="You have already reviewed this album",
             ) from None
-        self._notify_co_reviewers(album_id, user_id)
+        if not data.is_draft:
+            self._notify_co_reviewers(album_id, user_id)
         return review
 
     def _notify_co_reviewers(self, album_id: int, reviewer_id: int) -> None:
@@ -74,6 +76,7 @@ class ReviewService:
                         Review.album_id == album_id,
                         Review.user_id.in_(member_ids),
                         Review.user_id != reviewer_id,
+                        Review.is_draft == False,  # noqa: E712
                     )
                 ).all()
             )
@@ -102,8 +105,12 @@ class ReviewService:
         return review
 
     def get_reviews_for_album(self, album_id: int) -> list[Review]:
-        """Return all reviews for a given album."""
-        return self.db.query(Review).filter(Review.album_id == album_id).all()
+        """Return all published (non-draft) reviews for a given album."""
+        return (
+            self.db.query(Review)
+            .filter(Review.album_id == album_id, Review.is_draft == False)  # noqa: E712
+            .all()
+        )
 
     def get_review_by_user_and_album(
         self, album_id: int, user_id: int, *, raise_on_missing: bool = True
@@ -141,13 +148,27 @@ class ReviewService:
                 detail="You can only update your own reviews",
             )
 
+        was_draft = review.is_draft
+
         if data.rating is not None:
             review.rating = data.rating
         if data.comment is not None:
             review.comment = data.comment
+        if data.is_draft is not None:
+            review.is_draft = data.is_draft
+
+        if not review.is_draft and review.rating is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Rating is required to submit a review",
+            )
 
         self.db.commit()
         self.db.refresh(review)
+
+        if was_draft and not review.is_draft:
+            self._notify_co_reviewers(review.album_id, user_id)
+
         return review
 
     # ==================== DELETE ====================

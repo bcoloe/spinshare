@@ -6,6 +6,7 @@ import type {
   NominationGuessCreate,
   ReviewCreate,
   ReviewResponse,
+  ReviewUpdate,
 } from '../types/album'
 
 export const albumService = {
@@ -35,7 +36,7 @@ export const albumService = {
     })
   },
 
-  updateReview(albumId: number, reviewId: number, data: Partial<ReviewCreate>): Promise<ReviewResponse> {
+  updateReview(albumId: number, reviewId: number, data: ReviewUpdate): Promise<ReviewResponse> {
     return apiFetch(`/albums/${albumId}/reviews/${reviewId}`, {
       method: 'PATCH',
       body: JSON.stringify(data),

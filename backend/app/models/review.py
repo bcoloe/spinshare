@@ -1,6 +1,7 @@
 """Group album table definition."""
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Column,
     DateTime,
@@ -22,8 +23,9 @@ class Review(Base):
     id = Column(Integer, primary_key=True, index=True)
     album_id = Column(Integer, ForeignKey("albums.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    rating = Column(Float, nullable=False)
+    rating = Column(Float, nullable=True)
     comment = Column(String, nullable=True)
+    is_draft = Column(Boolean, nullable=False, server_default="false")
     reviewed_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

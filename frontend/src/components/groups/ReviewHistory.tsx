@@ -151,10 +151,13 @@ interface UnreviewedRowProps {
   isExpanded: boolean
   onToggle: () => void
   allowGuessing?: boolean
+  hasDraft?: boolean
 }
 
-function UnreviewedRow({ ga, groupId, members: _members, isExpanded, onToggle, allowGuessing = true }: UnreviewedRowProps) {
+function UnreviewedRow({ ga, groupId, members: _members, isExpanded, onToggle, allowGuessing = true, hasDraft = false }: UnreviewedRowProps) {
   const { album } = ga
+  const actionColor = isExpanded ? 'dimmed' : hasDraft ? 'teal' : 'violet'
+  const actionLabel = isExpanded ? 'Collapse' : hasDraft ? 'Continue' : 'Review Now'
 
   return (
     <>
@@ -179,9 +182,12 @@ function UnreviewedRow({ ga, groupId, members: _members, isExpanded, onToggle, a
         </Table.Td>
         <Table.Td>
           <Group gap={4} justify="flex-end">
-            {isExpanded ? <IconChevronUp size={14} /> : <IconPencil size={14} />}
-            <Text size="xs" c={isExpanded ? 'dimmed' : 'violet'}>
-              {isExpanded ? 'Collapse' : 'Review Now'}
+            {isExpanded
+              ? <IconChevronUp size={14} />
+              : <IconPencil size={14} color={`var(--mantine-color-${hasDraft ? 'teal' : 'violet'}-6)`} />
+            }
+            <Text size="xs" c={actionColor}>
+              {actionLabel}
             </Text>
           </Group>
         </Table.Td>
@@ -221,7 +227,7 @@ interface ReviewedRowProps {
 function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: ReviewedRowProps) {
   const { album } = ga
   const [editMode, setEditMode] = useState(false)
-  const [editRating, setEditRating] = useState(review.rating)
+  const [editRating, setEditRating] = useState<number>(review.rating ?? 0)
   const [editComment, setEditComment] = useState(review.comment ?? '')
   const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set())
   const updateReview = useUpdateReview(ga.album_id)
@@ -235,16 +241,17 @@ function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: 
     })
 
   const groupAvg = useMemo(() => {
-    if (allReviews.length === 0) return null
-    const sum = allReviews.reduce((s, r) => s + r.rating, 0)
-    return Math.round((sum / allReviews.length) * 10) / 10
+    const rated = allReviews.filter((r) => r.rating !== null)
+    if (rated.length === 0) return null
+    const sum = rated.reduce((s, r) => s + r.rating!, 0)
+    return Math.round((sum / rated.length) * 10) / 10
   }, [allReviews])
 
   const displayReviews = allReviews.length > 0 ? allReviews : [review]
 
   const handleEditOpen = (e: React.MouseEvent) => {
     e.stopPropagation()
-    setEditRating(review.rating)
+    setEditRating(review.rating ?? 0)
     setEditComment(review.comment ?? '')
     setEditMode(true)
     if (!isExpanded) onToggle()
@@ -280,7 +287,7 @@ function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: 
           <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{formatDate(ga.selected_date)}</Text>
         </Table.Td>
         <Table.Td>
-          <Text size="sm" fw={700} c={ratingColor(review.rating)}>{review.rating}</Text>
+          <Text size="sm" fw={700} c={ratingColor(review.rating ?? 0)}>{review.rating}</Text>
         </Table.Td>
         <Table.Td>
           <Text size="sm" c={groupAvg !== null ? ratingColor(groupAvg) : 'dimmed'} fw={groupAvg !== null ? 600 : undefined}>
@@ -314,7 +321,7 @@ function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: 
                 const previewLine = r.comment?.split('\n')[0]
 
                 return (
-                  <Paper key={r.id} withBorder p="sm" style={{ background: ratingBg(r.rating) }}>
+                  <Paper key={r.id} withBorder p="sm" style={{ background: ratingBg(r.rating ?? 0) }}>
                     <Group
                       justify="space-between"
                       wrap="nowrap"
@@ -330,14 +337,14 @@ function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: 
                         {isMine && <Text size="xs" c="dimmed">(you)</Text>}
                       </Group>
                       <Group gap={4} wrap="nowrap">
-                        <Text size="sm" fw={700} c={ratingColor(r.rating)}>{r.rating}</Text>
+                        <Text size="sm" fw={700} c={ratingColor(r.rating ?? 0)}>{r.rating}</Text>
                         {isMine && !editMode && (
                           <ActionIcon
                             size="xs"
                             variant="subtle"
                             onClick={(e) => {
                               e.stopPropagation()
-                              setEditRating(r.rating)
+                              setEditRating(r.rating ?? 0)
                               setEditComment(r.comment ?? '')
                               setEditMode(true)
                             }}
@@ -417,7 +424,9 @@ interface Props {
 
 export default function ReviewHistory({ groupId, albums, members, isLoading, allowGuessing = true }: Props) {
   const [pendingOpen, { toggle: togglePending }] = useDisclosure(true)
+  const [inProgressOpen, { toggle: toggleInProgress }] = useDisclosure(true)
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [expandedInProgressId, setExpandedInProgressId] = useState<number | null>(null)
   const [expandedReviewedId, setExpandedReviewedId] = useState<number | null>(null)
 
   const [unreviewedField, setUnreviewedField] = useState<SortField>('date')
@@ -472,18 +481,29 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [albums, allReviewQueries])
 
-  const unreviewed = useMemo(
+  const pending = useMemo(
     () => albums.filter((ga) => !reviewMap.get(ga.album_id)),
     [albums, reviewMap],
   )
+  const inProgress = useMemo(
+    () => albums.filter((ga) => reviewMap.get(ga.album_id)?.is_draft),
+    [albums, reviewMap],
+  )
   const reviewed = useMemo(
-    () => albums.filter((ga) => !!reviewMap.get(ga.album_id)),
+    () => albums.filter((ga) => {
+      const review = reviewMap.get(ga.album_id)
+      return review && !review.is_draft
+    }),
     [albums, reviewMap],
   )
 
-  const sortedUnreviewed = useMemo(
-    () => sortAlbums(unreviewed, members, unreviewedField, unreviewedDir),
-    [unreviewed, members, unreviewedField, unreviewedDir],
+  const sortedPending = useMemo(
+    () => sortAlbums(pending, members, unreviewedField, unreviewedDir),
+    [pending, members, unreviewedField, unreviewedDir],
+  )
+  const sortedInProgress = useMemo(
+    () => sortAlbums(inProgress, members, unreviewedField, unreviewedDir),
+    [inProgress, members, unreviewedField, unreviewedDir],
   )
   const filteredReviewed = useMemo(() => {
     const q = reviewedFilter.toLowerCase()
@@ -501,6 +521,7 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
   )
 
   const toggleExpand = (id: number) => setExpandedId((prev) => (prev === id ? null : id))
+  const toggleInProgressExpand = (id: number) => setExpandedInProgressId((prev) => (prev === id ? null : id))
 
   if (isLoading || reviewsLoading) {
     return (
@@ -516,49 +537,70 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
     return <Text c="dimmed" size="sm">No albums have been spun yet.</Text>
   }
 
+  const unreviewedTable = (rows: GroupAlbumResponse[], expandedRowId: number | null, onToggle: (id: number) => void, hasDraft: boolean) => (
+    <Table highlightOnHover verticalSpacing="sm">
+      <Table.Thead>
+        <Table.Tr>
+          <Table.Th w={52} />
+          <Table.Th>
+            <SortButton field="title" label="Album" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
+          </Table.Th>
+          <Table.Th>
+            <SortButton field="artist" label="Artist" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
+          </Table.Th>
+          <Table.Th>
+            <SortButton field="date" label="Date" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
+          </Table.Th>
+          <Table.Th />
+        </Table.Tr>
+      </Table.Thead>
+      <Table.Tbody>
+        {rows.map((ga) => (
+          <UnreviewedRow
+            key={ga.id}
+            ga={ga}
+            groupId={groupId}
+            members={members}
+            isExpanded={expandedRowId === ga.id}
+            onToggle={() => onToggle(ga.id)}
+            allowGuessing={allowGuessing}
+            hasDraft={hasDraft}
+          />
+        ))}
+      </Table.Tbody>
+    </Table>
+  )
+
   return (
     <Stack gap="xl">
-      {unreviewed.length > 0 && (
+      {inProgress.length > 0 && (
+        <Stack gap="xs">
+          <UnstyledButton onClick={toggleInProgress}>
+            <Group gap="xs">
+              {inProgressOpen ? <IconChevronDown size={16} /> : <IconChevronRight size={16} />}
+              <Text fw={600} size="sm" c="teal">
+                In Progress ({inProgress.length})
+              </Text>
+            </Group>
+          </UnstyledButton>
+          <Collapse in={inProgressOpen}>
+            {unreviewedTable(sortedInProgress, expandedInProgressId, toggleInProgressExpand, true)}
+          </Collapse>
+        </Stack>
+      )}
+
+      {pending.length > 0 && (
         <Stack gap="xs">
           <UnstyledButton onClick={togglePending}>
             <Group gap="xs">
               {pendingOpen ? <IconChevronDown size={16} /> : <IconChevronRight size={16} />}
               <Text fw={600} size="sm">
-                Pending Reviews ({unreviewed.length})
+                Pending Reviews ({pending.length})
               </Text>
             </Group>
           </UnstyledButton>
           <Collapse in={pendingOpen}>
-            <Table highlightOnHover verticalSpacing="sm">
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th w={52} />
-                  <Table.Th>
-                    <SortButton field="title" label="Album" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
-                  </Table.Th>
-                  <Table.Th>
-                    <SortButton field="artist" label="Artist" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
-                  </Table.Th>
-                  <Table.Th>
-                    <SortButton field="date" label="Date" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
-                  </Table.Th>
-                  <Table.Th />
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {sortedUnreviewed.map((ga) => (
-                  <UnreviewedRow
-                    key={ga.id}
-                    ga={ga}
-                    groupId={groupId}
-                    members={members}
-                    isExpanded={expandedId === ga.id}
-                    onToggle={() => toggleExpand(ga.id)}
-                    allowGuessing={allowGuessing}
-                  />
-                ))}
-              </Table.Tbody>
-            </Table>
+            {unreviewedTable(sortedPending, expandedId, toggleExpand, false)}
           </Collapse>
         </Stack>
       )}

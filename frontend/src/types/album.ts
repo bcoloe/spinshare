@@ -23,16 +23,24 @@ export interface GroupAlbumResponse {
 }
 
 export interface ReviewCreate {
-  rating: number
+  rating?: number
   comment?: string
+  is_draft?: boolean
+}
+
+export interface ReviewUpdate {
+  rating?: number
+  comment?: string
+  is_draft?: boolean
 }
 
 export interface ReviewResponse {
   id: number
   album_id: number
   user_id: number
-  rating: number
+  rating: number | null
   comment: string | null
+  is_draft: boolean
   reviewed_at: string
   updated_at: string | null
 }
