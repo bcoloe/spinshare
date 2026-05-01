@@ -573,22 +573,6 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
 
   return (
     <Stack gap="xl">
-      {pending.length > 0 && (
-        <Stack gap="xs">
-          <UnstyledButton onClick={togglePending}>
-            <Group gap="xs">
-              {pendingOpen ? <IconChevronDown size={16} /> : <IconChevronRight size={16} />}
-              <Text fw={600} size="sm">
-                Pending Reviews ({pending.length})
-              </Text>
-            </Group>
-          </UnstyledButton>
-          <Collapse in={pendingOpen}>
-            {unreviewedTable(sortedPending, expandedId, toggleExpand, false)}
-          </Collapse>
-        </Stack>
-      )}
-
       {inProgress.length > 0 && (
         <Stack gap="xs">
           <UnstyledButton onClick={toggleInProgress}>
@@ -601,6 +585,22 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
           </UnstyledButton>
           <Collapse in={inProgressOpen}>
             {unreviewedTable(sortedInProgress, expandedInProgressId, toggleInProgressExpand, true)}
+          </Collapse>
+        </Stack>
+      )}
+
+      {pending.length > 0 && (
+        <Stack gap="xs">
+          <UnstyledButton onClick={togglePending}>
+            <Group gap="xs">
+              {pendingOpen ? <IconChevronDown size={16} /> : <IconChevronRight size={16} />}
+              <Text fw={600} size="sm">
+                Pending Reviews ({pending.length})
+              </Text>
+            </Group>
+          </UnstyledButton>
+          <Collapse in={pendingOpen}>
+            {unreviewedTable(sortedPending, expandedId, toggleExpand, false)}
           </Collapse>
         </Stack>
       )}
