@@ -151,10 +151,13 @@ interface UnreviewedRowProps {
   isExpanded: boolean
   onToggle: () => void
   allowGuessing?: boolean
+  hasDraft?: boolean
 }
 
-function UnreviewedRow({ ga, groupId, members: _members, isExpanded, onToggle, allowGuessing = true }: UnreviewedRowProps) {
+function UnreviewedRow({ ga, groupId, members: _members, isExpanded, onToggle, allowGuessing = true, hasDraft = false }: UnreviewedRowProps) {
   const { album } = ga
+  const actionColor = isExpanded ? 'dimmed' : hasDraft ? 'teal' : 'violet'
+  const actionLabel = isExpanded ? 'Collapse' : hasDraft ? 'Continue' : 'Review Now'
 
   return (
     <>
@@ -179,9 +182,12 @@ function UnreviewedRow({ ga, groupId, members: _members, isExpanded, onToggle, a
         </Table.Td>
         <Table.Td>
           <Group gap={4} justify="flex-end">
-            {isExpanded ? <IconChevronUp size={14} /> : <IconPencil size={14} />}
-            <Text size="xs" c={isExpanded ? 'dimmed' : 'violet'}>
-              {isExpanded ? 'Collapse' : 'Review Now'}
+            {isExpanded
+              ? <IconChevronUp size={14} />
+              : <IconPencil size={14} color={`var(--mantine-color-${hasDraft ? 'teal' : 'violet'}-6)`} />
+            }
+            <Text size="xs" c={actionColor}>
+              {actionLabel}
             </Text>
           </Group>
         </Table.Td>
@@ -418,7 +424,9 @@ interface Props {
 
 export default function ReviewHistory({ groupId, albums, members, isLoading, allowGuessing = true }: Props) {
   const [pendingOpen, { toggle: togglePending }] = useDisclosure(true)
+  const [inProgressOpen, { toggle: toggleInProgress }] = useDisclosure(true)
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [expandedInProgressId, setExpandedInProgressId] = useState<number | null>(null)
   const [expandedReviewedId, setExpandedReviewedId] = useState<number | null>(null)
 
   const [unreviewedField, setUnreviewedField] = useState<SortField>('date')
@@ -473,11 +481,12 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [albums, allReviewQueries])
 
-  const unreviewed = useMemo(
-    () => albums.filter((ga) => {
-      const review = reviewMap.get(ga.album_id)
-      return !review || review.is_draft
-    }),
+  const pending = useMemo(
+    () => albums.filter((ga) => !reviewMap.get(ga.album_id)),
+    [albums, reviewMap],
+  )
+  const inProgress = useMemo(
+    () => albums.filter((ga) => reviewMap.get(ga.album_id)?.is_draft),
     [albums, reviewMap],
   )
   const reviewed = useMemo(
@@ -488,9 +497,13 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
     [albums, reviewMap],
   )
 
-  const sortedUnreviewed = useMemo(
-    () => sortAlbums(unreviewed, members, unreviewedField, unreviewedDir),
-    [unreviewed, members, unreviewedField, unreviewedDir],
+  const sortedPending = useMemo(
+    () => sortAlbums(pending, members, unreviewedField, unreviewedDir),
+    [pending, members, unreviewedField, unreviewedDir],
+  )
+  const sortedInProgress = useMemo(
+    () => sortAlbums(inProgress, members, unreviewedField, unreviewedDir),
+    [inProgress, members, unreviewedField, unreviewedDir],
   )
   const filteredReviewed = useMemo(() => {
     const q = reviewedFilter.toLowerCase()
@@ -508,6 +521,7 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
   )
 
   const toggleExpand = (id: number) => setExpandedId((prev) => (prev === id ? null : id))
+  const toggleInProgressExpand = (id: number) => setExpandedInProgressId((prev) => (prev === id ? null : id))
 
   if (isLoading || reviewsLoading) {
     return (
@@ -523,49 +537,70 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
     return <Text c="dimmed" size="sm">No albums have been spun yet.</Text>
   }
 
+  const unreviewedTable = (rows: GroupAlbumResponse[], expandedRowId: number | null, onToggle: (id: number) => void, hasDraft: boolean) => (
+    <Table highlightOnHover verticalSpacing="sm">
+      <Table.Thead>
+        <Table.Tr>
+          <Table.Th w={52} />
+          <Table.Th>
+            <SortButton field="title" label="Album" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
+          </Table.Th>
+          <Table.Th>
+            <SortButton field="artist" label="Artist" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
+          </Table.Th>
+          <Table.Th>
+            <SortButton field="date" label="Date" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
+          </Table.Th>
+          <Table.Th />
+        </Table.Tr>
+      </Table.Thead>
+      <Table.Tbody>
+        {rows.map((ga) => (
+          <UnreviewedRow
+            key={ga.id}
+            ga={ga}
+            groupId={groupId}
+            members={members}
+            isExpanded={expandedRowId === ga.id}
+            onToggle={() => onToggle(ga.id)}
+            allowGuessing={allowGuessing}
+            hasDraft={hasDraft}
+          />
+        ))}
+      </Table.Tbody>
+    </Table>
+  )
+
   return (
     <Stack gap="xl">
-      {unreviewed.length > 0 && (
+      {pending.length > 0 && (
         <Stack gap="xs">
           <UnstyledButton onClick={togglePending}>
             <Group gap="xs">
               {pendingOpen ? <IconChevronDown size={16} /> : <IconChevronRight size={16} />}
               <Text fw={600} size="sm">
-                Pending Reviews ({unreviewed.length})
+                Pending Reviews ({pending.length})
               </Text>
             </Group>
           </UnstyledButton>
           <Collapse in={pendingOpen}>
-            <Table highlightOnHover verticalSpacing="sm">
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th w={52} />
-                  <Table.Th>
-                    <SortButton field="title" label="Album" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
-                  </Table.Th>
-                  <Table.Th>
-                    <SortButton field="artist" label="Artist" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
-                  </Table.Th>
-                  <Table.Th>
-                    <SortButton field="date" label="Date" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
-                  </Table.Th>
-                  <Table.Th />
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {sortedUnreviewed.map((ga) => (
-                  <UnreviewedRow
-                    key={ga.id}
-                    ga={ga}
-                    groupId={groupId}
-                    members={members}
-                    isExpanded={expandedId === ga.id}
-                    onToggle={() => toggleExpand(ga.id)}
-                    allowGuessing={allowGuessing}
-                  />
-                ))}
-              </Table.Tbody>
-            </Table>
+            {unreviewedTable(sortedPending, expandedId, toggleExpand, false)}
+          </Collapse>
+        </Stack>
+      )}
+
+      {inProgress.length > 0 && (
+        <Stack gap="xs">
+          <UnstyledButton onClick={toggleInProgress}>
+            <Group gap="xs">
+              {inProgressOpen ? <IconChevronDown size={16} /> : <IconChevronRight size={16} />}
+              <Text fw={600} size="sm" c="teal">
+                In Progress ({inProgress.length})
+              </Text>
+            </Group>
+          </UnstyledButton>
+          <Collapse in={inProgressOpen}>
+            {unreviewedTable(sortedInProgress, expandedInProgressId, toggleInProgressExpand, true)}
           </Collapse>
         </Stack>
       )}
