@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   ActionIcon,
   Button,
@@ -29,7 +30,7 @@ import { albumService } from '../../services/albumService'
 import { useUpdateReview } from '../../hooks/useDailySpin'
 import { ApiError } from '../../services/apiClient'
 import ReviewAndGuessForm from '../spin/ReviewAndGuessForm'
-import type { GroupAlbumResponse, ReviewResponse } from '../../types/album'
+import type { AlbumReviewItem, GroupAlbumResponse, ReviewResponse } from '../../types/album'
 import type { GroupMemberResponse } from '../../types/group'
 
 // ==================== TYPES ====================
@@ -156,6 +157,7 @@ interface UnreviewedRowProps {
 
 function UnreviewedRow({ ga, groupId, members: _members, isExpanded, onToggle, allowGuessing = true, hasDraft = false }: UnreviewedRowProps) {
   const { album } = ga
+  const navigate = useNavigate()
   const actionColor = isExpanded ? 'dimmed' : hasDraft ? 'teal' : 'violet'
   const actionLabel = isExpanded ? 'Collapse' : hasDraft ? 'Continue' : 'Review Now'
 
@@ -166,7 +168,15 @@ function UnreviewedRow({ ga, groupId, members: _members, isExpanded, onToggle, a
           <CoverCell src={album.cover_url} />
         </Table.Td>
         <Table.Td>
-          <Text size="sm" fw={500} lineClamp={1}>
+          <Text
+            size="sm"
+            fw={500}
+            lineClamp={1}
+            style={{ cursor: 'pointer' }}
+            onClick={(e) => { e.stopPropagation(); navigate(`/albums/${ga.album_id}`) }}
+            onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline' }}
+            onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none' }}
+          >
             {album.title}
           </Text>
         </Table.Td>
@@ -218,7 +228,7 @@ function UnreviewedRow({ ga, groupId, members: _members, isExpanded, onToggle, a
 interface ReviewedRowProps {
   ga: GroupAlbumResponse
   review: ReviewResponse
-  allReviews: ReviewResponse[]
+  allReviews: AlbumReviewItem[]
   members: GroupMemberResponse[]
   isExpanded: boolean
   onToggle: () => void
@@ -226,6 +236,7 @@ interface ReviewedRowProps {
 
 function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: ReviewedRowProps) {
   const { album } = ga
+  const navigate = useNavigate()
   const [editMode, setEditMode] = useState(false)
   const [editRating, setEditRating] = useState<number>(review.rating ?? 0)
   const [editComment, setEditComment] = useState(review.comment ?? '')
@@ -278,7 +289,17 @@ function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: 
           <CoverCell src={album.cover_url} />
         </Table.Td>
         <Table.Td>
-          <Text size="sm" fw={500} lineClamp={1}>{album.title}</Text>
+          <Text
+            size="sm"
+            fw={500}
+            lineClamp={1}
+            style={{ cursor: 'pointer' }}
+            onClick={(e) => { e.stopPropagation(); navigate(`/albums/${ga.album_id}`) }}
+            onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline' }}
+            onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none' }}
+          >
+            {album.title}
+          </Text>
         </Table.Td>
         <Table.Td>
           <Text size="sm" c="dimmed" lineClamp={1}>{album.artist}</Text>
@@ -473,7 +494,7 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
   }, [albums, reviewQueries])
 
   const allReviewsMap = useMemo(() => {
-    const map = new Map<number, ReviewResponse[]>()
+    const map = new Map<number, AlbumReviewItem[]>()
     albums.forEach((ga, i) => {
       map.set(ga.album_id, allReviewQueries[i]?.data ?? [])
     })

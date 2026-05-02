@@ -1,5 +1,8 @@
 import { apiFetch } from './apiClient'
 import type {
+  AlbumResponse,
+  AlbumReviewItem,
+  AlbumStatsResponse,
   CheckGuessResponse,
   GroupAlbumResponse,
   NominationCountResponse,
@@ -25,8 +28,16 @@ export const albumService = {
     })
   },
 
-  getAllReviews(albumId: number): Promise<ReviewResponse[]> {
+  getAlbumById(albumId: number): Promise<AlbumResponse> {
+    return apiFetch(`/albums/${albumId}`)
+  },
+
+  getAllReviews(albumId: number): Promise<AlbumReviewItem[]> {
     return apiFetch(`/albums/${albumId}/reviews`)
+  },
+
+  getAlbumStats(albumId: number): Promise<AlbumStatsResponse> {
+    return apiFetch(`/albums/${albumId}/stats`)
   },
 
   submitReview(albumId: number, data: ReviewCreate): Promise<ReviewResponse> {

@@ -1,7 +1,9 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Group, Image, Paper, SimpleGrid, Skeleton, Stack, Text } from '@mantine/core'
 
 export interface AlbumCoverItem {
+  album_id: number
   cover_url: string | null
   title: string
   artist: string
@@ -94,6 +96,7 @@ function AlbumCell({ item, selected, onClick }: AlbumCellProps) {
 
 export default function AlbumCoverGrid({ items, isLoading, emptyMessage }: Props) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
+  const navigate = useNavigate()
 
   if (isLoading) {
     return (
@@ -137,7 +140,17 @@ export default function AlbumCoverGrid({ items, isLoading, emptyMessage }: Props
               />
             )}
             <Stack gap={2}>
-              <Text fw={600} size="sm" lineClamp={2}>{selected.title}</Text>
+              <Text
+                fw={600}
+                size="sm"
+                lineClamp={2}
+                style={{ cursor: 'pointer' }}
+                onClick={() => navigate(`/albums/${selected.album_id}`)}
+                onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline' }}
+                onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none' }}
+              >
+                {selected.title}
+              </Text>
               <Text size="sm" c="dimmed">{selected.artist}</Text>
               <Text size="xs" c="dimmed">{releaseYear(selected.release_date)}</Text>
             </Stack>

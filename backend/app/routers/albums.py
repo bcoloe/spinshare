@@ -5,7 +5,9 @@ from app.models import User
 from app.schemas.album import (
     AlbumCreate,
     AlbumResponse,
+    AlbumReviewItem,
     AlbumSearchResult,
+    AlbumStatsResponse,
     GroupAlbumCreate,
     GroupAlbumResponse,
     GroupAlbumStatusUpdate,
@@ -116,16 +118,28 @@ def create_review(
     return review_service.create_review(album_id, current_user.id, data)
 
 
-@albums_router.get("/{album_id}/reviews", response_model=list[ReviewResponse])
+@albums_router.get("/{album_id}/reviews", response_model=list[AlbumReviewItem])
 def list_reviews(
     album_id: int,
     current_user: User = Depends(get_current_user),
     album_service: AlbumService = Depends(get_album_service),
     review_service: ReviewService = Depends(get_review_service),
 ):
-    """List all reviews for an album."""
+    """List all published reviews for an album, including each reviewer's username."""
     album_service.get_album_by_id(album_id)
     return review_service.get_reviews_for_album(album_id)
+
+
+@albums_router.get("/{album_id}/stats", response_model=AlbumStatsResponse)
+def get_album_stats(
+    album_id: int,
+    current_user: User = Depends(get_current_user),
+    album_service: AlbumService = Depends(get_album_service),
+    review_service: ReviewService = Depends(get_review_service),
+):
+    """Return global rating stats and histogram for an album."""
+    album_service.get_album_by_id(album_id)
+    return review_service.get_album_stats(album_id)
 
 
 @albums_router.get("/{album_id}/reviews/me", response_model=ReviewResponse)

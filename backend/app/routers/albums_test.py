@@ -68,6 +68,7 @@ def make_mock_review(
     id=1,
     album_id=1,
     user_id=1,
+    username="testuser",
     rating=8.5,
     comment="Great album",
     is_draft=False,
@@ -78,12 +79,28 @@ def make_mock_review(
     review.id = id
     review.album_id = album_id
     review.user_id = user_id
+    review.username = username
     review.rating = rating
     review.comment = comment
     review.is_draft = is_draft
     review.reviewed_at = reviewed_at or _NOW
     review.updated_at = updated_at
     return review
+
+
+def make_mock_album_stats(
+    average_rating=7.5,
+    review_count=4,
+    histogram=None,
+):
+    from app.schemas.album import AlbumStatsResponse, HistogramBucket
+
+    if histogram is None:
+        histogram = [HistogramBucket(bucket_start=i, bucket_end=i + 1, count=0) for i in range(10)]
+        histogram[7] = HistogramBucket(bucket_start=7, bucket_end=8, count=review_count)
+    return AlbumStatsResponse(
+        average_rating=average_rating, review_count=review_count, histogram=histogram
+    )
 
 
 @pytest.fixture
@@ -244,12 +261,15 @@ class TestReviewGet:
     def test_list_reviews_success(self, client, mock_album_service, mock_review_service):
         mock_album_service.get_album_by_id.return_value = make_mock_album()
         mock_review_service.get_reviews_for_album.return_value = [
-            make_mock_review(id=1, rating=8.0),
-            make_mock_review(id=2, user_id=2, rating=6.0),
+            make_mock_review(id=1, rating=8.0, username="alice"),
+            make_mock_review(id=2, user_id=2, rating=6.0, username="bob"),
         ]
         resp = client.get("/albums/1/reviews")
         assert resp.status_code == status.HTTP_200_OK
-        assert len(resp.json()) == 2
+        body = resp.json()
+        assert len(body) == 2
+        assert body[0]["username"] == "alice"
+        assert body[1]["username"] == "bob"
 
     def test_get_my_review_success(self, client, mock_album_service, mock_review_service):
         mock_album_service.get_album_by_id.return_value = make_mock_album()
@@ -485,3 +505,46 @@ class TestAlbumSearch:
 
         assert resp.status_code == status.HTTP_200_OK
         mock_search.assert_called_once_with("rock", artist="Radiohead", album="OK Computer")
+
+
+class TestAlbumStats:
+    def test_get_stats_success(self, client, mock_album_service, mock_review_service):
+        mock_album_service.get_album_by_id.return_value = make_mock_album()
+        mock_review_service.get_album_stats.return_value = make_mock_album_stats()
+
+        resp = client.get("/albums/1/stats")
+
+        assert resp.status_code == status.HTTP_200_OK
+        body = resp.json()
+        assert body["average_rating"] == 7.5
+        assert body["review_count"] == 4
+        assert len(body["histogram"]) == 10
+        mock_review_service.get_album_stats.assert_called_once_with(1)
+
+    def test_get_stats_no_reviews(self, client, mock_album_service, mock_review_service):
+        from app.schemas.album import AlbumStatsResponse, HistogramBucket
+
+        mock_album_service.get_album_by_id.return_value = make_mock_album()
+        mock_review_service.get_album_stats.return_value = AlbumStatsResponse(
+            average_rating=None,
+            review_count=0,
+            histogram=[HistogramBucket(bucket_start=i, bucket_end=i + 1, count=0) for i in range(10)],
+        )
+
+        resp = client.get("/albums/1/stats")
+
+        assert resp.status_code == status.HTTP_200_OK
+        body = resp.json()
+        assert body["average_rating"] is None
+        assert body["review_count"] == 0
+
+    def test_get_stats_album_not_found(self, client, mock_album_service, mock_review_service):
+        mock_album_service.get_album_by_id.side_effect = HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Not found"
+        )
+        resp = client.get("/albums/999/stats")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_get_stats_unauthenticated(self, unauthed_client):
+        resp = unauthed_client.get("/albums/1/stats")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
