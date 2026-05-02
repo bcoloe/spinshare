@@ -116,3 +116,38 @@ class SpotifyConnectUrlResponse(BaseModel):
 
 class SpotifyTokenResponse(BaseModel):
     access_token: str
+
+
+class PublicProfileResponse(BaseModel):
+    username: str
+    member_since: datetime
+    total_reviews: int
+    total_groups: int
+    albums_nominated: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserReviewResponse(BaseModel):
+    """Flat review entry for the public profile review history tab."""
+
+    review_id: int
+    album_id: int
+    title: str
+    artist: str
+    cover_url: str | None
+    release_date: str | None
+    genres: list[str]
+    rating: float
+    comment: str | None
+    reviewed_at: datetime
+
+
+class DecadeBreakdownItem(BaseModel):
+    decade: str
+    count: int
+
+
+class NominationDecadeBreakdownResponse(BaseModel):
+    total_nominations: int
+    decade_breakdown: list[DecadeBreakdownItem]

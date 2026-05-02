@@ -37,3 +37,34 @@ export interface UserUpdate {
   username?: string
   password?: string
 }
+
+export interface PublicProfileResponse {
+  username: string
+  member_since: string
+  total_reviews: number
+  total_groups: number
+  albums_nominated: number
+}
+
+export interface UserReviewItem {
+  review_id: number
+  album_id: number
+  title: string
+  artist: string
+  cover_url: string | null
+  release_date: string | null
+  genres: string[]
+  rating: number
+  comment: string | null
+  reviewed_at: string
+}
+
+export interface DecadeBreakdownItem {
+  decade: string
+  count: number
+}
+
+export interface NominationDecadeBreakdownResponse {
+  total_nominations: number
+  decade_breakdown: DecadeBreakdownItem[]
+}

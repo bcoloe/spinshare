@@ -35,9 +35,18 @@ class AlbumService:
         return self._persist_album(data)
 
     def get_or_create_album(self, data: AlbumCreate) -> Album:
-        """Return existing album by Spotify ID or create a new one."""
+        """Return existing album by Spotify ID or create a new one.
+
+        If the album already exists but has no genres and the caller provides some,
+        the genres are backfilled so albums registered before the artist-genre fix
+        are healed on their next nomination.
+        """
         existing = self.get_album_by_spotify_id(data.spotify_album_id, raise_on_missing=False)
         if existing:
+            if not existing.genres and data.genres:
+                existing.genres = self._get_or_create_genres(data.genres)
+                self.db.commit()
+                self.db.refresh(existing)
             return existing
         return self._persist_album(data)
 
