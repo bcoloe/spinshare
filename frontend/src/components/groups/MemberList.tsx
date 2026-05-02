@@ -1,6 +1,7 @@
-import { ActionIcon, Avatar, Badge, Group, Skeleton, Stack, Text } from '@mantine/core'
+import { ActionIcon, Avatar, Badge, Group, Skeleton, Stack, Text, UnstyledButton } from '@mantine/core'
 import { IconUserMinus } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
+import { useNavigate } from 'react-router-dom'
 import { useGroupMembers, useRemoveMember } from '../../hooks/useGroups'
 import { useAuth } from '../../hooks/useAuth'
 import type { GroupDetailResponse } from '../../types/group'
@@ -14,6 +15,7 @@ interface Props {
 
 export default function MemberList({ group }: Props) {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const { data: members, isLoading } = useGroupMembers(group.id)
   const removeMember = useRemoveMember()
 
@@ -41,15 +43,17 @@ export default function MemberList({ group }: Props) {
     <Stack gap="xs">
       {members?.map((m) => (
         <Group key={m.user_id} justify="space-between">
-          <Group gap="sm">
-            <Avatar size="sm" radius="xl" color="violet">
-              {m.username[0].toUpperCase()}
-            </Avatar>
-            <Text size="sm">{m.username}</Text>
-            <Badge size="xs" color={ROLE_COLOR[m.role]} variant="light">
-              {m.role}
-            </Badge>
-          </Group>
+          <UnstyledButton onClick={() => navigate(`/users/${m.username}`)}>
+            <Group gap="sm">
+              <Avatar size="sm" radius="xl" color="violet">
+                {m.username[0].toUpperCase()}
+              </Avatar>
+              <Text size="sm">{m.username}</Text>
+              <Badge size="xs" color={ROLE_COLOR[m.role]} variant="light">
+                {m.role}
+              </Badge>
+            </Group>
+          </UnstyledButton>
           {canManage && m.user_id !== user?.id && m.role !== 'owner' && (
             <ActionIcon
               size="sm"

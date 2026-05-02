@@ -113,6 +113,91 @@ class UserService:
             .all()
         )
 
+    def get_public_profile(self, username: str) -> dict:
+        """Get public-facing profile stats for a user by username.
+
+        Raises:
+            HTTPException 404: If user not found
+        """
+        user = self.get_user_by_username(username)
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        return {
+            "username": user.username,
+            "member_since": user.created_at,
+            "total_reviews": sum(1 for r in user.reviews if not r.is_draft),
+            "total_groups": len(user.groups),
+            "albums_nominated": len(user.added_albums),
+        }
+
+    def get_user_reviews_for_profile(self, username: str) -> list[dict]:
+        """Get all published reviews for a user with flat album metadata.
+
+        Raises:
+            HTTPException 404: If user not found
+        """
+        user = self.get_user_by_username(username)
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+        reviews = (
+            self.db.query(Review)
+            .filter(Review.user_id == user.id, Review.is_draft == False)  # noqa: E712
+            .all()
+        )
+
+        return [
+            {
+                "review_id": r.id,
+                "album_id": r.album_id,
+                "title": r.albums.title,
+                "artist": r.albums.artist,
+                "cover_url": r.albums.cover_url,
+                "release_date": r.albums.release_date,
+                "genres": [g.name for g in r.albums.genres],
+                "rating": r.rating,
+                "comment": r.comment,
+                "reviewed_at": r.reviewed_at,
+            }
+            for r in reviews
+        ]
+
+    def get_nomination_decade_breakdown(self, username: str) -> dict:
+        """Get nomination count and release-decade breakdown for a user.
+
+        Raises:
+            HTTPException 404: If user not found
+        """
+        user = self.get_user_by_username(username)
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+        nominations = (
+            self.db.query(GroupAlbum)
+            .filter(GroupAlbum.added_by == user.id)
+            .all()
+        )
+
+        decade_counts: dict[str, int] = {}
+        for nomination in nominations:
+            release_date = nomination.albums.release_date if nomination.albums else None
+            try:
+                year = int(str(release_date)[:4])
+                decade = f"{(year // 10) * 10}s"
+            except (TypeError, ValueError):
+                decade = "Unknown"
+            decade_counts[decade] = decade_counts.get(decade, 0) + 1
+
+        breakdown = sorted(
+            [{"decade": d, "count": c} for d, c in decade_counts.items()],
+            key=lambda x: x["decade"],
+        )
+
+        return {
+            "total_nominations": len(nominations),
+            "decade_breakdown": breakdown,
+        }
+
     # ==================== UPDATE ====================
 
     def update_user(self, user_id: int, user_data: UserUpdate) -> User:

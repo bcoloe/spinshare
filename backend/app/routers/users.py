@@ -6,12 +6,16 @@ from app.models import User
 from app.schemas.album import AlbumResponse, UserNominationResponse
 from app.services.album_service import AlbumService
 from app.schemas.user import (
+    DecadeBreakdownItem,
     LoginRequest,
     LoginResponse,
+    NominationDecadeBreakdownResponse,
+    PublicProfileResponse,
     SpotifyConnectUrlResponse,
     SpotifyTokenResponse,
     UserCreate,
     UserResponse,
+    UserReviewResponse,
     UserUpdate,
     UserWithStats,
 )
@@ -91,6 +95,36 @@ def delete_current_user(
 ):
     """Delete current user account"""
     user_service.delete_user(current_user.id)
+
+
+@router.get("/{username}/profile", response_model=PublicProfileResponse)
+def get_user_profile(
+    username: str,
+    current_user: User = Depends(get_current_user),
+    user_service: UserService = Depends(get_user_service),
+):
+    """Get public profile stats for a user by username."""
+    return user_service.get_public_profile(username)
+
+
+@router.get("/{username}/reviews", response_model=list[UserReviewResponse])
+def get_user_reviews(
+    username: str,
+    current_user: User = Depends(get_current_user),
+    user_service: UserService = Depends(get_user_service),
+):
+    """Get all published reviews for a user."""
+    return user_service.get_user_reviews_for_profile(username)
+
+
+@router.get("/{username}/nominations/breakdown", response_model=NominationDecadeBreakdownResponse)
+def get_user_nomination_breakdown(
+    username: str,
+    current_user: User = Depends(get_current_user),
+    user_service: UserService = Depends(get_user_service),
+):
+    """Get nomination decade breakdown for a user."""
+    return user_service.get_nomination_decade_breakdown(username)
 
 
 @router.get("/{user_id}", response_model=UserResponse)
