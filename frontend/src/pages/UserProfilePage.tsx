@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   Box,
   Divider,
@@ -138,9 +138,10 @@ interface HistoryRowProps {
   item: UserReviewItem
   isExpanded: boolean
   onToggle: () => void
+  onAlbumClick: (albumId: number) => void
 }
 
-function HistoryRow({ item, isExpanded, onToggle }: HistoryRowProps) {
+function HistoryRow({ item, isExpanded, onToggle, onAlbumClick }: HistoryRowProps) {
   return (
     <>
       <Table.Tr style={{ cursor: 'pointer' }} onClick={onToggle}>
@@ -148,7 +149,18 @@ function HistoryRow({ item, isExpanded, onToggle }: HistoryRowProps) {
           <CoverCell src={item.cover_url} />
         </Table.Td>
         <Table.Td>
-          <Text size="sm" fw={500} lineClamp={1}>{item.title}</Text>
+          <Text
+            size="sm"
+            fw={500}
+            lineClamp={1}
+            style={{ cursor: 'pointer', textDecoration: 'none' }}
+            c="var(--mantine-color-text)"
+            onClick={(e) => { e.stopPropagation(); onAlbumClick(item.album_id) }}
+            onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline' }}
+            onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none' }}
+          >
+            {item.title}
+          </Text>
         </Table.Td>
         <Table.Td>
           <Text size="sm" c="dimmed" lineClamp={1}>{item.artist}</Text>
@@ -215,6 +227,7 @@ function StatCard({ label, value, loading }: StatCardProps) {
 export default function UserProfilePage() {
   const { username } = useParams<{ username: string }>()
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const [tab, setTab] = useState<Tab>((searchParams.get('tab') as Tab) ?? 'stats')
 
   useEffect(() => {
@@ -453,6 +466,7 @@ export default function UserProfilePage() {
                             prev === item.review_id ? null : item.review_id,
                           )
                         }
+                        onAlbumClick={(albumId) => navigate(`/albums/${albumId}`)}
                       />
                     ))}
                   </Table.Tbody>

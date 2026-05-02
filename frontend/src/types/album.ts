@@ -45,6 +45,30 @@ export interface ReviewResponse {
   updated_at: string | null
 }
 
+export interface AlbumReviewItem {
+  id: number
+  album_id: number
+  user_id: number
+  username: string
+  rating: number | null
+  comment: string | null
+  is_draft: boolean
+  reviewed_at: string
+  updated_at: string | null
+}
+
+export interface HistogramBucket {
+  bucket_start: number
+  bucket_end: number
+  count: number
+}
+
+export interface AlbumStatsResponse {
+  average_rating: number | null
+  review_count: number
+  histogram: HistogramBucket[]
+}
+
 export interface NominationGuessCreate {
   guessed_user_id: number
 }

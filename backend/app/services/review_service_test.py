@@ -67,6 +67,9 @@ class TestReviewServiceGet:
 
         reviews = review_service.get_reviews_for_album(sample_album.id)
         assert len(reviews) == 2
+        usernames = {r.username for r in reviews}
+        assert "test_user" in usernames
+        assert "other_reviewer" in usernames
 
     def test_get_reviews_for_album_excludes_drafts(
         self, review_service, sample_album, sample_user, user_factory
@@ -80,6 +83,7 @@ class TestReviewServiceGet:
         reviews = review_service.get_reviews_for_album(sample_album.id)
         assert len(reviews) == 1
         assert reviews[0].user_id == sample_user.id
+        assert reviews[0].username == "test_user"
 
     def test_get_reviews_for_album_empty(self, review_service, sample_album):
         reviews = review_service.get_reviews_for_album(sample_album.id)
@@ -295,3 +299,59 @@ class TestReviewNotifications:
 
         ns = NotificationService(db_session)
         assert ns.get_unread(sample_user) == []
+
+
+class TestAlbumStats:
+    def test_empty_album_returns_zero_histogram(self, review_service, sample_album):
+        stats = review_service.get_album_stats(sample_album.id)
+        assert stats.average_rating is None
+        assert stats.review_count == 0
+        assert len(stats.histogram) == 10
+        assert all(b.count == 0 for b in stats.histogram)
+
+    def test_histogram_bucket_labels(self, review_service, sample_album):
+        stats = review_service.get_album_stats(sample_album.id)
+        for i, bucket in enumerate(stats.histogram):
+            assert bucket.bucket_start == i
+            assert bucket.bucket_end == i + 1
+
+    def test_single_review_average_and_bucket(self, review_service, sample_album, sample_user):
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=7.5))
+        stats = review_service.get_album_stats(sample_album.id)
+        assert stats.average_rating == 7.5
+        assert stats.review_count == 1
+        assert stats.histogram[7].count == 1
+        assert sum(b.count for b in stats.histogram) == 1
+
+    def test_multiple_reviews_span_buckets(
+        self, review_service, sample_album, sample_user, user_factory
+    ):
+        other = user_factory(email="other@test.com", username="other_reviewer")
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=3.0))
+        review_service.create_review(sample_album.id, other.id, ReviewCreate(rating=7.0))
+
+        stats = review_service.get_album_stats(sample_album.id)
+        assert stats.average_rating == 5.0
+        assert stats.review_count == 2
+        assert stats.histogram[3].count == 1
+        assert stats.histogram[7].count == 1
+
+    def test_rating_ten_falls_in_last_bucket(self, review_service, sample_album, sample_user):
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=10.0))
+        stats = review_service.get_album_stats(sample_album.id)
+        assert stats.histogram[9].count == 1
+
+    def test_rating_nine_falls_in_last_bucket(self, review_service, sample_album, sample_user):
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=9.0))
+        stats = review_service.get_album_stats(sample_album.id)
+        assert stats.histogram[9].count == 1
+
+    def test_drafts_excluded_from_stats(self, review_service, sample_album, sample_user, user_factory):
+        other = user_factory(email="other@test.com", username="other_reviewer")
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=8.0))
+        review_service.create_review(
+            sample_album.id, other.id, ReviewCreate(rating=2.0, is_draft=True)
+        )
+        stats = review_service.get_album_stats(sample_album.id)
+        assert stats.review_count == 1
+        assert stats.average_rating == 8.0

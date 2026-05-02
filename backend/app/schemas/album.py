@@ -137,3 +137,29 @@ class ReviewResponse(BaseModel):
     updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AlbumReviewItem(BaseModel):
+    """Review enriched with reviewer username, returned from the public album reviews endpoint."""
+
+    id: int
+    album_id: int
+    user_id: int
+    username: str
+    rating: float | None
+    comment: str | None = None
+    is_draft: bool
+    reviewed_at: datetime
+    updated_at: datetime | None = None
+
+
+class HistogramBucket(BaseModel):
+    bucket_start: int
+    bucket_end: int
+    count: int
+
+
+class AlbumStatsResponse(BaseModel):
+    average_rating: float | None
+    review_count: int
+    histogram: list[HistogramBucket]

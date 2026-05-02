@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ActionIcon,
@@ -33,13 +32,8 @@ export default function GroupPage() {
   const { groupId } = useParams<{ groupId: string }>()
   const gid = Number(groupId)
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
-  const [tab, setTab] = useState<Tab>((searchParams.get('tab') as Tab) ?? 'spin')
-
-  useEffect(() => {
-    const paramTab = searchParams.get('tab') as Tab | null
-    if (paramTab) setTab(paramTab)
-  }, [searchParams])
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab: Tab = (searchParams.get('tab') as Tab) ?? 'spin'
   const [leaveOpened, { open: openLeave, close: closeLeave }] = useDisclosure(false)
   const [inviteOpened, { open: openInvite, close: closeInvite }] = useDisclosure(false)
 
@@ -117,7 +111,7 @@ export default function GroupPage() {
           <SegmentedControl
             fullWidth
             value={tab}
-            onChange={(v) => setTab(v as Tab)}
+            onChange={(v) => setSearchParams({ tab: v })}
             data={[
               { label: "Today's Spin", value: 'spin' },
               { label: 'Review History', value: 'history' },

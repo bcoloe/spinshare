@@ -24,6 +24,7 @@ const ProfilePage = lazy(() => import('./pages/ProfilePage'))
 const InviteAcceptPage = lazy(() => import('./pages/InviteAcceptPage'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 const UserProfilePage = lazy(() => import('./pages/UserProfilePage'))
+const AlbumPage = lazy(() => import('./pages/AlbumPage'))
 
 const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -39,6 +40,7 @@ const router = createBrowserRouter([
       { path: '/groups/:groupId/settings', element: <GroupSettingsPage /> },
       { path: '/profile', element: <ProfilePage /> },
       { path: '/users/:username', element: <UserProfilePage /> },
+      { path: '/albums/:albumId', element: <AlbumPage /> },
     ],
   },
   { path: '*', element: <NotFoundPage /> },

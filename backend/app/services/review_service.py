@@ -1,7 +1,7 @@
 """Review service."""
 
 from app.models import Album, Group, GroupAlbum, Review, User, group_members
-from app.schemas.album import ReviewCreate, ReviewUpdate
+from app.schemas.album import AlbumReviewItem, AlbumStatsResponse, HistogramBucket, ReviewCreate, ReviewUpdate
 from app.schemas.notification import NotificationType
 from app.services.notification_service import NotificationService
 from fastapi import HTTPException, status
@@ -104,13 +104,60 @@ class ReviewService:
             )
         return review
 
-    def get_reviews_for_album(self, album_id: int) -> list[Review]:
-        """Return all published (non-draft) reviews for a given album."""
-        return (
-            self.db.query(Review)
+    def get_reviews_for_album(self, album_id: int) -> list[AlbumReviewItem]:
+        """Return all published (non-draft) reviews for a given album, including reviewer usernames."""
+        rows = (
+            self.db.query(Review, User.username)
+            .join(User, Review.user_id == User.id)
             .filter(Review.album_id == album_id, Review.is_draft == False)  # noqa: E712
             .all()
         )
+        return [
+            AlbumReviewItem(
+                id=r.id,
+                album_id=r.album_id,
+                user_id=r.user_id,
+                username=username,
+                rating=r.rating,
+                comment=r.comment,
+                is_draft=r.is_draft,
+                reviewed_at=r.reviewed_at,
+                updated_at=r.updated_at,
+            )
+            for r, username in rows
+        ]
+
+    def get_album_stats(self, album_id: int) -> AlbumStatsResponse:
+        """Return global rating stats and a 10-bucket histogram for an album.
+
+        Buckets span [0,1), [1,2), ..., [8,9), [9,10] (last bucket is inclusive on both ends).
+        Draft reviews and unrated reviews are excluded.
+        """
+        reviews = (
+            self.db.query(Review)
+            .filter(
+                Review.album_id == album_id,
+                Review.is_draft == False,  # noqa: E712
+                Review.rating.isnot(None),
+            )
+            .all()
+        )
+
+        buckets = [
+            HistogramBucket(
+                bucket_start=i,
+                bucket_end=i + 1,
+                count=sum(1 for r in reviews if i <= r.rating < (i + 1 if i < 9 else 11)),
+            )
+            for i in range(10)
+        ]
+
+        if not reviews:
+            return AlbumStatsResponse(average_rating=None, review_count=0, histogram=buckets)
+
+        ratings = [r.rating for r in reviews]
+        avg = round(sum(ratings) / len(ratings), 2)
+        return AlbumStatsResponse(average_rating=avg, review_count=len(ratings), histogram=buckets)
 
     def get_review_by_user_and_album(
         self, album_id: int, user_id: int, *, raise_on_missing: bool = True
