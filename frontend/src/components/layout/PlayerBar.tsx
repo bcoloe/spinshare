@@ -144,6 +144,7 @@ export default function PlayerBar() {
               savingAlbum={savingAlbum}
               hasTrack={!!currentTrackUri}
               groupId={playingAlbumMeta?.groupId}
+              groupAlbumId={playingAlbumMeta?.groupAlbumId}
               onToggleSave={handleToggleSaveAlbum}
               onAddAlbum={handleOpenAlbumPicker}
               onAddTrack={handleOpenTrackPicker}
@@ -250,6 +251,7 @@ export default function PlayerBar() {
             savingAlbum={savingAlbum}
             hasTrack={!!currentTrackUri}
             groupId={playingAlbumMeta?.groupId}
+            groupAlbumId={playingAlbumMeta?.groupAlbumId}
             onToggleSave={handleToggleSaveAlbum}
             onAddAlbum={handleOpenAlbumPicker}
             onAddTrack={handleOpenTrackPicker}
@@ -274,12 +276,13 @@ interface KebabMenuProps {
   savingAlbum: boolean
   hasTrack: boolean
   groupId?: number
+  groupAlbumId?: number
   onToggleSave: () => void
   onAddAlbum: () => void
   onAddTrack: () => void
 }
 
-function KebabMenu({ albumSaved, savingAlbum, hasTrack, groupId, onToggleSave, onAddAlbum, onAddTrack }: KebabMenuProps) {
+function KebabMenu({ albumSaved, savingAlbum, hasTrack, groupId, groupAlbumId, onToggleSave, onAddAlbum, onAddTrack }: KebabMenuProps) {
   return (
     <Menu shadow="md" width={210} position="top-end" withinPortal>
       <Menu.Target>
@@ -294,7 +297,9 @@ function KebabMenu({ albumSaved, savingAlbum, hasTrack, groupId, onToggleSave, o
           <>
             <Menu.Item
               component={Link}
-              to={`/groups/${groupId}/spin`}
+              to={groupAlbumId
+                ? `/groups/${groupId}?tab=spin&album=${groupAlbumId}`
+                : `/groups/${groupId}?tab=spin`}
               leftSection={<IconMessageCircle size={14} />}
             >
               Go to review

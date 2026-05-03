@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Alert,
@@ -52,6 +53,7 @@ function SpinSlide({ groupAlbum, groupId, allowGuessing = true }: { groupAlbum: 
                 coverUrl: groupAlbum.album.cover_url ?? null,
                 appAlbumId: groupAlbum.album_id,
                 groupId,
+                groupAlbumId: groupAlbum.id,
               },
             )}
           >
@@ -72,7 +74,8 @@ function SpinSlide({ groupAlbum, groupId, allowGuessing = true }: { groupAlbum: 
 }
 
 function MultiAlbumSpin({ albums, groupId, allowGuessing = true }: { albums: GroupAlbumResponse[]; groupId: number; allowGuessing?: boolean }) {
-  const [activeAlbumValue, setActiveAlbumValue] = useState<string | null>(null)
+  const [searchParams] = useSearchParams()
+  const [activeAlbumValue, setActiveAlbumValue] = useState<string | null>(searchParams.get('album'))
   const { startAlbum, hasSpotify, status: playerStatus, playingSpotifyAlbumId } = usePlayer()
   const currentValue = activeAlbumValue ?? String(albums[0].id)
   const activeAlbum = albums.find((a) => String(a.id) === currentValue) ?? albums[0]
@@ -112,6 +115,7 @@ function MultiAlbumSpin({ albums, groupId, allowGuessing = true }: { albums: Gro
                   coverUrl: activeAlbum.album.cover_url ?? null,
                   appAlbumId: activeAlbum.album_id,
                   groupId,
+                  groupAlbumId: activeAlbum.id,
                 },
               )}
             >
