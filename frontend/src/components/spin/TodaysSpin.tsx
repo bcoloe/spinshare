@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -77,6 +77,11 @@ function MultiAlbumSpin({ albums, groupId, allowGuessing = true }: { albums: Gro
   const [searchParams] = useSearchParams()
   const [activeAlbumValue, setActiveAlbumValue] = useState<string | null>(searchParams.get('album'))
   const { startAlbum, hasSpotify, status: playerStatus, playingSpotifyAlbumId } = usePlayer()
+
+  useEffect(() => {
+    const album = searchParams.get('album')
+    if (album) setActiveAlbumValue(album)
+  }, [searchParams])
   const currentValue = activeAlbumValue ?? String(albums[0].id)
   const activeAlbum = albums.find((a) => String(a.id) === currentValue) ?? albums[0]
   const spotifyId = activeAlbum.album.spotify_album_id
