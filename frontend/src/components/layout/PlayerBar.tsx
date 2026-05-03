@@ -143,6 +143,7 @@ export default function PlayerBar() {
               albumSaved={albumSaved}
               savingAlbum={savingAlbum}
               hasTrack={!!currentTrackUri}
+              groupId={playingAlbumMeta?.groupId}
               onToggleSave={handleToggleSaveAlbum}
               onAddAlbum={handleOpenAlbumPicker}
               onAddTrack={handleOpenTrackPicker}
@@ -248,6 +249,7 @@ export default function PlayerBar() {
             albumSaved={albumSaved}
             savingAlbum={savingAlbum}
             hasTrack={!!currentTrackUri}
+            groupId={playingAlbumMeta?.groupId}
             onToggleSave={handleToggleSaveAlbum}
             onAddAlbum={handleOpenAlbumPicker}
             onAddTrack={handleOpenTrackPicker}
