@@ -21,6 +21,7 @@ import {
   IconExternalLink,
   IconHeart,
   IconHeartFilled,
+  IconMessageCircle,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
   IconPlayerSkipBackFilled,
@@ -270,14 +271,15 @@ interface KebabMenuProps {
   albumSaved: boolean
   savingAlbum: boolean
   hasTrack: boolean
+  groupId?: number
   onToggleSave: () => void
   onAddAlbum: () => void
   onAddTrack: () => void
 }
 
-function KebabMenu({ albumSaved, savingAlbum, hasTrack, onToggleSave, onAddAlbum, onAddTrack }: KebabMenuProps) {
+function KebabMenu({ albumSaved, savingAlbum, hasTrack, groupId, onToggleSave, onAddAlbum, onAddTrack }: KebabMenuProps) {
   return (
-    <Menu shadow="md" width={200} position="top-end" withinPortal>
+    <Menu shadow="md" width={210} position="top-end" withinPortal>
       <Menu.Target>
         <Tooltip label="More options" withArrow>
           <ActionIcon variant="subtle" size="sm" color="gray" aria-label="More options">
@@ -286,6 +288,18 @@ function KebabMenu({ albumSaved, savingAlbum, hasTrack, onToggleSave, onAddAlbum
         </Tooltip>
       </Menu.Target>
       <Menu.Dropdown>
+        {groupId && (
+          <>
+            <Menu.Item
+              component={Link}
+              to={`/groups/${groupId}/spin`}
+              leftSection={<IconMessageCircle size={14} />}
+            >
+              Go to review
+            </Menu.Item>
+            <Divider />
+          </>
+        )}
         <Menu.Item
           leftSection={albumSaved ? <IconHeartFilled size={14} color="var(--mantine-color-green-5)" /> : <IconHeart size={14} />}
           onClick={onToggleSave}

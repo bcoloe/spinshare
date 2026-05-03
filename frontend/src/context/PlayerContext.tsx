@@ -10,6 +10,7 @@ export interface PlayingAlbumMeta {
   artist: string
   coverUrl: string | null
   appAlbumId: number
+  groupId?: number
 }
 
 interface PlayerContextValue {

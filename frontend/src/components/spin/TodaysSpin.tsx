@@ -51,6 +51,7 @@ function SpinSlide({ groupAlbum, groupId, allowGuessing = true }: { groupAlbum: 
                 artist: groupAlbum.album.artist,
                 coverUrl: groupAlbum.album.cover_url ?? null,
                 appAlbumId: groupAlbum.album_id,
+                groupId,
               },
             )}
           >
@@ -110,6 +111,7 @@ function MultiAlbumSpin({ albums, groupId, allowGuessing = true }: { albums: Gro
                   artist: activeAlbum.album.artist,
                   coverUrl: activeAlbum.album.cover_url ?? null,
                   appAlbumId: activeAlbum.album_id,
+                  groupId,
                 },
               )}
             >
