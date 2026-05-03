@@ -19,7 +19,7 @@ import {
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { IconBrandSpotify, IconCheck, IconDice5, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
+import { IconBrandSpotify, IconCheck, IconDice5, IconExternalLink, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
 import AlbumCard from './AlbumCard'
 import ReviewAndGuessForm from './ReviewAndGuessForm'
 import AlbumSearchModal from '../albums/AlbumSearchModal'
@@ -38,27 +38,60 @@ function SpinSlide({ groupAlbum, groupId, allowGuessing = true }: { groupAlbum: 
     <Paper p="lg" radius="md" withBorder>
       <Stack gap="xl">
         <AlbumCard album={groupAlbum.album} />
-        {spotifyId && hasSpotify && (
-          <Button
-            variant="light"
-            color="green"
-            leftSection={<IconBrandSpotify size={16} />}
-            loading={playerStatus === 'loading'}
-            onClick={() => startAlbum(
-              spotifyId,
-              {
-                spotifyAlbumId: spotifyId,
-                title: groupAlbum.album.title,
-                artist: groupAlbum.album.artist,
-                coverUrl: groupAlbum.album.cover_url ?? null,
-                appAlbumId: groupAlbum.album_id,
-                groupId,
-                groupAlbumId: groupAlbum.id,
-              },
-            )}
-          >
-            Play in Player
-          </Button>
+        {spotifyId && (
+          <Group gap="sm" wrap="wrap">
+            <Tooltip
+              label="Connect your Spotify account to enable the embedded player"
+              withArrow
+              disabled={hasSpotify}
+            >
+              <span style={{ display: 'inline-block' }}>
+                <Button
+                  variant="filled"
+                  color="green"
+                  size="sm"
+                  leftSection={<IconBrandSpotify size={16} />}
+                  loading={hasSpotify && playerStatus === 'loading'}
+                  disabled={!hasSpotify}
+                  onClick={() => startAlbum(
+                    spotifyId,
+                    {
+                      spotifyAlbumId: spotifyId,
+                      title: groupAlbum.album.title,
+                      artist: groupAlbum.album.artist,
+                      coverUrl: groupAlbum.album.cover_url ?? null,
+                      appAlbumId: groupAlbum.album_id,
+                      groupId,
+                      groupAlbumId: groupAlbum.id,
+                    },
+                  )}
+                >
+                  Play in Player
+                </Button>
+              </span>
+            </Tooltip>
+            <Button
+              component="a"
+              href={`spotify:album:${spotifyId}`}
+              variant="light"
+              color="green"
+              size="sm"
+              leftSection={<IconBrandSpotify size={16} />}
+            >
+              Open in Spotify
+            </Button>
+            <Button
+              component="a"
+              href={`https://open.spotify.com/album/${spotifyId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              variant="subtle"
+              size="sm"
+              leftSection={<IconExternalLink size={16} />}
+            >
+              Web Player
+            </Button>
+          </Group>
         )}
         <Divider />
         <ReviewAndGuessForm
@@ -105,27 +138,60 @@ function MultiAlbumSpin({ albums, groupId, allowGuessing = true }: { albums: Gro
       <Paper p="lg" radius="md" withBorder>
         <Stack gap="xl">
           <AlbumCard album={activeAlbum.album} />
-          {spotifyId && hasSpotify && (
-            <Button
-              variant="light"
-              color="green"
-              leftSection={<IconBrandSpotify size={16} />}
-              loading={playerStatus === 'loading'}
-              onClick={() => startAlbum(
-                spotifyId,
-                {
-                  spotifyAlbumId: spotifyId,
-                  title: activeAlbum.album.title,
-                  artist: activeAlbum.album.artist,
-                  coverUrl: activeAlbum.album.cover_url ?? null,
-                  appAlbumId: activeAlbum.album_id,
-                  groupId,
-                  groupAlbumId: activeAlbum.id,
-                },
-              )}
-            >
-              Play in Player
-            </Button>
+          {spotifyId && (
+            <Group gap="sm" wrap="wrap">
+              <Tooltip
+                label="Connect your Spotify account to enable the embedded player"
+                withArrow
+                disabled={hasSpotify}
+              >
+                <span style={{ display: 'inline-block' }}>
+                  <Button
+                    variant="filled"
+                    color="green"
+                    size="sm"
+                    leftSection={<IconBrandSpotify size={16} />}
+                    loading={hasSpotify && playerStatus === 'loading'}
+                    disabled={!hasSpotify}
+                    onClick={() => startAlbum(
+                      spotifyId,
+                      {
+                        spotifyAlbumId: spotifyId,
+                        title: activeAlbum.album.title,
+                        artist: activeAlbum.album.artist,
+                        coverUrl: activeAlbum.album.cover_url ?? null,
+                        appAlbumId: activeAlbum.album_id,
+                        groupId,
+                        groupAlbumId: activeAlbum.id,
+                      },
+                    )}
+                  >
+                    Play in Player
+                  </Button>
+                </span>
+              </Tooltip>
+              <Button
+                component="a"
+                href={`spotify:album:${spotifyId}`}
+                variant="light"
+                color="green"
+                size="sm"
+                leftSection={<IconBrandSpotify size={16} />}
+              >
+                Open in Spotify
+              </Button>
+              <Button
+                component="a"
+                href={`https://open.spotify.com/album/${spotifyId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                variant="subtle"
+                size="sm"
+                leftSection={<IconExternalLink size={16} />}
+              >
+                Web Player
+              </Button>
+            </Group>
           )}
           <Divider />
           <ReviewAndGuessForm

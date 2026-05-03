@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   ActionIcon,
-  Anchor,
   Badge,
   Box,
+  Button,
   Group,
   Paper,
   ScrollArea,
@@ -100,36 +100,6 @@ function sortReviews(items: AlbumReviewItem[], field: SortField, dir: SortDir): 
       ? String(av).localeCompare(String(bv))
       : String(bv).localeCompare(String(av))
   })
-}
-
-// ==================== IFRAME FALLBACK ====================
-
-function IframeFallback({ spotifyAlbumId }: { spotifyAlbumId: string }) {
-  return (
-    <Stack gap="xs">
-      <iframe
-        src={`https://open.spotify.com/embed/album/${spotifyAlbumId}?utm_source=generator&theme=0`}
-        width="100%"
-        height="352"
-        frameBorder={0}
-        allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-        loading="lazy"
-        style={{ borderRadius: 12 }}
-      />
-      <Anchor
-        href={`https://open.spotify.com/album/${spotifyAlbumId}`}
-        target="_blank"
-        rel="noopener noreferrer"
-        size="sm"
-        c="dimmed"
-      >
-        <Group gap={4}>
-          <IconExternalLink size={14} />
-          Open in Spotify
-        </Group>
-      </Anchor>
-    </Stack>
-  )
 }
 
 // ==================== ALBUM TRACKLIST ====================
@@ -486,49 +456,73 @@ export default function AlbumPage() {
         {albumLoading ? (
           <Skeleton h={48} radius="md" />
         ) : album?.spotify_album_id ? (
-          !hasSpotify ? (
-            <IframeFallback spotifyAlbumId={album.spotify_album_id} />
-          ) : (
-            <Stack gap="sm">
-              <Group gap="sm">
-                <ActionIcon
-                  variant="filled"
-                  color="green"
-                  radius="xl"
-                  size="lg"
-                  loading={playerStatus === 'loading'}
-                  onClick={() => startAlbum(
-                    album.spotify_album_id!,
-                    {
-                      spotifyAlbumId: album.spotify_album_id!,
-                      title: album.title,
-                      artist: album.artist,
-                      coverUrl: album.cover_url ?? null,
-                      appAlbumId: album.id,
-                    },
-                  )}
-                  aria-label="Play in player"
-                >
-                  <IconBrandSpotify size={18} />
-                </ActionIcon>
-                <Text size="sm" c="dimmed">Play in Player</Text>
-                {playingSpotifyAlbumId === album.spotify_album_id && (playerStatus === 'playing' || playerStatus === 'paused') && (
-                  <Badge color="green" variant="light" leftSection={<IconMusic size={10} />}>
-                    {playerStatus === 'playing' ? 'Now Playing' : 'Paused'}
-                  </Badge>
-                )}
-              </Group>
-              {(playerStatus === 'ready' || playerStatus === 'playing' || playerStatus === 'paused') && (
-                <AlbumTracklist
-                  spotifyAlbumId={album.spotify_album_id}
-                  albumTitle={album.title}
-                  albumArtist={album.artist}
-                  albumCoverUrl={album.cover_url ?? null}
-                  appAlbumId={album.id}
-                />
+          <Stack gap="sm">
+            <Group gap="sm" wrap="wrap">
+              <Tooltip
+                label="Connect your Spotify account to enable the embedded player"
+                withArrow
+                disabled={hasSpotify}
+              >
+                <span style={{ display: 'inline-block' }}>
+                  <Button
+                    variant="filled"
+                    color="green"
+                    size="sm"
+                    leftSection={<IconBrandSpotify size={16} />}
+                    loading={hasSpotify && playerStatus === 'loading'}
+                    disabled={!hasSpotify}
+                    onClick={() => startAlbum(
+                      album.spotify_album_id!,
+                      {
+                        spotifyAlbumId: album.spotify_album_id!,
+                        title: album.title,
+                        artist: album.artist,
+                        coverUrl: album.cover_url ?? null,
+                        appAlbumId: album.id,
+                      },
+                    )}
+                  >
+                    Play in Player
+                  </Button>
+                </span>
+              </Tooltip>
+              <Button
+                component="a"
+                href={`spotify:album:${album.spotify_album_id}`}
+                variant="light"
+                color="green"
+                size="sm"
+                leftSection={<IconBrandSpotify size={16} />}
+              >
+                Open in Spotify
+              </Button>
+              <Button
+                component="a"
+                href={`https://open.spotify.com/album/${album.spotify_album_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                variant="subtle"
+                size="sm"
+                leftSection={<IconExternalLink size={16} />}
+              >
+                Web Player
+              </Button>
+              {playingSpotifyAlbumId === album.spotify_album_id && (playerStatus === 'playing' || playerStatus === 'paused') && (
+                <Badge color="green" variant="light" leftSection={<IconMusic size={10} />}>
+                  {playerStatus === 'playing' ? 'Now Playing' : 'Paused'}
+                </Badge>
               )}
-            </Stack>
-          )
+            </Group>
+            {hasSpotify && (playerStatus === 'ready' || playerStatus === 'playing' || playerStatus === 'paused') && (
+              <AlbumTracklist
+                spotifyAlbumId={album.spotify_album_id}
+                albumTitle={album.title}
+                albumArtist={album.artist}
+                albumCoverUrl={album.cover_url ?? null}
+                appAlbumId={album.id}
+              />
+            )}
+          </Stack>
         ) : null}
 
         {/* ── GLOBAL RATING + HISTOGRAM ── */}
