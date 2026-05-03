@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Alert,
@@ -18,27 +19,79 @@ import {
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { IconCheck, IconDice5, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
+import { IconBrandSpotify, IconCheck, IconDice5, IconExternalLink, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
 import AlbumCard from './AlbumCard'
-import SpotifyPlayer from './SpotifyPlayer'
 import ReviewAndGuessForm from './ReviewAndGuessForm'
 import AlbumSearchModal from '../albums/AlbumSearchModal'
+import { usePlayer } from '../../context/PlayerContext'
 import { useMyReview, useTodaysAlbums, useTriggerDailySelection } from '../../hooks/useDailySpin'
 import { useGroupAlbums, useNominationCount } from '../../hooks/useAlbums'
-import { useMyStats } from '../../hooks/useStats'
 import { albumSearchService } from '../../services/albumSearchService'
 import { ApiError } from '../../services/apiClient'
 import type { GroupAlbumResponse } from '../../types/album'
 import type { GroupDetailResponse } from '../../types/group'
 
-function SpinSlide({ groupAlbum, groupId, hasSpotify, allowGuessing = true, showPlayer = true }: { groupAlbum: GroupAlbumResponse; groupId: number; hasSpotify: boolean; allowGuessing?: boolean; showPlayer?: boolean }) {
+function SpinSlide({ groupAlbum, groupId, allowGuessing = true }: { groupAlbum: GroupAlbumResponse; groupId: number; allowGuessing?: boolean }) {
   const spotifyId = groupAlbum.album.spotify_album_id
+  const { startAlbum, hasSpotify, status: playerStatus } = usePlayer()
   return (
     <Paper p="lg" radius="md" withBorder>
       <Stack gap="xl">
         <AlbumCard album={groupAlbum.album} />
-        {showPlayer && spotifyId && (
-          <SpotifyPlayer spotifyAlbumId={spotifyId} hasSpotify={hasSpotify} />
+        {spotifyId && (
+          <Group gap="sm" wrap="wrap">
+            <Tooltip
+              label="Connect your Spotify account to enable the embedded player"
+              withArrow
+              disabled={hasSpotify}
+            >
+              <span style={{ display: 'inline-block' }}>
+                <Button
+                  variant="filled"
+                  color="green"
+                  size="sm"
+                  leftSection={<IconBrandSpotify size={16} />}
+                  loading={hasSpotify && playerStatus === 'loading'}
+                  disabled={!hasSpotify}
+                  onClick={() => startAlbum(
+                    spotifyId,
+                    {
+                      spotifyAlbumId: spotifyId,
+                      title: groupAlbum.album.title,
+                      artist: groupAlbum.album.artist,
+                      coverUrl: groupAlbum.album.cover_url ?? null,
+                      appAlbumId: groupAlbum.album_id,
+                      groupId,
+                      groupAlbumId: groupAlbum.id,
+                    },
+                  )}
+                >
+                  Play in Player
+                </Button>
+              </span>
+            </Tooltip>
+            <Button
+              component="a"
+              href={`spotify:album:${spotifyId}`}
+              variant="light"
+              color="green"
+              size="sm"
+              leftSection={<IconBrandSpotify size={16} />}
+            >
+              Open in Spotify
+            </Button>
+            <Button
+              component="a"
+              href={`https://open.spotify.com/album/${spotifyId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              variant="subtle"
+              size="sm"
+              leftSection={<IconExternalLink size={16} />}
+            >
+              Web Player
+            </Button>
+          </Group>
         )}
         <Divider />
         <ReviewAndGuessForm
@@ -53,9 +106,15 @@ function SpinSlide({ groupAlbum, groupId, hasSpotify, allowGuessing = true, show
   )
 }
 
-function MultiAlbumSpin({ albums, groupId, hasSpotify, allowGuessing = true }: { albums: GroupAlbumResponse[]; groupId: number; hasSpotify: boolean; allowGuessing?: boolean }) {
-  const [activeAlbumValue, setActiveAlbumValue] = useState<string | null>(null)
-  const [playingSpotifyAlbumId, setPlayingSpotifyAlbumId] = useState<string | null>(null)
+function MultiAlbumSpin({ albums, groupId, allowGuessing = true }: { albums: GroupAlbumResponse[]; groupId: number; allowGuessing?: boolean }) {
+  const [searchParams] = useSearchParams()
+  const [activeAlbumValue, setActiveAlbumValue] = useState<string | null>(searchParams.get('album'))
+  const { startAlbum, hasSpotify, status: playerStatus, playingSpotifyAlbumId } = usePlayer()
+
+  useEffect(() => {
+    const album = searchParams.get('album')
+    if (album) setActiveAlbumValue(album)
+  }, [searchParams])
   const currentValue = activeAlbumValue ?? String(albums[0].id)
   const activeAlbum = albums.find((a) => String(a.id) === currentValue) ?? albums[0]
   const spotifyId = activeAlbum.album.spotify_album_id
@@ -80,11 +139,59 @@ function MultiAlbumSpin({ albums, groupId, hasSpotify, allowGuessing = true }: {
         <Stack gap="xl">
           <AlbumCard album={activeAlbum.album} />
           {spotifyId && (
-            <SpotifyPlayer
-              spotifyAlbumId={spotifyId}
-              hasSpotify={hasSpotify}
-              onPlayingAlbumChange={setPlayingSpotifyAlbumId}
-            />
+            <Group gap="sm" wrap="wrap">
+              <Tooltip
+                label="Connect your Spotify account to enable the embedded player"
+                withArrow
+                disabled={hasSpotify}
+              >
+                <span style={{ display: 'inline-block' }}>
+                  <Button
+                    variant="filled"
+                    color="green"
+                    size="sm"
+                    leftSection={<IconBrandSpotify size={16} />}
+                    loading={hasSpotify && playerStatus === 'loading'}
+                    disabled={!hasSpotify}
+                    onClick={() => startAlbum(
+                      spotifyId,
+                      {
+                        spotifyAlbumId: spotifyId,
+                        title: activeAlbum.album.title,
+                        artist: activeAlbum.album.artist,
+                        coverUrl: activeAlbum.album.cover_url ?? null,
+                        appAlbumId: activeAlbum.album_id,
+                        groupId,
+                        groupAlbumId: activeAlbum.id,
+                      },
+                    )}
+                  >
+                    Play in Player
+                  </Button>
+                </span>
+              </Tooltip>
+              <Button
+                component="a"
+                href={`spotify:album:${spotifyId}`}
+                variant="light"
+                color="green"
+                size="sm"
+                leftSection={<IconBrandSpotify size={16} />}
+              >
+                Open in Spotify
+              </Button>
+              <Button
+                component="a"
+                href={`https://open.spotify.com/album/${spotifyId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                variant="subtle"
+                size="sm"
+                leftSection={<IconExternalLink size={16} />}
+              >
+                Web Player
+              </Button>
+            </Group>
           )}
           <Divider />
           <ReviewAndGuessForm
@@ -197,9 +304,7 @@ interface Props {
 
 export default function TodaysSpin({ groupId, group }: Props) {
   const { data: albums, isLoading, isError } = useTodaysAlbums(groupId)
-  const { data: stats } = useMyStats()
   const { data: nominationCountData } = useNominationCount(groupId)
-  const hasSpotify = stats?.has_spotify ?? false
   const [nominateOpened, { open: openNominate, close: closeNominate }] = useDisclosure()
   const triggerSelection = useTriggerDailySelection(groupId)
 
@@ -302,7 +407,7 @@ export default function TodaysSpin({ groupId, group }: Props) {
     return (
       <Stack gap="md">
         {poolBadge}
-        <SpinSlide groupAlbum={albums[0]} groupId={groupId} hasSpotify={hasSpotify} allowGuessing={allowGuessing} />
+        <SpinSlide groupAlbum={albums[0]} groupId={groupId} allowGuessing={allowGuessing} />
       </Stack>
     )
   }
@@ -310,7 +415,7 @@ export default function TodaysSpin({ groupId, group }: Props) {
   return (
     <Stack gap="md">
       {poolBadge}
-      <MultiAlbumSpin albums={albums!} groupId={groupId} hasSpotify={hasSpotify} allowGuessing={allowGuessing} />
+      <MultiAlbumSpin albums={albums!} groupId={groupId} allowGuessing={allowGuessing} />
     </Stack>
   )
 }

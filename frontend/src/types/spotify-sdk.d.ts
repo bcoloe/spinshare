@@ -36,6 +36,7 @@ declare namespace Spotify {
   interface Track {
     uri: string
     name: string
+    track_number: number
     artists: Array<{ name: string }>
     album: {
       uri: string

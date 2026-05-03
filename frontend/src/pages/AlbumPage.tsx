@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
+  ActionIcon,
   Badge,
   Box,
+  Button,
   Group,
   Paper,
   ScrollArea,
@@ -11,12 +13,19 @@ import {
   Table,
   Text,
   Title,
+  Tooltip,
   UnstyledButton,
 } from '@mantine/core'
+import { useDisclosure } from '@mantine/hooks'
+import { notifications } from '@mantine/notifications'
 import {
+  IconBrandSpotify,
   IconChevronDown,
   IconChevronRight,
   IconChevronUp,
+  IconExternalLink,
+  IconMusic,
+  IconPlaylistAdd,
   IconSelector,
 } from '@tabler/icons-react'
 import {
@@ -30,9 +39,11 @@ import {
   YAxis,
 } from 'recharts'
 import AppShell from '../components/layout/AppShell'
-import SpotifyPlayer from '../components/spin/SpotifyPlayer'
-import { useMyStats } from '../hooks/useStats'
+import PlaylistPickerModal from '../components/spin/PlaylistPickerModal'
+import { usePlayer } from '../context/PlayerContext'
 import { useAlbumDetails, useAlbumReviews, useAlbumStats } from '../hooks/useAlbumPage'
+import { getSpotifyToken } from '../services/streamingService'
+import { isAlbumSaved, saveAlbum, unsaveAlbum } from '../services/spotifyApiClient'
 import type { AlbumReviewItem } from '../types/album'
 
 // ==================== TYPES ====================
@@ -40,7 +51,22 @@ import type { AlbumReviewItem } from '../types/album'
 type SortField = 'username' | 'date' | 'rating'
 type SortDir = 'asc' | 'desc'
 
+interface AlbumTrack {
+  uri: string
+  name: string
+  trackNumber: number
+  durationMs: number
+  artists: string
+}
+
 // ==================== HELPERS ====================
+
+function formatTrackDuration(ms: number): string {
+  const totalSec = Math.floor(ms / 1000)
+  const min = Math.floor(totalSec / 60)
+  const sec = totalSec % 60
+  return `${min}:${sec.toString().padStart(2, '0')}`
+}
 
 function ratingColor(rating: number): string {
   if (rating < 3) return 'red.7'
@@ -74,6 +100,197 @@ function sortReviews(items: AlbumReviewItem[], field: SortField, dir: SortDir): 
       ? String(av).localeCompare(String(bv))
       : String(bv).localeCompare(String(av))
   })
+}
+
+// ==================== ALBUM TRACKLIST ====================
+
+interface AlbumTracklistProps {
+  spotifyAlbumId: string
+  albumTitle: string
+  albumArtist: string
+  albumCoverUrl: string | null
+  appAlbumId: number
+}
+
+function AlbumTracklist({ spotifyAlbumId, albumTitle, albumArtist, albumCoverUrl, appAlbumId }: AlbumTracklistProps) {
+  const { currentTrackUri, startAlbum } = usePlayer()
+  const [tracks, setTracks] = useState<AlbumTrack[]>([])
+  const [tracksLoading, setTracksLoading] = useState(false)
+  const [albumSaved, setAlbumSaved] = useState(false)
+  const [savingAlbum, setSavingAlbum] = useState(false)
+  const [pickerUris, setPickerUris] = useState<string[]>([])
+  const [pickerTitle, setPickerTitle] = useState('Add to playlist')
+  const [pickerOpened, { open: openPicker, close: closePicker }] = useDisclosure(false)
+  const activeTrackRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    setTracks([])
+    setAlbumSaved(false)
+  }, [spotifyAlbumId])
+
+  useEffect(() => {
+    if (tracks.length > 0) return
+    let cancelled = false
+    setTracksLoading(true)
+    async function fetchTracks() {
+      try {
+        const token = await getSpotifyToken()
+        const resp = await fetch(
+          `https://api.spotify.com/v1/albums/${spotifyAlbumId}/tracks?limit=50`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        )
+        if (!resp.ok || cancelled) return
+        const data = await resp.json()
+        setTracks(
+          data.items.map((t: { uri: string; name: string; track_number: number; duration_ms: number; artists: Array<{ name: string }> }) => ({
+            uri: t.uri,
+            name: t.name,
+            trackNumber: t.track_number,
+            durationMs: t.duration_ms,
+            artists: t.artists.map((a) => a.name).join(', '),
+          })),
+        )
+      } finally {
+        if (!cancelled) setTracksLoading(false)
+      }
+    }
+    fetchTracks()
+    return () => { cancelled = true }
+  }, [spotifyAlbumId, tracks.length])
+
+  useEffect(() => {
+    if (tracks.length === 0) return
+    getSpotifyToken()
+      .then((token) => isAlbumSaved(token, spotifyAlbumId))
+      .then(setAlbumSaved)
+      .catch(() => {})
+  }, [tracks.length, spotifyAlbumId])
+
+  useEffect(() => {
+    activeTrackRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [currentTrackUri])
+
+  const albumMeta = { spotifyAlbumId, title: albumTitle, artist: albumArtist, coverUrl: albumCoverUrl, appAlbumId }
+
+  const handleToggleSaveAlbum = async () => {
+    setSavingAlbum(true)
+    try {
+      const token = await getSpotifyToken()
+      if (albumSaved) {
+        await unsaveAlbum(token, spotifyAlbumId)
+        setAlbumSaved(false)
+        notifications.show({ message: 'Removed from Your Library' })
+      } else {
+        await saveAlbum(token, spotifyAlbumId)
+        setAlbumSaved(true)
+        notifications.show({ color: 'green', message: 'Saved to Your Library' })
+      }
+    } catch (err) {
+      notifications.show({ color: 'red', message: err instanceof Error ? err.message : 'Could not update library' })
+    } finally {
+      setSavingAlbum(false)
+    }
+  }
+
+  const handleOpenPicker = (target: 'album' | string) => {
+    setPickerUris(target === 'album' ? tracks.map((t) => t.uri) : [target])
+    setPickerTitle(target === 'album' ? 'Add album to playlist' : 'Add track to playlist')
+    openPicker()
+  }
+
+  return (
+    <>
+      <Box
+        style={(theme) => ({
+          background: theme.colors.dark[7],
+          borderRadius: theme.radius.md,
+          border: `1px solid ${theme.colors.dark[4]}`,
+          overflow: 'hidden',
+        })}
+      >
+        {/* Album-level actions */}
+        <Group px="sm" py="xs" gap="xs" style={(theme) => ({ borderBottom: `1px solid ${theme.colors.dark[5]}` })}>
+          <Text size="xs" c="dimmed" style={{ flex: 1 }}>Tracks</Text>
+          <Tooltip label={albumSaved ? 'Remove from library' : 'Save album'} withArrow>
+            <ActionIcon
+              variant="subtle"
+              size="sm"
+              color={albumSaved ? 'green' : 'gray'}
+              loading={savingAlbum}
+              onClick={handleToggleSaveAlbum}
+            >
+              {albumSaved
+                ? <IconMusic size={14} color="var(--mantine-color-green-5)" />
+                : <IconMusic size={14} />}
+            </ActionIcon>
+          </Tooltip>
+          <Tooltip label="Add album to playlist" withArrow>
+            <ActionIcon variant="subtle" size="sm" onClick={() => handleOpenPicker('album')} disabled={tracks.length === 0}>
+              <IconPlaylistAdd size={14} />
+            </ActionIcon>
+          </Tooltip>
+        </Group>
+
+        <ScrollArea h={280} type="hover">
+          {tracksLoading
+            ? Array.from({ length: 6 }).map((_, i) => (
+                <Box key={i} px="sm" py={6}>
+                  <Skeleton h={14} radius="sm" />
+                </Box>
+              ))
+            : tracks.map((track) => {
+                const isActive = track.uri === currentTrackUri
+                return (
+                  <Group
+                    key={track.uri}
+                    ref={isActive ? activeTrackRef : null}
+                    px="sm"
+                    py={7}
+                    gap="xs"
+                    wrap="nowrap"
+                    style={(theme) => ({
+                      cursor: 'pointer',
+                      background: isActive ? theme.colors.dark[5] : 'transparent',
+                      borderLeft: isActive ? '2px solid #1DB954' : '2px solid transparent',
+                    })}
+                    onClick={() => startAlbum(spotifyAlbumId, albumMeta, track.uri)}
+                  >
+                    <Text size="xs" c="dimmed" w={20} ta="right" style={{ flexShrink: 0 }}>
+                      {isActive ? <IconBrandSpotify size={12} color="#1DB954" /> : track.trackNumber}
+                    </Text>
+                    <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
+                      <Text size="sm" c={isActive ? 'green.4' : undefined} fw={isActive ? 500 : 400} lineClamp={1}>
+                        {track.name}
+                      </Text>
+                      <Text size="xs" c="dimmed" lineClamp={1}>{track.artists}</Text>
+                    </Stack>
+                    <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
+                      {formatTrackDuration(track.durationMs)}
+                    </Text>
+                    <Tooltip label="Add to playlist" withArrow>
+                      <ActionIcon
+                        variant="subtle"
+                        size="xs"
+                        style={{ flexShrink: 0 }}
+                        onClick={(e) => { e.stopPropagation(); handleOpenPicker(track.uri) }}
+                      >
+                        <IconPlaylistAdd size={12} />
+                      </ActionIcon>
+                    </Tooltip>
+                  </Group>
+                )
+              })}
+        </ScrollArea>
+      </Box>
+
+      <PlaylistPickerModal
+        opened={pickerOpened}
+        onClose={closePicker}
+        uris={pickerUris}
+        title={pickerTitle}
+      />
+    </>
+  )
 }
 
 // ==================== SORT BUTTON ====================
@@ -164,8 +381,13 @@ export default function AlbumPage() {
   const { data: album, isLoading: albumLoading } = useAlbumDetails(albumId)
   const { data: reviews = [], isLoading: reviewsLoading } = useAlbumReviews(albumId)
   const { data: stats, isLoading: statsLoading } = useAlbumStats(albumId)
-  const { data: myStats } = useMyStats()
-  const hasSpotify = myStats?.has_spotify ?? false
+
+  const {
+    status: playerStatus,
+    hasSpotify,
+    playingSpotifyAlbumId,
+    startAlbum,
+  } = usePlayer()
 
   const sortedReviews = useMemo(
     () => sortReviews(reviews, sortField, sortDir),
@@ -230,11 +452,77 @@ export default function AlbumPage() {
           </Stack>
         </Group>
 
-        {/* ── SPOTIFY PLAYER ── */}
+        {/* ── PLAYER SECTION ── */}
         {albumLoading ? (
-          <Skeleton h={180} radius="md" />
+          <Skeleton h={48} radius="md" />
         ) : album?.spotify_album_id ? (
-          <SpotifyPlayer spotifyAlbumId={album.spotify_album_id} hasSpotify={hasSpotify} />
+          <Stack gap="sm">
+            <Group gap="sm" wrap="wrap">
+              <Tooltip
+                label="Connect your Spotify account to enable the embedded player"
+                withArrow
+                disabled={hasSpotify}
+              >
+                <span style={{ display: 'inline-block' }}>
+                  <Button
+                    variant="filled"
+                    color="green"
+                    size="sm"
+                    leftSection={<IconBrandSpotify size={16} />}
+                    loading={hasSpotify && playerStatus === 'loading'}
+                    disabled={!hasSpotify}
+                    onClick={() => startAlbum(
+                      album.spotify_album_id!,
+                      {
+                        spotifyAlbumId: album.spotify_album_id!,
+                        title: album.title,
+                        artist: album.artist,
+                        coverUrl: album.cover_url ?? null,
+                        appAlbumId: album.id,
+                      },
+                    )}
+                  >
+                    Play in Player
+                  </Button>
+                </span>
+              </Tooltip>
+              <Button
+                component="a"
+                href={`spotify:album:${album.spotify_album_id}`}
+                variant="light"
+                color="green"
+                size="sm"
+                leftSection={<IconBrandSpotify size={16} />}
+              >
+                Open in Spotify
+              </Button>
+              <Button
+                component="a"
+                href={`https://open.spotify.com/album/${album.spotify_album_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                variant="subtle"
+                size="sm"
+                leftSection={<IconExternalLink size={16} />}
+              >
+                Web Player
+              </Button>
+              {playingSpotifyAlbumId === album.spotify_album_id && (playerStatus === 'playing' || playerStatus === 'paused') && (
+                <Badge color="green" variant="light" leftSection={<IconMusic size={10} />}>
+                  {playerStatus === 'playing' ? 'Now Playing' : 'Paused'}
+                </Badge>
+              )}
+            </Group>
+            {hasSpotify && (playerStatus === 'ready' || playerStatus === 'playing' || playerStatus === 'paused') && (
+              <AlbumTracklist
+                spotifyAlbumId={album.spotify_album_id}
+                albumTitle={album.title}
+                albumArtist={album.artist}
+                albumCoverUrl={album.cover_url ?? null}
+                appAlbumId={album.id}
+              />
+            )}
+          </Stack>
         ) : null}
 
         {/* ── GLOBAL RATING + HISTOGRAM ── */}

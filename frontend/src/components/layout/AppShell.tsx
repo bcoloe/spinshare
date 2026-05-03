@@ -40,9 +40,11 @@ import { useAuth } from '../../hooks/useAuth'
 import { useMyGroups, useMyPendingInvitations, useAcceptInvitation, useDeclineInvitation } from '../../hooks/useGroups'
 import { useFavoriteGroup } from '../../context/FavoriteGroupContext'
 import { useUnreadNotifications, useMarkAllNotificationsRead } from '../../hooks/useNotifications'
+import { usePlayer } from '../../context/PlayerContext'
 import { ApiError } from '../../services/apiClient'
 import CreateGroupModal from '../groups/CreateGroupModal'
 import JoinGroupModal from '../groups/JoinGroupModal'
+import PlayerBar from './PlayerBar'
 
 interface AppShellProps {
   children: React.ReactNode
@@ -50,6 +52,9 @@ interface AppShellProps {
 
 export default function AppShell({ children }: AppShellProps) {
   const { user, logout } = useAuth()
+  const { status: playerStatus, playingAlbumMeta, minimized } = usePlayer()
+  const showFooter = playingAlbumMeta !== null && (playerStatus === 'ready' || playerStatus === 'playing' || playerStatus === 'paused')
+  const footerHeight = minimized ? 48 : 72
   const navigate = useNavigate()
   const location = useLocation()
   const [mobileOpened, { toggle: toggleMobile }] = useDisclosure()
@@ -117,6 +122,7 @@ export default function AppShell({ children }: AppShellProps) {
         breakpoint: 'sm',
         collapsed: { mobile: !mobileOpened, desktop: !desktopOpened },
       }}
+      footer={showFooter ? { height: footerHeight } : undefined}
       padding="md"
     >
       <MantineAppShell.Header>
@@ -335,6 +341,12 @@ export default function AppShell({ children }: AppShellProps) {
       </MantineAppShell.Navbar>
 
       <MantineAppShell.Main>{children}</MantineAppShell.Main>
+
+      {showFooter && (
+        <MantineAppShell.Footer>
+          <PlayerBar />
+        </MantineAppShell.Footer>
+      )}
 
       <CreateGroupModal opened={createOpened} onClose={closeCreate} />
       <JoinGroupModal opened={joinOpened} onClose={closeJoin} />

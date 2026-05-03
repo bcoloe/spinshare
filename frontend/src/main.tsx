@@ -8,6 +8,7 @@ import '@mantine/notifications/styles.css'
 import '@mantine/carousel/styles.css'
 import { AuthProvider } from './context/AuthContext'
 import { FavoriteGroupProvider } from './context/FavoriteGroupContext'
+import { PlayerProvider } from './context/PlayerContext'
 import App from './App'
 
 const theme = createTheme({
@@ -31,7 +32,9 @@ createRoot(document.getElementById('root')!).render(
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <FavoriteGroupProvider>
-            <App />
+            <PlayerProvider>
+              <App />
+            </PlayerProvider>
           </FavoriteGroupProvider>
         </AuthProvider>
       </QueryClientProvider>
