@@ -16,6 +16,8 @@ export type PlayerStatus =
 export interface UseSpotifyPlayerResult {
   status: PlayerStatus
   currentTrackUri: string | null
+  currentTrackName: string | null
+  currentTrackNumber: number | null
   position: number
   duration: number
   deviceId: string | null
@@ -52,9 +54,11 @@ function loadSpotifySdk(): Promise<void> {
   })
 }
 
-export function useSpotifyPlayer(enabled: boolean, spotifyAlbumId: string): UseSpotifyPlayerResult {
+export function useSpotifyPlayer(enabled: boolean): UseSpotifyPlayerResult {
   const [status, setStatus] = useState<PlayerStatus>('idle')
   const [currentTrackUri, setCurrentTrackUri] = useState<string | null>(null)
+  const [currentTrackName, setCurrentTrackName] = useState<string | null>(null)
+  const [currentTrackNumber, setCurrentTrackNumber] = useState<number | null>(null)
   const [position, setPosition] = useState(0)
   const [duration, setDuration] = useState(0)
   const [deviceId, setDeviceId] = useState<string | null>(null)
@@ -66,9 +70,6 @@ export function useSpotifyPlayer(enabled: boolean, spotifyAlbumId: string): UseS
   const basePositionRef = useRef(0)
   const baseTimestampRef = useRef(0)
   const isPlayingRef = useRef(false)
-  // Refs so event listeners always see the current values without stale closures
-  const spotifyAlbumIdRef = useRef(spotifyAlbumId)
-  spotifyAlbumIdRef.current = spotifyAlbumId
   const deviceIdRef = useRef<string | null>(null)
 
   function startProgressInterval() {
@@ -133,27 +134,23 @@ export function useSpotifyPlayer(enabled: boolean, spotifyAlbumId: string): UseS
         player.addListener('player_state_changed', (state: Spotify.PlaybackState | null) => {
           if (cancelled) return
           if (!state) {
+            setCurrentTrackUri(null)
+            setCurrentTrackName(null)
+            setCurrentTrackNumber(null)
             setPlayingSpotifyAlbumId(null)
+            setStatus((prev) => (prev === 'playing' || prev === 'paused') ? 'ready' : prev)
             return
           }
           const track = state.track_window.current_track
-          // Track which album is actually playing in the SDK (independent of active tab)
-          setPlayingSpotifyAlbumId(state.paused ? null : track.album.uri.split(':')[2])
-
-          if (track.album.uri !== `spotify:album:${spotifyAlbumIdRef.current}`) {
-            setCurrentTrackUri(null)
-            setStatus('ready')
-            isPlayingRef.current = false
-            setPosition(0)
-            setDuration(0)
-            return
-          }
+          setPlayingSpotifyAlbumId(track.album.uri.split(':')[2])
 
           basePositionRef.current = state.position
           baseTimestampRef.current = Date.now()
           isPlayingRef.current = !state.paused
 
           setCurrentTrackUri(track.uri)
+          setCurrentTrackName(track.name)
+          setCurrentTrackNumber(track.track_number)
           setDuration(state.duration)
           setPosition(state.position)
           setStatus(state.paused ? 'paused' : 'playing')
@@ -196,16 +193,6 @@ export function useSpotifyPlayer(enabled: boolean, spotifyAlbumId: string): UseS
     }
   }, [enabled])
 
-  // When the displayed album changes, immediately snap the UI to "ready" so the
-  // previous album's playback progress doesn't bleed into the new tab.
-  useEffect(() => {
-    setCurrentTrackUri(null)
-    setPosition(0)
-    setDuration(0)
-    isPlayingRef.current = false
-    setStatus((prev) => (prev === 'playing' || prev === 'paused') ? 'ready' : prev)
-  }, [spotifyAlbumId])
-
   const togglePlay = () => playerRef.current?.togglePlay()
   const skipNext = () => playerRef.current?.nextTrack()
   const skipPrevious = () => playerRef.current?.previousTrack()
@@ -235,5 +222,5 @@ export function useSpotifyPlayer(enabled: boolean, spotifyAlbumId: string): UseS
     }
   }
 
-  return { status, currentTrackUri, position, duration, deviceId, playingSpotifyAlbumId, togglePlay, skipNext, skipPrevious, seekTo, startAlbum }
+  return { status, currentTrackUri, currentTrackName, currentTrackNumber, position, duration, deviceId, playingSpotifyAlbumId, togglePlay, skipNext, skipPrevious, seekTo, startAlbum }
 }
