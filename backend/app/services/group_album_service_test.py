@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 from app.models import Album, GroupAlbum
+from app.models.group_settings import GroupSettings
 from app.schemas.group_album import NominationGuessCreate
 from fastapi import HTTPException, status
 
@@ -511,6 +512,98 @@ class TestGetMyGuess:
             group_album_service.get_my_guess(
                 sample_group.id, sample_group_album.id, outsider
             )
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+
+
+# ==================== GUESS OPTIONS ====================
+
+
+class TestGetGuessOptions:
+    def test_returns_all_members_when_under_cap(
+        self,
+        group_album_service,
+        sample_group,
+        sample_group_album,
+        sample_user,
+        sample_group_service,
+        user_factory,
+    ):
+        other = user_factory(email="other@test.com", username="other_user")
+        sample_group_service.add_user(sample_group.id, other.id)
+
+        result = group_album_service.get_guess_options(
+            sample_group.id, sample_group_album.id, other
+        )
+        option_ids = {o.user_id for o in result.options}
+        # Both members present (group has 2; default cap is 5)
+        assert sample_user.id in option_ids
+        assert other.id in option_ids
+
+    def test_nominator_always_included_when_capped(
+        self,
+        group_album_service,
+        sample_group,
+        sample_group_album,
+        sample_user,
+        sample_group_service,
+        user_factory,
+        db_session,
+    ):
+        """With a cap of 2, the nominator must be in the pool even when there are many members."""
+        # Add 4 extra members so total = 5 (> cap of 2)
+        extras = [
+            user_factory(email=f"extra{i}@test.com", username=f"extra{i}") for i in range(4)
+        ]
+        for u in extras:
+            sample_group_service.add_user(sample_group.id, u.id)
+
+        # Force cap to 2 on the group settings
+        settings = db_session.query(GroupSettings).filter_by(group_id=sample_group.id).first()
+        settings.guess_user_cap = 2
+        db_session.commit()
+
+        result = group_album_service.get_guess_options(
+            sample_group.id, sample_group_album.id, extras[0]
+        )
+        assert len(result.options) == 2
+        option_ids = {o.user_id for o in result.options}
+        # sample_user is the nominator — must always be included
+        assert sample_user.id in option_ids
+
+    def test_pool_is_deterministic(
+        self,
+        group_album_service,
+        sample_group,
+        sample_group_album,
+        sample_user,
+        sample_group_service,
+        user_factory,
+        db_session,
+    ):
+        """Two different callers receive identical option sets."""
+        other = user_factory(email="other@test.com", username="other_user")
+        third = user_factory(email="third@test.com", username="third_user")
+        sample_group_service.add_user(sample_group.id, other.id)
+        sample_group_service.add_user(sample_group.id, third.id)
+
+        settings = db_session.query(GroupSettings).filter_by(group_id=sample_group.id).first()
+        settings.guess_user_cap = 2
+        db_session.commit()
+
+        result_a = group_album_service.get_guess_options(sample_group.id, sample_group_album.id, other)
+        result_b = group_album_service.get_guess_options(sample_group.id, sample_group_album.id, third)
+        assert {o.user_id for o in result_a.options} == {o.user_id for o in result_b.options}
+
+    def test_non_member_forbidden(
+        self,
+        group_album_service,
+        sample_group,
+        sample_group_album,
+        user_factory,
+    ):
+        outsider = user_factory(email="out@test.com", username="outsider")
+        with pytest.raises(HTTPException) as exc_info:
+            group_album_service.get_guess_options(sample_group.id, sample_group_album.id, outsider)
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
 
 

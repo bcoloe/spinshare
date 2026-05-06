@@ -18,7 +18,13 @@ from sqlalchemy.orm import Session
 
 from app.models import Group, GroupAlbum, GroupSettings, NominationGuess, User
 from app.models.group import group_members
-from app.schemas.group_album import CheckGuessResponse, NominationGuessCreate, NominationGuessResponse
+from app.schemas.group_album import (
+    CheckGuessResponse,
+    GuessOptionUser,
+    GuessOptionsResponse,
+    NominationGuessCreate,
+    NominationGuessResponse,
+)
 from app.schemas.notification import NotificationType
 from app.services import group_service as gs
 from app.services.notification_service import NotificationService
@@ -339,6 +345,59 @@ class GroupAlbumService:
             correct=guess.correct,
             nominator_user_ids=[n.id for n in nominators],
             nominator_usernames=[n.username for n in nominators],
+        )
+
+    def get_guess_options(self, group_id: int, group_album_id: int, user: User) -> GuessOptionsResponse:
+        """Return a deterministic, capped pool of users to present as guessing candidates.
+
+        The pool always contains at least one nominator when one exists. Remaining slots
+        are filled from other group members sorted by user_id, so every member sees the
+        same choices for a given album (idempotent across callers).
+
+        Pool size is bounded by the group's ``guess_user_cap`` setting (default 5).
+
+        Raises:
+            HTTPException 403: If user is not a group member.
+            HTTPException 404: If the group album is not found.
+        """
+        group_service = gs.GroupService(self.db)
+        group_service.require_membership(user.id, group_id)
+
+        group_album = self._get_group_album_or_404(group_id, group_album_id)
+
+        settings = self.db.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
+        cap = settings.guess_user_cap if settings else 5
+
+        all_nominations = (
+            self.db.query(GroupAlbum)
+            .filter(
+                GroupAlbum.group_id == group_id,
+                GroupAlbum.album_id == group_album.album_id,
+            )
+            .all()
+        )
+        nominator_ids = {ga.added_by for ga in all_nominations if ga.added_by is not None}
+
+        # All group members sorted deterministically by user_id
+        all_members = (
+            self.db.query(User)
+            .join(group_members, group_members.c.user_id == User.id)
+            .filter(group_members.c.group_id == group_id)
+            .order_by(User.id)
+            .all()
+        )
+
+        # Nominators always appear first in the pool; fill the rest with non-nominators
+        nominators = [u for u in all_members if u.id in nominator_ids]
+        non_nominators = [u for u in all_members if u.id not in nominator_ids]
+
+        pool = nominators[:cap]
+        remaining = cap - len(pool)
+        if remaining > 0:
+            pool.extend(non_nominators[:remaining])
+
+        return GuessOptionsResponse(
+            options=[GuessOptionUser(user_id=u.id, username=u.username) for u in pool]
         )
 
     # ==================== NOMINATION POOL ====================

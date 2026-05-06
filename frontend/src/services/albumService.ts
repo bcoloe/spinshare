@@ -5,6 +5,7 @@ import type {
   AlbumStatsResponse,
   CheckGuessResponse,
   GroupAlbumResponse,
+  GuessOptionsResponse,
   NominationCountResponse,
   NominationGuessCreate,
   ReviewCreate,
@@ -76,5 +77,9 @@ export const albumService = {
 
   getNominationCount(groupId: number): Promise<NominationCountResponse> {
     return apiFetch(`/groups/${groupId}/nominations/count`)
+  },
+
+  getGuessOptions(groupId: number, groupAlbumId: number): Promise<GuessOptionsResponse> {
+    return apiFetch(`/groups/${groupId}/albums/${groupAlbumId}/guess/options`)
   },
 }

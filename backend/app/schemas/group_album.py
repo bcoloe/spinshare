@@ -31,3 +31,14 @@ class CheckGuessResponse(BaseModel):
 
 class NominationCountResponse(BaseModel):
     pending_count: int
+
+
+class GuessOptionUser(BaseModel):
+    user_id: int
+    username: str
+
+
+class GuessOptionsResponse(BaseModel):
+    """Deterministic, capped list of users to present as nomination-guess candidates."""
+
+    options: list[GuessOptionUser]

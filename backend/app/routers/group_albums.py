@@ -12,6 +12,7 @@ from app.models import User
 from app.schemas.album import GroupAlbumResponse
 from app.schemas.group_album import (
     CheckGuessResponse,
+    GuessOptionsResponse,
     NominationCountResponse,
     NominationGuessCreate,
 )
@@ -82,6 +83,24 @@ def check_guess(
     Album must have been selected. One guess per member.
     """
     return svc.check_guess(group_id, group_album_id, current_user, data)
+
+
+@router.get(
+    "/{group_id}/albums/{group_album_id}/guess/options",
+    response_model=GuessOptionsResponse,
+)
+def get_guess_options(
+    group_id: int,
+    group_album_id: int,
+    current_user: User = Depends(get_current_user),
+    svc: GroupAlbumService = Depends(get_group_album_service),
+):
+    """Return the deterministic, capped pool of users to present as nomination-guess candidates.
+
+    The pool always contains at least one nominator. All members see the same choices for a
+    given album. Pool size is controlled by the group's guess_user_cap setting (default 5).
+    """
+    return svc.get_guess_options(group_id, group_album_id, current_user)
 
 
 @router.get(
