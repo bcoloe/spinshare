@@ -11,9 +11,11 @@ from app.schemas.user import (
     LoginResponse,
     NominationDecadeBreakdownResponse,
     PublicProfileResponse,
+    ReviewStatsResponse,
     SpotifyConnectUrlResponse,
     SpotifyTokenResponse,
     UserCreate,
+    UserGroupItem,
     UserResponse,
     UserReviewResponse,
     UserUpdate,
@@ -125,6 +127,26 @@ def get_user_nomination_breakdown(
 ):
     """Get nomination decade breakdown for a user."""
     return user_service.get_nomination_decade_breakdown(username)
+
+
+@router.get("/{username}/groups", response_model=list[UserGroupItem])
+def get_user_groups_public(
+    username: str,
+    current_user: User = Depends(get_current_user),
+    user_service: UserService = Depends(get_user_service),
+):
+    """Get public-facing group list for a user's profile."""
+    return user_service.get_groups_for_public_profile(username, current_user.id)
+
+
+@router.get("/{username}/review-stats", response_model=ReviewStatsResponse)
+def get_user_review_stats(
+    username: str,
+    current_user: User = Depends(get_current_user),
+    user_service: UserService = Depends(get_user_service),
+):
+    """Get review statistics (histogram, averages, guess accuracy) for a user."""
+    return user_service.get_review_stats(username)
 
 
 @router.get("/{user_id}", response_model=UserResponse)

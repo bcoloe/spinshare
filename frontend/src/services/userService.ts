@@ -2,6 +2,8 @@ import { apiFetch } from './apiClient'
 import type {
   NominationDecadeBreakdownResponse,
   PublicProfileResponse,
+  ReviewStatsResponse,
+  UserGroupItem,
   UserResponse,
   UserReviewItem,
 } from '../types/auth'
@@ -21,5 +23,13 @@ export const userService = {
 
   getNominationBreakdown(username: string): Promise<NominationDecadeBreakdownResponse> {
     return apiFetch(`/users/${encodeURIComponent(username)}/nominations/breakdown`)
+  },
+
+  getReviewStats(username: string): Promise<ReviewStatsResponse> {
+    return apiFetch(`/users/${encodeURIComponent(username)}/review-stats`)
+  },
+
+  getGroups(username: string): Promise<UserGroupItem[]> {
+    return apiFetch(`/users/${encodeURIComponent(username)}/groups`)
   },
 }

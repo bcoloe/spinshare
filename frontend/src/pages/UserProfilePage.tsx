@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   Box,
+  Button,
   Divider,
   Group,
   Paper,
@@ -16,11 +17,13 @@ import {
   Title,
   UnstyledButton,
 } from '@mantine/core'
+import { useDisclosure } from '@mantine/hooks'
 import {
   IconChevronDown,
   IconChevronRight,
   IconChevronUp,
   IconSelector,
+  IconUserPlus,
 } from '@tabler/icons-react'
 import {
   Bar,
@@ -34,7 +37,11 @@ import {
 } from 'recharts'
 import AppShell from '../components/layout/AppShell'
 import AlbumCoverGrid from '../components/profile/AlbumCoverGrid'
-import { useUserNominationBreakdown, useUserProfile, useUserReviews } from '../hooks/useUserProfile'
+import ChartCarousel from '../components/profile/ChartCarousel'
+import GroupsTable from '../components/profile/GroupsTable'
+import InviteToGroupModal from '../components/users/InviteToGroupModal'
+import { useUserGroups, useUserNominationBreakdown, useUserProfile, useUserReviewStats, useUserReviews } from '../hooks/useUserProfile'
+import { useAuth } from '../hooks/useAuth'
 import type { UserReviewItem } from '../types/auth'
 
 // ==================== TYPES ====================
@@ -228,7 +235,9 @@ export default function UserProfilePage() {
   const { username } = useParams<{ username: string }>()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+  const { user: currentUser } = useAuth()
   const [tab, setTab] = useState<Tab>((searchParams.get('tab') as Tab) ?? 'stats')
+  const [inviteOpened, { open: openInvite, close: closeInvite }] = useDisclosure()
 
   useEffect(() => {
     const paramTab = searchParams.get('tab') as Tab | null
@@ -243,6 +252,10 @@ export default function UserProfilePage() {
   const { data: profile, isLoading: profileLoading } = useUserProfile(username!)
   const { data: reviews = [], isLoading: reviewsLoading } = useUserReviews(username!)
   const { data: breakdown, isLoading: breakdownLoading } = useUserNominationBreakdown(username!)
+  const { data: reviewStats, isLoading: reviewStatsLoading } = useUserReviewStats(username!)
+  const { data: userGroups = [], isLoading: groupsLoading } = useUserGroups(username!)
+
+  const isOwnProfile = currentUser?.username === username
 
   const favorites = useMemo(
     () =>
@@ -285,18 +298,30 @@ export default function UserProfilePage() {
         {profileLoading ? (
           <Skeleton h={40} w={200} />
         ) : (
-          <div>
-            <Title order={3}>{profile?.username}</Title>
-            <Text size="sm" c="dimmed">
-              Member since{' '}
-              {profile?.member_since
-                ? new Date(profile.member_since).toLocaleDateString(undefined, {
-                    year: 'numeric',
-                    month: 'long',
-                  })
-                : '—'}
-            </Text>
-          </div>
+          <Group justify="space-between" align="flex-start">
+            <div>
+              <Title order={3}>{profile?.username}</Title>
+              <Text size="sm" c="dimmed">
+                Member since{' '}
+                {profile?.member_since
+                  ? new Date(profile.member_since).toLocaleDateString(undefined, {
+                      year: 'numeric',
+                      month: 'long',
+                    })
+                  : '—'}
+              </Text>
+            </div>
+            {!isOwnProfile && profile?.email && (
+              <Button
+                variant="light"
+                size="xs"
+                leftSection={<IconUserPlus size={14} />}
+                onClick={openInvite}
+              >
+                Invite to group
+              </Button>
+            )}
+          </Group>
         )}
 
         <Box
@@ -324,7 +349,7 @@ export default function UserProfilePage() {
         {/* ── STATS TAB ── */}
         {tab === 'stats' && (
           <Stack gap="xl">
-            <SimpleGrid cols={{ base: 1, sm: 3 }}>
+            <SimpleGrid cols={{ base: 2, sm: 4 }}>
               <StatCard
                 label="Albums Reviewed"
                 value={profile?.total_reviews ?? 0}
@@ -340,55 +365,128 @@ export default function UserProfilePage() {
                 value={profile?.albums_nominated ?? 0}
                 loading={profileLoading}
               />
+              <StatCard
+                label="Average Rating"
+                value={
+                  reviewStatsLoading
+                    ? '—'
+                    : reviewStats?.average_rating != null
+                      ? reviewStats.average_rating.toFixed(2)
+                      : '—'
+                }
+                loading={reviewStatsLoading}
+              />
             </SimpleGrid>
+
+            <Stack gap="xs">
+              <Text fw={600} size="sm">Groups</Text>
+              <GroupsTable groups={userGroups} loading={groupsLoading} />
+            </Stack>
+
+            {reviewStatsLoading ? (
+              <Skeleton h={64} radius="md" />
+            ) : reviewStats?.guess_accuracy.total != null && reviewStats.guess_accuracy.total > 0 ? (
+              <Paper withBorder p="md" radius="md">
+                <Group justify="space-between">
+                  <Stack gap={2}>
+                    <Text size="sm" fw={600}>Nominator Guess Accuracy</Text>
+                    <Text size="xs" c="dimmed">
+                      {reviewStats.guess_accuracy.correct} correct out of {reviewStats.guess_accuracy.total} guesses
+                    </Text>
+                  </Stack>
+                  <Text size="xl" fw={700} c="violet">
+                    {reviewStats.guess_accuracy.pct != null
+                      ? `${reviewStats.guess_accuracy.pct}%`
+                      : '—'}
+                  </Text>
+                </Group>
+              </Paper>
+            ) : null}
 
             <Divider />
 
-            <Stack gap="xs">
-              <Text fw={600} size="sm">Nominations by Decade</Text>
-
-              {breakdownLoading ? (
-                <Skeleton h={220} />
-              ) : !breakdown?.decade_breakdown.length ? (
-                <Text c="dimmed" size="sm">No nominations yet.</Text>
-              ) : (
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={breakdown.decade_breakdown} barCategoryGap="30%">
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" vertical={false} />
-                    <XAxis
-                      dataKey="decade"
-                      tick={{ fontSize: 12, fill: 'var(--mantine-color-dimmed)' }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      allowDecimals={false}
-                      tick={{ fontSize: 12, fill: 'var(--mantine-color-dimmed)' }}
-                      axisLine={false}
-                      tickLine={false}
-                      width={24}
-                    />
-                    <RechartsTooltip
-                      formatter={(value) => [`${value} album${value !== 1 ? 's' : ''}`, 'Nominations']}
-                      contentStyle={{
-                        background: 'var(--mantine-color-dark-7)',
-                        border: '1px solid var(--mantine-color-dark-4)',
-                        borderRadius: 4,
-                        fontSize: 13,
-                      }}
-                      labelStyle={{ color: '#c1c2c5' }}
-                      itemStyle={{ color: '#c1c2c5' }}
-                      cursor={{ fill: 'var(--mantine-color-dark-5)' }}
-                    />
-                    <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                      {breakdown.decade_breakdown.map((_, i) => (
-                        <Cell key={i} fill={DECADE_COLORS[i % DECADE_COLORS.length]} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </Stack>
+            <ChartCarousel
+              slides={[
+                {
+                  title: 'Rating Distribution',
+                  loading: reviewStatsLoading,
+                  empty: !reviewStats?.rating_histogram.some((b) => b.count > 0),
+                  emptyMessage: 'No reviews yet.',
+                  chart: (
+                    <ResponsiveContainer width="100%" height={180}>
+                      <BarChart data={reviewStats?.rating_histogram} barCategoryGap="15%">
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" vertical={false} />
+                        <XAxis dataKey="bucket" tick={{ fontSize: 12, fill: 'var(--mantine-color-dimmed)' }} axisLine={false} tickLine={false} />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: 'var(--mantine-color-dimmed)' }} axisLine={false} tickLine={false} width={24} />
+                        <RechartsTooltip
+                          formatter={(value) => [`${value} review${value !== 1 ? 's' : ''}`, 'Count']}
+                          labelFormatter={(label) => `Rating ${label}–${Number(label) + 1}`}
+                          contentStyle={{ background: 'var(--mantine-color-dark-7)', border: '1px solid var(--mantine-color-dark-4)', borderRadius: 4, fontSize: 13 }}
+                          labelStyle={{ color: '#c1c2c5' }}
+                          itemStyle={{ color: '#c1c2c5' }}
+                          cursor={{ fill: 'var(--mantine-color-dark-5)' }}
+                        />
+                        <Bar dataKey="count" radius={[4, 4, 0, 0]} fill="var(--mantine-color-violet-5)" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ),
+                },
+                {
+                  title: 'Average Rating by Decade',
+                  loading: reviewStatsLoading,
+                  empty: !reviewStats?.avg_rating_by_decade.length,
+                  emptyMessage: 'No reviews yet.',
+                  chart: (
+                    <ResponsiveContainer width="100%" height={180}>
+                      <BarChart data={reviewStats?.avg_rating_by_decade} barCategoryGap="30%">
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" vertical={false} />
+                        <XAxis dataKey="decade" tick={{ fontSize: 12, fill: 'var(--mantine-color-dimmed)' }} axisLine={false} tickLine={false} />
+                        <YAxis domain={[0, 10]} tick={{ fontSize: 12, fill: 'var(--mantine-color-dimmed)' }} axisLine={false} tickLine={false} width={24} />
+                        <RechartsTooltip
+                          formatter={(value) => [Number(value).toFixed(2), 'Avg Rating']}
+                          contentStyle={{ background: 'var(--mantine-color-dark-7)', border: '1px solid var(--mantine-color-dark-4)', borderRadius: 4, fontSize: 13 }}
+                          labelStyle={{ color: '#c1c2c5' }}
+                          itemStyle={{ color: '#c1c2c5' }}
+                          cursor={{ fill: 'var(--mantine-color-dark-5)' }}
+                        />
+                        <Bar dataKey="avg_rating" radius={[4, 4, 0, 0]}>
+                          {(reviewStats?.avg_rating_by_decade ?? []).map((_, i) => (
+                            <Cell key={i} fill={DECADE_COLORS[i % DECADE_COLORS.length]} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ),
+                },
+                {
+                  title: 'Nominations by Decade',
+                  loading: breakdownLoading,
+                  empty: !breakdown?.decade_breakdown.length,
+                  emptyMessage: 'No nominations yet.',
+                  chart: (
+                    <ResponsiveContainer width="100%" height={180}>
+                      <BarChart data={breakdown?.decade_breakdown} barCategoryGap="30%">
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" vertical={false} />
+                        <XAxis dataKey="decade" tick={{ fontSize: 12, fill: 'var(--mantine-color-dimmed)' }} axisLine={false} tickLine={false} />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: 'var(--mantine-color-dimmed)' }} axisLine={false} tickLine={false} width={24} />
+                        <RechartsTooltip
+                          formatter={(value) => [`${value} album${value !== 1 ? 's' : ''}`, 'Nominations']}
+                          contentStyle={{ background: 'var(--mantine-color-dark-7)', border: '1px solid var(--mantine-color-dark-4)', borderRadius: 4, fontSize: 13 }}
+                          labelStyle={{ color: '#c1c2c5' }}
+                          itemStyle={{ color: '#c1c2c5' }}
+                          cursor={{ fill: 'var(--mantine-color-dark-5)' }}
+                        />
+                        <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                          {(breakdown?.decade_breakdown ?? []).map((_, i) => (
+                            <Cell key={i} fill={DECADE_COLORS[i % DECADE_COLORS.length]} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ),
+                },
+              ]}
+            />
           </Stack>
         )}
 
@@ -476,6 +574,15 @@ export default function UserProfilePage() {
           </Stack>
         )}
       </Stack>
+
+      {profile?.email && (
+        <InviteToGroupModal
+          targetEmail={profile.email}
+          targetUsername={profile.username}
+          opened={inviteOpened}
+          onClose={closeInvite}
+        />
+      )}
     </AppShell>
   )
 }

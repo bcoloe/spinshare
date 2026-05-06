@@ -43,7 +43,7 @@ import { useUnreadNotifications, useMarkAllNotificationsRead } from '../../hooks
 import { usePlayer } from '../../context/PlayerContext'
 import { ApiError } from '../../services/apiClient'
 import CreateGroupModal from '../groups/CreateGroupModal'
-import JoinGroupModal from '../groups/JoinGroupModal'
+import SearchModal from '../search/SearchModal'
 import PlayerBar from './PlayerBar'
 
 interface AppShellProps {
@@ -60,7 +60,7 @@ export default function AppShell({ children }: AppShellProps) {
   const [mobileOpened, { toggle: toggleMobile }] = useDisclosure()
   const [desktopOpened, { toggle: toggleDesktop }] = useDisclosure(true)
   const [createOpened, { open: openCreate, close: closeCreate }] = useDisclosure()
-  const [joinOpened, { open: openJoin, close: closeJoin }] = useDisclosure()
+  const [searchOpened, { open: openSearch, close: closeSearch }] = useDisclosure()
 
   const { data: groups, isLoading } = useMyGroups(user?.username ?? '')
   const { favoriteId, toggleFavorite, clearIfStale } = useFavoriteGroup()
@@ -278,9 +278,9 @@ export default function AppShell({ children }: AppShellProps) {
             justify="start"
             leftSection={<IconSearch size={16} />}
             mt={4}
-            onClick={openJoin}
+            onClick={openSearch}
           >
-            Find group
+            Search
           </Button>
         </MantineAppShell.Section>
 
@@ -349,7 +349,7 @@ export default function AppShell({ children }: AppShellProps) {
       )}
 
       <CreateGroupModal opened={createOpened} onClose={closeCreate} />
-      <JoinGroupModal opened={joinOpened} onClose={closeJoin} />
+      <SearchModal opened={searchOpened} onClose={closeSearch} />
     </MantineAppShell>
   )
 }

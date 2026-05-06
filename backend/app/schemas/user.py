@@ -120,10 +120,20 @@ class SpotifyTokenResponse(BaseModel):
 
 class PublicProfileResponse(BaseModel):
     username: str
+    email: str
     member_since: datetime
     total_reviews: int
     total_groups: int
     albums_nominated: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserGroupItem(BaseModel):
+    id: int
+    name: str
+    member_count: int
+    current_user_role: str | None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -151,3 +161,26 @@ class DecadeBreakdownItem(BaseModel):
 class NominationDecadeBreakdownResponse(BaseModel):
     total_nominations: int
     decade_breakdown: list[DecadeBreakdownItem]
+
+
+class RatingHistogramBucket(BaseModel):
+    bucket: int
+    count: int
+
+
+class AvgRatingByDecadeItem(BaseModel):
+    decade: str
+    avg_rating: float
+
+
+class GuessAccuracyStats(BaseModel):
+    total: int
+    correct: int
+    pct: float | None
+
+
+class ReviewStatsResponse(BaseModel):
+    average_rating: float | None
+    rating_histogram: list[RatingHistogramBucket]
+    avg_rating_by_decade: list[AvgRatingByDecadeItem]
+    guess_accuracy: GuessAccuracyStats
