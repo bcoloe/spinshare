@@ -40,10 +40,41 @@ export interface UserUpdate {
 
 export interface PublicProfileResponse {
   username: string
+  email: string
   member_since: string
   total_reviews: number
   total_groups: number
   albums_nominated: number
+}
+
+export interface RatingHistogramBucket {
+  bucket: number
+  count: number
+}
+
+export interface AvgRatingByDecadeItem {
+  decade: string
+  avg_rating: number
+}
+
+export interface GuessAccuracyStats {
+  total: number
+  correct: number
+  pct: number | null
+}
+
+export interface UserGroupItem {
+  id: number
+  name: string
+  member_count: number
+  current_user_role: 'owner' | 'admin' | 'member' | null
+}
+
+export interface ReviewStatsResponse {
+  average_rating: number | null
+  rating_histogram: RatingHistogramBucket[]
+  avg_rating_by_decade: AvgRatingByDecadeItem[]
+  guess_accuracy: GuessAccuracyStats
 }
 
 export interface UserReviewItem {

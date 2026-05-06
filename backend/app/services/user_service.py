@@ -7,7 +7,7 @@ from app.models.group import group_members
 from app.schemas.user import LoginRequest, LoginResponse, UserCreate, UserResponse, UserUpdate
 from app.utils import security
 from fastapi import HTTPException, status
-from sqlalchemy import delete as sa_delete
+from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -124,6 +124,7 @@ class UserService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         return {
             "username": user.username,
+            "email": user.email,
             "member_since": user.created_at,
             "total_reviews": sum(1 for r in user.reviews if not r.is_draft),
             "total_groups": len(user.groups),
@@ -196,6 +197,107 @@ class UserService:
         return {
             "total_nominations": len(nominations),
             "decade_breakdown": breakdown,
+        }
+
+    def get_groups_for_public_profile(self, username: str, viewer_id: int) -> list[dict]:
+        """Return groups visible to a viewer on another user's public profile.
+
+        Includes public non-global groups and private groups the viewer shares
+        with the target user.
+
+        Raises:
+            HTTPException 404: If user not found
+        """
+        user = self.get_user_by_username(username)
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+        viewer = self.get_user_by_id(viewer_id)
+        viewer_group_ids = {g.id for g in viewer.groups}
+
+        result = []
+        for group in user.groups:
+            if group.is_global:
+                continue
+            if not group.is_public and group.id not in viewer_group_ids:
+                continue
+            role_stmt = select(group_members.c.role).where(
+                group_members.c.user_id == viewer_id,
+                group_members.c.group_id == group.id,
+            )
+            viewer_role = self.db.execute(role_stmt).scalar()
+            result.append(
+                {
+                    "id": group.id,
+                    "name": group.name,
+                    "member_count": len(group.members),
+                    "current_user_role": viewer_role,
+                }
+            )
+
+        return sorted(result, key=lambda x: x["name"])
+
+    def get_review_stats(self, username: str) -> dict:
+        """Get review statistics for a user's public profile.
+
+        Returns average rating, rating histogram (buckets of size 1), average
+        rating per release decade, and nominator-guess accuracy.
+
+        Raises:
+            HTTPException 404: If user not found
+        """
+        user = self.get_user_by_username(username)
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+        reviews = (
+            self.db.query(Review)
+            .filter(Review.user_id == user.id, Review.is_draft == False)  # noqa: E712
+            .all()
+        )
+
+        rated = [r for r in reviews if r.rating is not None]
+        average_rating = round(sum(r.rating for r in rated) / len(rated), 2) if rated else None
+
+        histogram: dict[int, int] = {b: 0 for b in range(0, 11)}
+        decade_ratings: dict[str, list[float]] = {}
+        for r in rated:
+            histogram[int(r.rating)] = histogram.get(int(r.rating), 0) + 1
+            release_date = r.albums.release_date if r.albums else None
+            try:
+                year = int(str(release_date)[:4])
+                decade = f"{(year // 10) * 10}s"
+            except (TypeError, ValueError):
+                continue
+            decade_ratings.setdefault(decade, []).append(r.rating)
+
+        rating_histogram = [{"bucket": b, "count": histogram[b]} for b in range(0, 11)]
+        avg_by_decade = sorted(
+            [
+                {"decade": d, "avg_rating": round(sum(rs) / len(rs), 2)}
+                for d, rs in decade_ratings.items()
+            ],
+            key=lambda x: x["decade"],
+        )
+
+        guesses = (
+            self.db.query(NominationGuess)
+            .filter(NominationGuess.guessing_user_id == user.id)
+            .all()
+        )
+        total_guesses = len(guesses)
+        correct_guesses = sum(1 for g in guesses if g.correct)
+        guess_pct = round(correct_guesses / total_guesses * 100, 1) if total_guesses > 0 else None
+
+        return {
+            "average_rating": average_rating,
+            "rating_histogram": rating_histogram,
+            "avg_rating_by_decade": avg_by_decade,
+            "guess_accuracy": {
+                "total": total_guesses,
+                "correct": correct_guesses,
+                "pct": guess_pct,
+            },
         }
 
     # ==================== UPDATE ====================

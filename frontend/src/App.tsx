@@ -25,6 +25,7 @@ const InviteAcceptPage = lazy(() => import('./pages/InviteAcceptPage'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 const UserProfilePage = lazy(() => import('./pages/UserProfilePage'))
 const AlbumPage = lazy(() => import('./pages/AlbumPage'))
+const SearchPage = lazy(() => import('./pages/SearchPage'))
 
 const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -41,6 +42,7 @@ const router = createBrowserRouter([
       { path: '/profile', element: <ProfilePage /> },
       { path: '/users/:username', element: <UserProfilePage /> },
       { path: '/albums/:albumId', element: <AlbumPage /> },
+      { path: '/search', element: <SearchPage /> },
     ],
   },
   { path: '*', element: <NotFoundPage /> },

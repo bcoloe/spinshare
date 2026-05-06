@@ -24,3 +24,19 @@ export function useUserNominationBreakdown(username: string) {
     enabled: !!username,
   })
 }
+
+export function useUserReviewStats(username: string) {
+  return useQuery({
+    queryKey: ['users', username, 'review-stats'],
+    queryFn: () => userService.getReviewStats(username),
+    enabled: !!username,
+  })
+}
+
+export function useUserGroups(username: string) {
+  return useQuery({
+    queryKey: ['users', username, 'groups'],
+    queryFn: () => userService.getGroups(username),
+    enabled: !!username,
+  })
+}
