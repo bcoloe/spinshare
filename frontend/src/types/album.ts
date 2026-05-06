@@ -97,3 +97,12 @@ export interface CheckGuessResponse {
 export interface NominationCountResponse {
   pending_count: number
 }
+
+export interface GuessOptionUser {
+  user_id: number
+  username: string
+}
+
+export interface GuessOptionsResponse {
+  options: GuessOptionUser[]
+}

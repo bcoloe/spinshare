@@ -54,6 +54,7 @@ export default function GroupSettingsPage() {
   const [isPublic, setIsPublic] = useState<boolean | null>(null)
   const [minRoleToAddMembers, setMinRoleToAddMembers] = useState<string | null>(null)
   const [dailyAlbumCount, setDailyAlbumCount] = useState<number | string | null>(null)
+  const [guessUserCap, setGuessUserCap] = useState<number | string | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [memberToRemove, setMemberToRemove] = useState<GroupMemberResponse | null>(null)
 
@@ -61,6 +62,7 @@ export default function GroupSettingsPage() {
   const currentPublic = isPublic ?? group?.is_public ?? true
   const currentMinRole = minRoleToAddMembers ?? group?.settings?.min_role_to_add_members ?? 'admin'
   const currentDailyCount = dailyAlbumCount ?? group?.settings?.daily_album_count ?? 1
+  const currentGuessUserCap = guessUserCap ?? group?.settings?.guess_user_cap ?? 5
 
   const isOwner = group?.current_user_role === 'owner'
   const currentRole = group?.current_user_role
@@ -73,6 +75,7 @@ export default function GroupSettingsPage() {
         settings: {
           min_role_to_add_members: currentMinRole,
           daily_album_count: typeof currentDailyCount === 'number' ? currentDailyCount : undefined,
+          guess_user_cap: typeof currentGuessUserCap === 'number' ? currentGuessUserCap : undefined,
         },
       })
       notifications.show({ color: 'green', message: 'Settings saved' })
@@ -188,6 +191,15 @@ export default function GroupSettingsPage() {
             value={currentDailyCount}
             onChange={setDailyAlbumCount}
             min={1}
+            max={10}
+            w={120}
+          />
+          <NumberInput
+            label="Guess options shown"
+            description="How many members appear as candidates when guessing the nominator (3–10)."
+            value={currentGuessUserCap}
+            onChange={setGuessUserCap}
+            min={3}
             max={10}
             w={120}
           />

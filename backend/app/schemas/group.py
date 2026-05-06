@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 MIN_GROUP_NAME = 3
 MAX_GROUP_NAME = 50
 MAX_DAILY_ALBUM_COUNT = 10
+MIN_GUESS_USER_CAP = 3
+MAX_GUESS_USER_CAP = 10
 
 
 class GroupBase(BaseModel):
@@ -45,6 +47,7 @@ class GroupSettingsResponse(BaseModel):
     min_role_to_add_members: str
     daily_album_count: int
     allow_guessing: bool
+    guess_user_cap: int
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -54,6 +57,7 @@ class GroupSettingsUpdate(BaseModel):
 
     min_role_to_add_members: str | None = None
     daily_album_count: int | None = None
+    guess_user_cap: int | None = None
 
     @field_validator("min_role_to_add_members")
     @classmethod
@@ -72,6 +76,15 @@ class GroupSettingsUpdate(BaseModel):
             return v
         if v < 1 or v > MAX_DAILY_ALBUM_COUNT:
             raise ValueError(f"Must be between 1 and {MAX_DAILY_ALBUM_COUNT}")
+        return v
+
+    @field_validator("guess_user_cap")
+    @classmethod
+    def validate_guess_user_cap(cls, v):
+        if v is None:
+            return v
+        if v < MIN_GUESS_USER_CAP or v > MAX_GUESS_USER_CAP:
+            raise ValueError(f"Must be between {MIN_GUESS_USER_CAP} and {MAX_GUESS_USER_CAP}")
         return v
 
 

@@ -16,8 +16,7 @@ import {
 import { IconPencil, IconStar, IconX } from '@tabler/icons-react'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { useMyReview, useMyGuess, useSubmitReview, useUpdateReview, useCheckGuess } from '../../hooks/useDailySpin'
-import { useGroupMembers } from '../../hooks/useGroups'
+import { useMyReview, useMyGuess, useSubmitReview, useUpdateReview, useCheckGuess, useGuessOptions } from '../../hooks/useDailySpin'
 import { useAuth } from '../../hooks/useAuth'
 import { ApiError } from '../../services/apiClient'
 import GuessResult from './GuessResult'
@@ -35,21 +34,22 @@ interface Props {
 
 interface AvatarSelectorProps {
   groupId: number
+  groupAlbumId: number
   selected: number | null
   onChange: (userId: number | null) => void
 }
 
-function AvatarSelector({ groupId, selected, onChange }: AvatarSelectorProps) {
+function AvatarSelector({ groupId, groupAlbumId, selected, onChange }: AvatarSelectorProps) {
   const { user } = useAuth()
-  const { data: members } = useGroupMembers(groupId)
-  const eligible = members?.filter((m) => m.user_id !== user?.id) ?? []
+  const { data: optionsData } = useGuessOptions(groupId, groupAlbumId)
+  const eligible = optionsData?.options.filter((o) => o.user_id !== user?.id) ?? []
 
   return (
     <Group gap="xs">
-      {eligible.map((m) => {
-        const isSelected = selected === m.user_id
+      {eligible.map((o) => {
+        const isSelected = selected === o.user_id
         return (
-          <Tooltip key={m.user_id} label={m.username} withArrow>
+          <Tooltip key={o.user_id} label={o.username} withArrow>
             <Avatar
               size="md"
               radius="xl"
@@ -60,9 +60,9 @@ function AvatarSelector({ groupId, selected, onChange }: AvatarSelectorProps) {
                 outline: isSelected ? '2px solid var(--mantine-color-violet-5)' : 'none',
                 outlineOffset: 2,
               }}
-              onClick={() => onChange(isSelected ? null : m.user_id)}
+              onClick={() => onChange(isSelected ? null : o.user_id)}
             >
-              {m.username[0].toUpperCase()}
+              {o.username[0].toUpperCase()}
             </Avatar>
           </Tooltip>
         )
@@ -242,7 +242,7 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
         </Group>
         <Stack gap="xs">
           <Text size="sm" fw={600}>Who nominated this album?</Text>
-          <AvatarSelector groupId={groupId} selected={guessedUserId} onChange={setGuessedUserId} />
+          <AvatarSelector groupId={groupId} groupAlbumId={groupAlbumId} selected={guessedUserId} onChange={setGuessedUserId} />
           <Button
             variant="light"
             style={{ alignSelf: 'flex-start' }}
@@ -359,7 +359,7 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
         ) : (
           <Stack gap="xs">
             <Text size="sm">Who nominated this? (optional)</Text>
-            <AvatarSelector groupId={groupId} selected={guessedUserId} onChange={setGuessedUserId} />
+            <AvatarSelector groupId={groupId} groupAlbumId={groupAlbumId} selected={guessedUserId} onChange={setGuessedUserId} />
           </Stack>
         ))}
         <Group gap="xs">

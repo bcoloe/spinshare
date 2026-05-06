@@ -46,6 +46,14 @@ export function useMyGuess(groupId: number, groupAlbumId: number) {
   })
 }
 
+export function useGuessOptions(groupId: number, groupAlbumId: number) {
+  return useQuery({
+    queryKey: ['guesses', groupId, groupAlbumId, 'options'],
+    queryFn: () => albumService.getGuessOptions(groupId, groupAlbumId),
+    enabled: !!groupId && !!groupAlbumId,
+  })
+}
+
 export function useSubmitReview(albumId: number) {
   const qc = useQueryClient()
   return useMutation({
