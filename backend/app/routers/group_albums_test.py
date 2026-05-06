@@ -156,6 +156,7 @@ class TestCheckGuess:
             correct=True,
             nominator_user_ids=[1],
             nominator_usernames=["test_user"],
+            is_chaos_selection=False,
         )
         resp = client.post("/groups/1/albums/1/check-guess", json={"guessed_user_id": 1})
         assert resp.status_code == status.HTTP_201_CREATED
@@ -171,6 +172,7 @@ class TestCheckGuess:
             correct=False,
             nominator_user_ids=[1],
             nominator_usernames=["test_user"],
+            is_chaos_selection=False,
         )
         resp = client.post("/groups/1/albums/1/check-guess", json={"guessed_user_id": 99})
         assert resp.status_code == status.HTTP_201_CREATED

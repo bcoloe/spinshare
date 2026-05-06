@@ -55,6 +55,7 @@ export default function GroupSettingsPage() {
   const [minRoleToAddMembers, setMinRoleToAddMembers] = useState<string | null>(null)
   const [dailyAlbumCount, setDailyAlbumCount] = useState<number | string | null>(null)
   const [guessUserCap, setGuessUserCap] = useState<number | string | null>(null)
+  const [chaosMode, setChaosMode] = useState<boolean | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [memberToRemove, setMemberToRemove] = useState<GroupMemberResponse | null>(null)
 
@@ -63,6 +64,7 @@ export default function GroupSettingsPage() {
   const currentMinRole = minRoleToAddMembers ?? group?.settings?.min_role_to_add_members ?? 'admin'
   const currentDailyCount = dailyAlbumCount ?? group?.settings?.daily_album_count ?? 1
   const currentGuessUserCap = guessUserCap ?? group?.settings?.guess_user_cap ?? 5
+  const currentChaosMode = chaosMode ?? group?.settings?.chaos_mode ?? false
 
   const isOwner = group?.current_user_role === 'owner'
   const currentRole = group?.current_user_role
@@ -76,6 +78,7 @@ export default function GroupSettingsPage() {
           min_role_to_add_members: currentMinRole,
           daily_album_count: typeof currentDailyCount === 'number' ? currentDailyCount : undefined,
           guess_user_cap: typeof currentGuessUserCap === 'number' ? currentGuessUserCap : undefined,
+          chaos_mode: currentChaosMode,
         },
       })
       notifications.show({ color: 'green', message: 'Settings saved' })
@@ -202,6 +205,12 @@ export default function GroupSettingsPage() {
             min={3}
             max={10}
             w={120}
+          />
+          <Switch
+            label="Chaos mode"
+            description="Each daily spin has a small chance of pulling a random album from outside the group's nominations."
+            checked={currentChaosMode}
+            onChange={(e) => setChaosMode(e.currentTarget.checked)}
           />
           <Button
             style={{ alignSelf: 'flex-start' }}

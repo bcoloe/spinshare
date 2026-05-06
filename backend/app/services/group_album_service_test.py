@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 import pytest
 from app.models import Album, GroupAlbum
@@ -683,3 +684,238 @@ class TestGlobalGroupSelection:
         results = group_album_service.select_daily_albums(global_group.id, n=2)
         selected_album_ids = {r.album_id for r in results}
         assert selected_album_ids == {sample_album.id, album2.id}
+
+
+# ==================== CHAOS MODE ====================
+
+
+def _enable_chaos(db_session, group):
+    settings = db_session.query(GroupSettings).filter_by(group_id=group.id).first()
+    settings.chaos_mode = True
+    db_session.commit()
+
+
+def _make_unrelated_album(db_session, spotify_id="chaos_spot_1", title="Chaos Album") -> Album:
+    album = Album(spotify_album_id=spotify_id, title=title, artist="Mystery Artist")
+    db_session.add(album)
+    db_session.commit()
+    db_session.refresh(album)
+    return album
+
+
+class TestChaosSelection:
+    def test_chaos_album_marked_as_chaos(
+        self, group_album_service, sample_group, sample_group_album, db_session
+    ):
+        """When chaos fires, the resulting GroupAlbum has is_chaos_selection=True."""
+        _enable_chaos(db_session, sample_group)
+        chaos_album = _make_unrelated_album(db_session)
+
+        # Force all slots to be chaos
+        with patch("app.services.group_album_service.random.random", return_value=0.0):
+            results = group_album_service.select_daily_albums(sample_group.id, n=1)
+
+        assert len(results) == 1
+        assert results[0].is_chaos_selection is True
+        assert results[0].album_id == chaos_album.id
+        assert results[0].added_by is None
+
+    def test_chaos_album_excluded_from_pool_on_next_run(
+        self, group_album_service, sample_group, sample_group_album, db_session
+    ):
+        """A chaos-selected album is not re-eligible in subsequent selections."""
+        _enable_chaos(db_session, sample_group)
+        _make_unrelated_album(db_session)
+
+        with patch("app.services.group_album_service.random.random", return_value=0.0):
+            group_album_service.select_daily_albums(sample_group.id, n=1)
+
+        # The group now has both the nominated album and the chaos album.
+        # No unrelated albums remain in the global pool.
+        with patch("app.services.group_album_service.random.random", return_value=0.0):
+            # Only the nominated album is unselected — chaos has nothing to pull from,
+            # so it falls back to normal selection.
+            results = group_album_service.select_daily_albums(sample_group.id, n=1)
+
+        assert len(results) == 1
+        assert results[0].is_chaos_selection is False
+
+    def test_no_chaos_when_probability_not_hit(
+        self, group_album_service, sample_group, sample_group_album, db_session
+    ):
+        """When random.random always returns above the chaos threshold, only normal picks happen."""
+        _enable_chaos(db_session, sample_group)
+        _make_unrelated_album(db_session)
+
+        with patch("app.services.group_album_service.random.random", return_value=1.0):
+            results = group_album_service.select_daily_albums(sample_group.id, n=1)
+
+        assert len(results) == 1
+        assert results[0].is_chaos_selection is False
+        assert results[0].album_id == sample_group_album.album_id
+
+    def test_chaos_mode_off_uses_normal_selection(
+        self, group_album_service, sample_group, sample_group_album, db_session
+    ):
+        """With chaos_mode disabled, random.random=0.0 has no effect — normal selection runs."""
+        _make_unrelated_album(db_session)
+
+        with patch("app.services.group_album_service.random.random", return_value=0.0):
+            results = group_album_service.select_daily_albums(sample_group.id, n=1)
+
+        assert len(results) == 1
+        assert results[0].is_chaos_selection is False
+
+    def test_mixed_chaos_and_normal_slots(
+        self, group_album_service, sample_group, sample_group_album, db_session
+    ):
+        """n=2 with chaos on first slot and normal on second produces one of each."""
+        _enable_chaos(db_session, sample_group)
+        chaos_album = _make_unrelated_album(db_session)
+
+        album2 = Album(spotify_album_id="spot_2", title="Second Album", artist="Band")
+        db_session.add(album2)
+        db_session.commit()
+        db_session.refresh(album2)
+        from app.models import GroupAlbum as GA
+        ga2 = GA(group_id=sample_group.id, album_id=album2.id, added_by=sample_group_album.added_by)
+        db_session.add(ga2)
+        db_session.commit()
+
+        # First call: chaos; second call: normal
+        call_count = [0]
+
+        def alternating_random():
+            call_count[0] += 1
+            return 0.0 if call_count[0] == 1 else 1.0
+
+        with patch("app.services.group_album_service.random.random", side_effect=alternating_random):
+            results = group_album_service.select_daily_albums(sample_group.id, n=2)
+
+        assert len(results) == 2
+        chaos_results = [r for r in results if r.is_chaos_selection]
+        normal_results = [r for r in results if not r.is_chaos_selection]
+        assert len(chaos_results) == 1
+        assert len(normal_results) == 1
+        assert chaos_results[0].album_id == chaos_album.id
+
+
+class TestChaosGuess:
+    def _make_chaos_group_album(self, db_session, group, album) -> GroupAlbum:
+        """Insert a chaos-selected GroupAlbum (no nominator)."""
+        ga = GroupAlbum(
+            group_id=group.id,
+            album_id=album.id,
+            added_by=None,
+            selected_date=datetime.now(tz=timezone.utc),
+            is_chaos_selection=True,
+        )
+        db_session.add(ga)
+        db_session.commit()
+        db_session.refresh(ga)
+        return ga
+
+    def test_chaos_guess_correct_for_chaos_album(
+        self, group_album_service, sample_group, sample_user, db_session
+    ):
+        chaos_album = _make_unrelated_album(db_session)
+        chaos_ga = self._make_chaos_group_album(db_session, sample_group, chaos_album)
+
+        result = group_album_service.check_guess(
+            sample_group.id,
+            chaos_ga.id,
+            sample_user,
+            NominationGuessCreate(guessed_user_id=None),
+        )
+
+        assert result.correct is True
+        assert result.is_chaos_selection is True
+        assert result.nominator_user_ids == []
+        assert result.nominator_usernames == []
+        assert result.guess.guessed_user_id is None
+
+    def test_chaos_guess_incorrect_for_normal_album(
+        self,
+        group_album_service,
+        sample_group,
+        sample_group_album,
+        sample_user,
+        sample_group_service,
+        user_factory,
+        db_session,
+    ):
+        other = user_factory(email="other@test.com", username="other_user")
+        sample_group_service.add_user(sample_group.id, other.id)
+        _mark_selected(db_session, sample_group_album)
+
+        result = group_album_service.check_guess(
+            sample_group.id,
+            sample_group_album.id,
+            other,
+            NominationGuessCreate(guessed_user_id=None),
+        )
+
+        assert result.correct is False
+        assert result.is_chaos_selection is False
+        assert sample_user.id in result.nominator_user_ids
+
+    def test_user_guess_incorrect_for_chaos_album(
+        self, group_album_service, sample_group, sample_user, user_factory, sample_group_service, db_session
+    ):
+        other = user_factory(email="other@test.com", username="other_user")
+        sample_group_service.add_user(sample_group.id, other.id)
+
+        chaos_album = _make_unrelated_album(db_session)
+        chaos_ga = self._make_chaos_group_album(db_session, sample_group, chaos_album)
+
+        result = group_album_service.check_guess(
+            sample_group.id,
+            chaos_ga.id,
+            other,
+            NominationGuessCreate(guessed_user_id=sample_user.id),
+        )
+
+        assert result.correct is False
+        assert result.is_chaos_selection is True
+
+    def test_normal_guess_returns_is_chaos_false(
+        self,
+        group_album_service,
+        sample_group,
+        sample_group_album,
+        sample_user,
+        sample_group_service,
+        user_factory,
+        db_session,
+    ):
+        other = user_factory(email="other@test.com", username="other_user")
+        sample_group_service.add_user(sample_group.id, other.id)
+        _mark_selected(db_session, sample_group_album)
+
+        result = group_album_service.check_guess(
+            sample_group.id,
+            sample_group_album.id,
+            other,
+            NominationGuessCreate(guessed_user_id=sample_user.id),
+        )
+
+        assert result.is_chaos_selection is False
+
+
+class TestChaosGuessOptions:
+    def test_has_chaos_option_when_chaos_mode_enabled(
+        self, group_album_service, sample_group, sample_group_album, sample_user, db_session
+    ):
+        _enable_chaos(db_session, sample_group)
+        result = group_album_service.get_guess_options(
+            sample_group.id, sample_group_album.id, sample_user
+        )
+        assert result.has_chaos_option is True
+
+    def test_no_chaos_option_when_chaos_mode_disabled(
+        self, group_album_service, sample_group, sample_group_album, sample_user
+    ):
+        result = group_album_service.get_guess_options(
+            sample_group.id, sample_group_album.id, sample_user
+        )
+        assert result.has_chaos_option is False
