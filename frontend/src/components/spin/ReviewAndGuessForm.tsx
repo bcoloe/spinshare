@@ -26,23 +26,26 @@ interface Props {
   albumId: number
   groupId: number
   groupAlbumId: number
-  addedBy: number
+  addedBy: number | null
   allowGuessing?: boolean
 }
 
 // ==================== AVATAR SELECTOR ====================
 
+type GuessSelection = number | 'chaos' | null
+
 interface AvatarSelectorProps {
   groupId: number
   groupAlbumId: number
-  selected: number | null
-  onChange: (userId: number | null) => void
+  selected: GuessSelection
+  onChange: (selection: GuessSelection) => void
 }
 
 function AvatarSelector({ groupId, groupAlbumId, selected, onChange }: AvatarSelectorProps) {
   const { user } = useAuth()
   const { data: optionsData } = useGuessOptions(groupId, groupAlbumId)
   const eligible = optionsData?.options.filter((o) => o.user_id !== user?.id) ?? []
+  const hasChaosOption = optionsData?.has_chaos_option ?? false
 
   return (
     <Group gap="xs">
@@ -67,6 +70,24 @@ function AvatarSelector({ groupId, groupAlbumId, selected, onChange }: AvatarSel
           </Tooltip>
         )
       })}
+      {hasChaosOption && (
+        <Tooltip label="Outside the group — random pick" withArrow>
+          <Avatar
+            size="md"
+            radius="xl"
+            color="gray"
+            variant={selected === 'chaos' ? 'filled' : 'light'}
+            style={{
+              cursor: 'pointer',
+              outline: selected === 'chaos' ? '2px solid var(--mantine-color-gray-5)' : 'none',
+              outlineOffset: 2,
+            }}
+            onClick={() => onChange(selected === 'chaos' ? null : 'chaos')}
+          >
+            ?
+          </Avatar>
+        </Tooltip>
+      )}
     </Group>
   )
 }
@@ -105,7 +126,7 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
 
   const [rating, setRating] = useState<number | null>(null)
   const [comment, setComment] = useState('')
-  const [guessedUserId, setGuessedUserId] = useState<number | null>(null)
+  const [guessedUserId, setGuessedUserId] = useState<GuessSelection>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [editRating, setEditRating] = useState(0)
   const [editComment, setEditComment] = useState('')
@@ -223,9 +244,9 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
   // ── Published review, no guess yet ───────────────────────────────────────
   if (hasPublishedReview) {
     const handleGuessSubmit = async () => {
-      if (!guessedUserId) return
+      if (guessedUserId === null) return
       try {
-        await checkGuess.mutateAsync({ guessed_user_id: guessedUserId })
+        await checkGuess.mutateAsync({ guessed_user_id: guessedUserId === 'chaos' ? null : guessedUserId })
       } catch (err) {
         const message = err instanceof ApiError ? err.message : 'Could not submit guess'
         notifications.show({ color: 'red', message })
@@ -246,7 +267,7 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
           <Button
             variant="light"
             style={{ alignSelf: 'flex-start' }}
-            disabled={!guessedUserId}
+            disabled={guessedUserId === null}
             loading={checkGuess.isPending}
             onClick={handleGuessSubmit}
           >
@@ -296,9 +317,9 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
       return
     }
 
-    if (!skipGuess && guessedUserId) {
+    if (!skipGuess && guessedUserId !== null) {
       try {
-        await checkGuess.mutateAsync({ guessed_user_id: guessedUserId })
+        await checkGuess.mutateAsync({ guessed_user_id: guessedUserId === 'chaos' ? null : guessedUserId })
       } catch (err) {
         const message =
           err instanceof ApiError
