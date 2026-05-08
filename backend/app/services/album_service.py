@@ -289,12 +289,15 @@ class AlbumService:
         )
         nominators_by_album: dict[int, list[int]] = {}
         for album_id, added_by in raw:
-            nominators_by_album.setdefault(album_id, []).append(added_by)
+            if added_by is not None:
+                nominators_by_album.setdefault(album_id, []).append(added_by)
 
         result = []
         for ga, count in rows:
             ga.nomination_count = count
-            ga.nominator_user_ids = nominators_by_album.get(ga.album_id, [ga.added_by])
+            ga.nominator_user_ids = nominators_by_album.get(
+                ga.album_id, [ga.added_by] if ga.added_by is not None else []
+            )
             result.append(ga)
         return result
 

@@ -48,6 +48,7 @@ class GroupSettingsResponse(BaseModel):
     daily_album_count: int
     allow_guessing: bool
     guess_user_cap: int
+    chaos_mode: bool
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -58,6 +59,7 @@ class GroupSettingsUpdate(BaseModel):
     min_role_to_add_members: str | None = None
     daily_album_count: int | None = None
     guess_user_cap: int | None = None
+    chaos_mode: bool | None = None
 
     @field_validator("min_role_to_add_members")
     @classmethod

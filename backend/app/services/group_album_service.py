@@ -16,7 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import Group, GroupAlbum, GroupSettings, NominationGuess, User
+from app.models import Album, Group, GroupAlbum, GroupSettings, NominationGuess, User
 from app.models.group import group_members
 from app.schemas.group_album import (
     CheckGuessResponse,
@@ -28,6 +28,9 @@ from app.schemas.group_album import (
 from app.schemas.notification import NotificationType
 from app.services import group_service as gs
 from app.services.notification_service import NotificationService
+
+
+_CHAOS_PROBABILITY = 0.10
 
 
 class GroupAlbumService:
@@ -43,6 +46,9 @@ class GroupAlbumService:
 
         For the global group, samples from all nominations across every non-global group.
         For regular groups, operates on distinct pending nominations within the group.
+        If the group has chaos_mode enabled, each slot has a 20% chance of being filled
+        from the global album pool (any album not already in the group) instead of from
+        group nominations.
 
         If fewer than N albums are available (but at least 1), selects all available and
         notifies group members that the pool is exhausted.
@@ -53,6 +59,9 @@ class GroupAlbumService:
         group = self.db.query(Group).filter(Group.id == group_id).first()
         if group and group.is_global:
             return self._select_global_daily_albums(group_id, n)
+
+        settings = self.db.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
+        chaos_mode = settings.chaos_mode if settings else False
 
         available_album_ids = [
             row[0]
@@ -67,6 +76,13 @@ class GroupAlbumService:
                 detail="No unselected albums available",
             )
 
+        if not chaos_mode:
+            return self._select_normal_albums(group_id, group, available_album_ids, n)
+        return self._select_with_chaos(group_id, group, available_album_ids, n)
+
+    def _select_normal_albums(
+        self, group_id: int, group: Group | None, available_album_ids: list[int], n: int
+    ) -> list[GroupAlbum]:
         pool_short = len(available_album_ids) < n
         actual_n = len(available_album_ids) if pool_short else n
         chosen_album_ids = random.sample(available_album_ids, actual_n)
@@ -86,7 +102,6 @@ class GroupAlbumService:
 
         self.db.commit()
 
-        # Return the canonical (earliest) nomination per selected album
         canonical: dict[int, GroupAlbum] = {}
         for ga in all_nominations:
             self.db.refresh(ga)
@@ -97,6 +112,87 @@ class GroupAlbumService:
             self._notify_pool_exhausted(group_id, group.name, actual_n, n)
 
         return list(canonical.values())
+
+    def _select_with_chaos(
+        self, group_id: int, group: Group | None, available_album_ids: list[int], n: int
+    ) -> list[GroupAlbum]:
+        """Selection variant for chaos-mode groups.
+
+        Each of the N slots independently has a CHAOS_PROBABILITY chance of being
+        filled from the global album pool (albums not yet in this group) rather than
+        from the group's pending nominations.
+        """
+        chaos_count = sum(1 for _ in range(n) if random.random() < _CHAOS_PROBABILITY)
+        normal_count = n - chaos_count
+
+        # Albums not yet associated with this group at all (pending or selected)
+        all_group_album_ids = {
+            row[0]
+            for row in self.db.query(GroupAlbum.album_id)
+            .filter(GroupAlbum.group_id == group_id)
+            .distinct()
+            .all()
+        }
+        chaos_pool_ids = [
+            row[0]
+            for row in self.db.query(Album.id)
+            .filter(Album.id.notin_(all_group_album_ids))
+            .all()
+        ] if all_group_album_ids else [row[0] for row in self.db.query(Album.id).all()]
+
+        # If fewer chaos albums exist than slots, convert excess to normal
+        actual_chaos = min(chaos_count, len(chaos_pool_ids))
+        actual_normal = normal_count + (chaos_count - actual_chaos)
+
+        # Cap normal picks to what's available
+        pool_short = len(available_album_ids) < actual_normal
+        actual_normal = min(actual_normal, len(available_album_ids))
+
+        now = datetime.now(tz=timezone.utc)
+        result: list[GroupAlbum] = []
+
+        # Fill normal slots from group nominations
+        if actual_normal > 0:
+            chosen_normal_ids = random.sample(available_album_ids, actual_normal)
+            all_nominations = (
+                self.db.query(GroupAlbum)
+                .filter(
+                    GroupAlbum.group_id == group_id,
+                    GroupAlbum.album_id.in_(chosen_normal_ids),
+                    GroupAlbum.selected_date.is_(None),
+                )
+                .all()
+            )
+            for ga in all_nominations:
+                ga.selected_date = now
+            canonical: dict[int, GroupAlbum] = {}
+            for ga in all_nominations:
+                if ga.album_id not in canonical or ga.id < canonical[ga.album_id].id:
+                    canonical[ga.album_id] = ga
+            result.extend(canonical.values())
+
+        # Fill chaos slots from the global pool
+        if actual_chaos > 0:
+            chosen_chaos_ids = random.sample(chaos_pool_ids, actual_chaos)
+            for album_id in chosen_chaos_ids:
+                chaos_ga = GroupAlbum(
+                    group_id=group_id,
+                    album_id=album_id,
+                    added_by=None,
+                    selected_date=now,
+                    is_chaos_selection=True,
+                )
+                self.db.add(chaos_ga)
+                result.append(chaos_ga)
+
+        self.db.commit()
+        for ga in result:
+            self.db.refresh(ga)
+
+        if pool_short and group:
+            self._notify_pool_exhausted(group_id, group.name, actual_normal, n)
+
+        return result
 
     def _select_global_daily_albums(self, global_group_id: int, n: int) -> list[GroupAlbum]:
         """Select N albums for the global group by sampling across all non-global-group nominations.
@@ -155,13 +251,20 @@ class GroupAlbumService:
             self.db.refresh(ga)
         return result
 
-    def trigger_daily_selection(self, group_id: int, user: User) -> list[GroupAlbum]:
+    def trigger_daily_selection(
+        self, group_id: int, user: User, force_chaos: bool = False
+    ) -> list[GroupAlbum]:
         """Trigger random daily album selection if none have been chosen today.
 
         Idempotent — returns existing selections if today's albums are already chosen.
         Race-condition safe: acquires a row-level lock on group_settings to serialize
         concurrent calls from multiple members clicking simultaneously.
         Any group member may trigger selection (not restricted to admins).
+
+        When chaos_mode is enabled and the nomination pool is empty:
+        - force_chaos=False raises 409 with detail "no_nominations_chaos_available" so
+          the caller can prompt the user before proceeding.
+        - force_chaos=True fills all slots from the global album pool (FULL CHAOS MODE).
 
         Raises:
             HTTPException 403: If user is not a group member.
@@ -201,7 +304,84 @@ class GroupAlbumService:
                     canonical.append(ga)
             return canonical
 
-        return self.select_daily_albums(group_id, n=settings.daily_album_count)
+        n = settings.daily_album_count
+
+        if force_chaos:
+            if not settings.chaos_mode:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Chaos mode is not enabled for this group",
+                )
+            group = self.db.query(Group).filter(Group.id == group_id).first()
+            return self._select_full_chaos(group_id, group, n)
+
+        if settings.chaos_mode:
+            pool_empty = not (
+                self.db.query(GroupAlbum.album_id)
+                .filter(GroupAlbum.group_id == group_id, GroupAlbum.selected_date.is_(None))
+                .limit(1)
+                .first()
+            )
+            if pool_empty:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="no_nominations_chaos_available",
+                )
+
+        return self.select_daily_albums(group_id, n=n)
+
+    def _select_full_chaos(self, group_id: int, group: Group | None, n: int) -> list[GroupAlbum]:
+        """Fill all N daily slots from the global album pool (FULL CHAOS MODE).
+
+        Picks albums not yet associated with this group in any way.
+
+        Raises:
+            HTTPException 409: If no global albums are available.
+        """
+        all_group_album_ids = {
+            row[0]
+            for row in self.db.query(GroupAlbum.album_id)
+            .filter(GroupAlbum.group_id == group_id)
+            .distinct()
+            .all()
+        }
+        chaos_pool_ids = [
+            row[0]
+            for row in self.db.query(Album.id)
+            .filter(Album.id.notin_(all_group_album_ids))
+            .all()
+        ] if all_group_album_ids else [row[0] for row in self.db.query(Album.id).all()]
+
+        if not chaos_pool_ids:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="No albums available for chaos selection",
+            )
+
+        actual_n = min(n, len(chaos_pool_ids))
+        chosen_ids = random.sample(chaos_pool_ids, actual_n)
+        now = datetime.now(tz=timezone.utc)
+
+        result = []
+        for album_id in chosen_ids:
+            chaos_ga = GroupAlbum(
+                group_id=group_id,
+                album_id=album_id,
+                added_by=None,
+                selected_date=now,
+                is_chaos_selection=True,
+            )
+            self.db.add(chaos_ga)
+            result.append(chaos_ga)
+
+        self.db.commit()
+        for ga in result:
+            self.db.refresh(ga)
+
+        if actual_n < n and group:
+            self._notify_pool_exhausted(group_id, group.name, actual_n, n)
+
+        return result
 
     def get_todays_albums(self, group_id: int, user: User) -> list[GroupAlbum]:
         """Return albums selected as today's daily spins for a group. Requires membership.
@@ -245,8 +425,9 @@ class GroupAlbumService:
         Rules:
         - Album must have been selected (selected_date IS NOT NULL).
         - User must be a group member.
-        - User cannot guess themselves.
+        - User cannot guess themselves (for non-chaos guesses).
         - One guess per user per album (409 on duplicate).
+        - guessed_user_id=None represents a "chaos" guess (outside-of-group pick).
 
         Returns the stored guess plus whether it was correct and the actual nominator.
 
@@ -264,13 +445,13 @@ class GroupAlbumService:
                 detail="Guesses can only be submitted for albums that have been selected",
             )
 
-        if data.guessed_user_id == user.id:
+        if data.guessed_user_id is not None and data.guessed_user_id == user.id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You cannot guess yourself as the nominator",
             )
 
-        # Collect all nominators for this album in this group
+        # Always collect nominations for instant nominator reveal on feedback
         all_nominations = (
             self.db.query(GroupAlbum)
             .filter(
@@ -279,8 +460,14 @@ class GroupAlbumService:
             )
             .all()
         )
-        nominator_ids = {ga.added_by for ga in all_nominations}
-        correct = data.guessed_user_id in nominator_ids
+        nominator_ids = {ga.added_by for ga in all_nominations if ga.added_by is not None}
+
+        if data.guessed_user_id is None:
+            # Chaos guess: correct only if this album was actually a chaos pick
+            correct = group_album.is_chaos_selection
+        else:
+            # Guessing a specific user is never correct for a chaos album
+            correct = not group_album.is_chaos_selection and data.guessed_user_id in nominator_ids
 
         guess = NominationGuess(
             group_album_id=group_album_id,
@@ -293,7 +480,6 @@ class GroupAlbumService:
             self.db.flush()
         except IntegrityError as e:
             self.db.rollback()
-            # Distinguish duplicate-guess from other constraint violations
             if "unique_guess_per_user_album" in str(e.orig):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -307,13 +493,14 @@ class GroupAlbumService:
         self.db.commit()
         self.db.refresh(guess)
 
-        nominators = [ga.added_by_user for ga in all_nominations]
+        nominators = [ga.added_by_user for ga in all_nominations if ga.added_by_user is not None]
 
         return CheckGuessResponse(
             guess=NominationGuessResponse.model_validate(guess),
             correct=correct,
             nominator_user_ids=[n.id for n in nominators],
             nominator_usernames=[n.username for n in nominators],
+            is_chaos_selection=group_album.is_chaos_selection,
         )
 
     def get_my_guess(self, group_id: int, group_album_id: int, user: User) -> CheckGuessResponse:
@@ -338,13 +525,14 @@ class GroupAlbumService:
             )
             .all()
         )
-        nominators = [ga.added_by_user for ga in all_nominations]
+        nominators = [ga.added_by_user for ga in all_nominations if ga.added_by_user is not None]
 
         return CheckGuessResponse(
             guess=NominationGuessResponse.model_validate(guess),
             correct=guess.correct,
             nominator_user_ids=[n.id for n in nominators],
             nominator_usernames=[n.username for n in nominators],
+            is_chaos_selection=group_album.is_chaos_selection,
         )
 
     def get_guess_options(self, group_id: int, group_album_id: int, user: User) -> GuessOptionsResponse:
@@ -397,7 +585,8 @@ class GroupAlbumService:
             pool.extend(non_nominators[:remaining])
 
         return GuessOptionsResponse(
-            options=[GuessOptionUser(user_id=u.id, username=u.username) for u in pool]
+            options=[GuessOptionUser(user_id=u.id, username=u.username) for u in pool],
+            has_chaos_option=settings.chaos_mode if settings else False,
         )
 
     # ==================== NOMINATION POOL ====================

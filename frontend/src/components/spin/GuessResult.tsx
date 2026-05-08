@@ -13,7 +13,10 @@ function formatNominators(usernames: string[]): string {
 }
 
 export default function GuessResult({ result }: Props) {
-  const nominators = formatNominators(result.nominator_usernames)
+  const revealText = result.is_chaos_selection
+    ? 'This album was randomly added from outside the group.'
+    : <>This album was nominated by <Text span fw={600}>{formatNominators(result.nominator_usernames)}</Text>.</>
+
   return (
     <Stack gap="xs">
       <Text size="sm" fw={600}>Your guess</Text>
@@ -22,8 +25,7 @@ export default function GuessResult({ result }: Props) {
         icon={result.correct ? <IconCheck size={16} /> : <IconX size={16} />}
         title={result.correct ? 'Correct!' : 'Not quite'}
       >
-        This album was nominated by{' '}
-        <Text span fw={600}>{nominators}</Text>.
+        {revealText}
       </Alert>
     </Stack>
   )

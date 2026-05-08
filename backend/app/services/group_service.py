@@ -358,6 +358,8 @@ class GroupService:
                 gs.daily_album_count = update_data.settings.daily_album_count
             if update_data.settings.guess_user_cap is not None:
                 gs.guess_user_cap = update_data.settings.guess_user_cap
+            if update_data.settings.chaos_mode is not None:
+                gs.chaos_mode = update_data.settings.chaos_mode
 
         try:
             self.db.commit()

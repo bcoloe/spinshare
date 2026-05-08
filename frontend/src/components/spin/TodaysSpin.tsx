@@ -9,6 +9,7 @@ import {
   Divider,
   Group,
   Image,
+  Modal,
   Paper,
   Skeleton,
   Stack,
@@ -306,6 +307,7 @@ export default function TodaysSpin({ groupId, group }: Props) {
   const { data: albums, isLoading, isError } = useTodaysAlbums(groupId)
   const { data: nominationCountData } = useNominationCount(groupId)
   const [nominateOpened, { open: openNominate, close: closeNominate }] = useDisclosure()
+  const [chaosConfirmOpen, { open: openChaosConfirm, close: closeChaosConfirm }] = useDisclosure()
   const triggerSelection = useTriggerDailySelection(groupId)
 
   const allowGuessing = group?.settings?.allow_guessing ?? true
@@ -346,7 +348,21 @@ export default function TodaysSpin({ groupId, group }: Props) {
 
   const handleRollSpin = async () => {
     try {
-      await triggerSelection.mutateAsync()
+      await triggerSelection.mutateAsync({})
+    } catch (err) {
+      if (err instanceof ApiError && err.message === 'no_nominations_chaos_available') {
+        openChaosConfirm()
+        return
+      }
+      const message = err instanceof ApiError ? err.message : 'Could not select albums'
+      notifications.show({ color: 'red', message })
+    }
+  }
+
+  const handleFullChaosConfirm = async () => {
+    closeChaosConfirm()
+    try {
+      await triggerSelection.mutateAsync({ forceChaos: true })
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Could not select albums'
       notifications.show({ color: 'red', message })
@@ -399,6 +415,28 @@ export default function TodaysSpin({ groupId, group }: Props) {
           )}
         </Stack>
         <AlbumSearchModal groupId={groupId} opened={nominateOpened} onClose={closeNominate} />
+        <Modal opened={chaosConfirmOpen} onClose={closeChaosConfirm} title="⚡ Full Chaos Mode">
+          <Stack gap="md">
+            <Text size="sm">
+              There are no active nominations in the pool. Since chaos mode is enabled, today&apos;s
+              spin can be pulled entirely from random albums outside the group.
+            </Text>
+            <Text size="sm" c="dimmed">
+              Are you ready to embrace the chaos?
+            </Text>
+            <Group justify="flex-end">
+              <Button variant="default" onClick={closeChaosConfirm}>Cancel</Button>
+              <Button
+                color="orange"
+                leftSection={<IconDice5 size={16} />}
+                loading={triggerSelection.isPending}
+                onClick={handleFullChaosConfirm}
+              >
+                Go full chaos
+              </Button>
+            </Group>
+          </Stack>
+        </Modal>
       </>
     )
   }

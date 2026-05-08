@@ -13,7 +13,7 @@ export interface GroupAlbumResponse {
   id: number
   group_id: number
   album_id: number
-  added_by: number
+  added_by: number | null  // null for chaos-selected albums
   status: 'pending' | 'selected' | 'reviewed'
   added_at: string
   selected_date: string | null
@@ -70,14 +70,14 @@ export interface AlbumStatsResponse {
 }
 
 export interface NominationGuessCreate {
-  guessed_user_id: number
+  guessed_user_id: number | null  // null = chaos guess (outside the group)
 }
 
 export interface NominationGuessResponse {
   id: number
   group_album_id: number
   guessing_user_id: number
-  guessed_user_id: number
+  guessed_user_id: number | null  // null for chaos guesses
   correct: boolean
   created_at: string
 }
@@ -92,6 +92,7 @@ export interface CheckGuessResponse {
   correct: boolean
   nominator_user_ids: number[]
   nominator_usernames: string[]
+  is_chaos_selection: boolean
 }
 
 export interface NominationCountResponse {
@@ -105,4 +106,5 @@ export interface GuessOptionUser {
 
 export interface GuessOptionsResponse {
   options: GuessOptionUser[]
+  has_chaos_option: boolean
 }

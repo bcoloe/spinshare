@@ -71,7 +71,7 @@ class GroupAlbumResponse(BaseModel):
     id: int
     group_id: int
     album_id: int
-    added_by: int
+    added_by: int | None
     status: str
     added_at: datetime
     selected_date: datetime | None = None
@@ -93,7 +93,7 @@ class GroupAlbumResponse(BaseModel):
             selected_date=ga.selected_date,
             album=AlbumResponse.from_orm_with_genres(ga.albums),
             nomination_count=getattr(ga, "nomination_count", 1),
-            nominator_user_ids=getattr(ga, "nominator_user_ids", [ga.added_by]),
+            nominator_user_ids=getattr(ga, "nominator_user_ids", [ga.added_by] if ga.added_by is not None else []),
         )
 
 

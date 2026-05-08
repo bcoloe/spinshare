@@ -13,7 +13,7 @@ class NominationGuess(Base):
     id = Column(Integer, primary_key=True, index=True)
     group_album_id = Column(Integer, ForeignKey("group_albums.id"), nullable=False)
     guessing_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    guessed_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    guessed_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     correct = Column(Boolean, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
