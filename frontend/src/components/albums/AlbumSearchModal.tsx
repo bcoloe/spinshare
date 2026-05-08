@@ -42,6 +42,13 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
   const [debouncedArtist] = useDebouncedValue(artistFilter, 300)
   const [debouncedAlbum] = useDebouncedValue(albumFilter, 300)
 
+  const ROLE_RANK: Record<string, number> = { owner: 0, admin: 1, member: 2 }
+  const nominatableGroups = groups.filter((g) => {
+    if (!g.current_user_role) return false
+    const minRole = g.settings?.min_role_to_nominate ?? 'member'
+    return (ROLE_RANK[g.current_user_role] ?? 99) <= (ROLE_RANK[minRole] ?? 99)
+  })
+
   const effectiveGroupId = groupId ?? (pickedGroupId ? Number(pickedGroupId) : undefined)
 
   const searchParams = {
@@ -107,7 +114,7 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
           <Select
             label="Group"
             placeholder="Choose a group…"
-            data={groups.map((g) => ({ value: String(g.id), label: g.name }))}
+            data={nominatableGroups.map((g) => ({ value: String(g.id), label: g.name }))}
             value={pickedGroupId}
             onChange={setPickedGroupId}
           />

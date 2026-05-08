@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ActionIcon, Button, Divider, Group, SimpleGrid, Skeleton, Stack, Text, TextInput, Title } from '@mantine/core'
+import { ActionIcon, Box, Button, Divider, Group, SimpleGrid, Skeleton, Stack, Text, TextInput, Title, Tooltip } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { IconPlus, IconSearch, IconStar, IconStarFilled } from '@tabler/icons-react'
 import { useNavigate } from 'react-router-dom'
@@ -17,6 +17,13 @@ export default function DashboardPage() {
   const [filter, setFilter] = useState('')
   const { favoriteId, toggleFavorite } = useFavoriteGroup()
   const [nominateOpened, { open: openNominate, close: closeNominate }] = useDisclosure(false)
+
+  const ROLE_RANK: Record<string, number> = { owner: 0, admin: 1, member: 2 }
+  const canNominateAnyGroup = (groups ?? []).some((g) => {
+    if (!g.current_user_role) return false
+    const minRole = g.settings?.min_role_to_nominate ?? 'member'
+    return (ROLE_RANK[g.current_user_role] ?? 99) <= (ROLE_RANK[minRole] ?? 99)
+  })
 
   const filterLower = filter.toLowerCase()
   const sorted = [...(groups ?? [])].sort((a, b) => a.name.localeCompare(b.name))
@@ -81,9 +88,22 @@ export default function DashboardPage() {
         <Stack gap="lg">
           <Group justify="space-between" align="center">
             <Title order={3}>My Nominations</Title>
-            <Button leftSection={<IconPlus size={16} />} size="sm" onClick={openNominate}>
-              Add Nomination
-            </Button>
+            <Tooltip
+              label="You don't have permission to nominate in any of your groups"
+              disabled={canNominateAnyGroup}
+            >
+              <Box component="span" style={canNominateAnyGroup ? undefined : { cursor: 'not-allowed' }}>
+                <Button
+                  leftSection={<IconPlus size={16} />}
+                  size="sm"
+                  onClick={openNominate}
+                  disabled={!canNominateAnyGroup}
+                  style={canNominateAnyGroup ? undefined : { pointerEvents: 'none' }}
+                >
+                  Add Nomination
+                </Button>
+              </Box>
+            </Tooltip>
           </Group>
           <MyNominationsPool />
         </Stack>

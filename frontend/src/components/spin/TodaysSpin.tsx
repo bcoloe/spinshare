@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import {
   Alert,
   Badge,
+  Box,
   Button,
   Center,
   Divider,
@@ -314,6 +315,12 @@ export default function TodaysSpin({ groupId, group }: Props) {
   const canSelect =
     group?.current_user_role === 'owner' || group?.current_user_role === 'admin'
 
+  const ROLE_RANK: Record<string, number> = { owner: 0, admin: 1, member: 2 }
+  const minRoleToNominate = group?.settings?.min_role_to_nominate ?? 'member'
+  const canNominate =
+    !!group?.current_user_role &&
+    (ROLE_RANK[group.current_user_role] ?? 99) <= (ROLE_RANK[minRoleToNominate] ?? 99)
+
   const isEmpty = !isLoading && !isError && albums?.length === 0
 
   const dailyAlbumCount = group?.settings?.daily_album_count ?? 1
@@ -397,13 +404,22 @@ export default function TodaysSpin({ groupId, group }: Props) {
               >
                 Roll today&apos;s spin
               </Button>
-              <Button
-                variant="light"
-                leftSection={<IconPlus size={16} />}
-                onClick={openNominate}
+              <Tooltip
+                label="You don't have permission to nominate albums in this group"
+                disabled={canNominate}
               >
-                Nominate an album
-              </Button>
+                <Box component="span" style={canNominate ? undefined : { cursor: 'not-allowed' }}>
+                  <Button
+                    variant="light"
+                    leftSection={<IconPlus size={16} />}
+                    onClick={openNominate}
+                    disabled={!canNominate}
+                    style={canNominate ? undefined : { pointerEvents: 'none' }}
+                  >
+                    Nominate an album
+                  </Button>
+                </Box>
+              </Tooltip>
             </Group>
           </Center>
           {canSelect && (

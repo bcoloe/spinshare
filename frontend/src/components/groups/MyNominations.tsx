@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import {
   ActionIcon,
   Badge,
+  Box,
   Button,
   Group,
   Image,
@@ -10,6 +11,7 @@ import {
   Table,
   Text,
   TextInput,
+  Tooltip,
   UnstyledButton,
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
@@ -23,6 +25,7 @@ import {
 import AlbumSearchModal from '../albums/AlbumSearchModal'
 import { notifications } from '@mantine/notifications'
 import { useGroupAlbums, useRemoveGroupAlbum } from '../../hooks/useAlbums'
+import { useGroup } from '../../hooks/useGroups'
 import { useAuth } from '../../hooks/useAuth'
 import { ApiError } from '../../services/apiClient'
 import type { GroupAlbumResponse } from '../../types/album'
@@ -76,10 +79,18 @@ interface Props {
   groupId: number
 }
 
+const ROLE_RANK: Record<string, number> = { owner: 0, admin: 1, member: 2 }
+
 export default function MyNominations({ groupId }: Props) {
   const { user } = useAuth()
+  const { data: group } = useGroup(groupId)
   const { data: allAlbums = [], isLoading } = useGroupAlbums(groupId)
   const removeGroupAlbum = useRemoveGroupAlbum(groupId)
+
+  const minRoleToNominate = group?.settings?.min_role_to_nominate ?? 'member'
+  const canNominate =
+    !!group?.current_user_role &&
+    (ROLE_RANK[group.current_user_role] ?? 99) <= (ROLE_RANK[minRoleToNominate] ?? 99)
   const [filter, setFilter] = useState('')
   const [sortField, setSortField] = useState<SortField>('title')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
@@ -149,9 +160,21 @@ export default function MyNominations({ groupId }: Props) {
           onChange={(e) => setFilter(e.currentTarget.value)}
           style={{ flex: 1 }}
         />
-        <Button leftSection={<IconPlus size={16} />} onClick={openNominate}>
-          Nominate
-        </Button>
+        <Tooltip
+          label="You don't have permission to nominate albums in this group"
+          disabled={canNominate}
+        >
+          <Box component="span" style={canNominate ? undefined : { cursor: 'not-allowed' }}>
+            <Button
+              leftSection={<IconPlus size={16} />}
+              onClick={openNominate}
+              disabled={!canNominate}
+              style={canNominate ? undefined : { pointerEvents: 'none' }}
+            >
+              Nominate
+            </Button>
+          </Box>
+        </Tooltip>
       </Group>
 
       {sorted.length === 0 ? (

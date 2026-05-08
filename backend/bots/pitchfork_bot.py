@@ -8,6 +8,8 @@ Run pitchfork_setup.py once before the first execution.
 
 Usage:
     python bots/pitchfork_bot.py
+    python bots/pitchfork_bot.py --start-page 10             # resume from page 10
+    python bots/pitchfork_bot.py --start-page 10 --max-pages 5   # pages 10-14
     python bots/pitchfork_bot.py --max-pages 5    # limit pages (useful for testing)
     python bots/pitchfork_bot.py --dry-run         # scrape + match, no DB writes
     python bots/pitchfork_bot.py --force           # ignore cursor and 409 stop signals
@@ -19,6 +21,7 @@ Cron example (weekly, Mondays 3am UTC):
 import argparse
 import logging
 import sys
+import time
 from datetime import datetime, timezone
 
 sys.path.insert(0, ".")
@@ -41,7 +44,7 @@ log = logging.getLogger(__name__)
 BOT_SOURCE_NAME = "pitchfork_best_new"
 
 
-def run(db, *, max_pages: int, dry_run: bool, force: bool) -> None:
+def run(db, *, start_page: int, max_pages: int, dry_run: bool, force: bool, delay: float) -> None:
     bot_source = db.query(BotSource).filter(BotSource.name == BOT_SOURCE_NAME).first()
     if not bot_source:
         log.error("BotSource %r not found. Run bots/pitchfork_setup.py first.", BOT_SOURCE_NAME)
@@ -59,7 +62,7 @@ def run(db, *, max_pages: int, dry_run: bool, force: bool) -> None:
 
     counts = {"nominated": 0, "skipped": 0, "no_match": 0, "error": 0, "dry_run": 0}
 
-    for page in range(1, max_pages + 1):
+    for page in range(start_page, start_page + max_pages):
         log.info("Scraping page %d...", page)
         albums = pitchfork_scraper.scrape_page(page)
         if not albums:
@@ -79,6 +82,8 @@ def run(db, *, max_pages: int, dry_run: bool, force: bool) -> None:
                 first_url_this_run = pitchfork_album.review_url
 
             result = _process_album(pitchfork_album, bot_user, group_id, album_svc, dry_run=dry_run)
+            if delay > 0:
+                time.sleep(delay)
             counts[result] += 1
 
             # Newest-first: a 409 means we've crossed into already-processed territory.
@@ -174,10 +179,22 @@ def _process_album(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Pitchfork Best New Albums bot")
     parser.add_argument(
+        "--delay",
+        type=float,
+        default=1.0,
+        help="Seconds to sleep between Spotify API calls (default: 1.0)",
+    )
+    parser.add_argument(
+        "--start-page",
+        type=int,
+        default=1,
+        help="Page number to start scraping from (default: 1)",
+    )
+    parser.add_argument(
         "--max-pages",
         type=int,
         default=50,
-        help="Maximum pages to scrape per run (default: 50)",
+        help="Maximum number of pages to scrape per run (default: 50)",
     )
     parser.add_argument(
         "--dry-run",
@@ -197,7 +214,7 @@ def main() -> None:
     db = SessionLocal()
 
     try:
-        run(db, max_pages=args.max_pages, dry_run=args.dry_run, force=args.force)
+        run(db, start_page=args.start_page, max_pages=args.max_pages, dry_run=args.dry_run, force=args.force, delay=args.delay)
     finally:
         db.close()
         engine.dispose()
