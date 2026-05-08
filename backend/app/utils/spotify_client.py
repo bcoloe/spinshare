@@ -1,15 +1,24 @@
 """Thin client for the Spotify Web API using Client Credentials and Authorization Code flows."""
 
+import logging
 import re
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
+
 
 import httpx
 from fastapi import HTTPException, status
 from jose import jwt
 
 from app.config import get_settings
+
+log = logging.getLogger(__name__)
+
+# Module-level cache for the Client Credentials token (valid ~1 hour).
+_cc_token: str | None = None
+_cc_token_expires_at: float = 0.0
 
 # Matches common edition/remaster suffixes so variants of the same album collapse to one result.
 _EDITION_RE = re.compile(
@@ -37,7 +46,12 @@ class SpotifyAlbumResult:
 
 
 def _get_client_token() -> str:
-    """Obtain a Spotify access token via Client Credentials flow."""
+    """Obtain a Spotify access token via Client Credentials flow, reusing a cached token when valid."""
+    global _cc_token, _cc_token_expires_at
+
+    if _cc_token and time.time() < _cc_token_expires_at - 60:
+        return _cc_token
+
     settings = get_settings()
     if not settings.SPOTIFY_CLIENT_ID or not settings.SPOTIFY_CLIENT_SECRET:
         raise HTTPException(
@@ -56,7 +70,10 @@ def _get_client_token() -> str:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Could not authenticate with Spotify",
         )
-    return resp.json()["access_token"]
+    data = resp.json()
+    _cc_token = data["access_token"]
+    _cc_token_expires_at = time.time() + data.get("expires_in", 3600)
+    return _cc_token
 
 
 def get_auth_url(user_id: int) -> str:
@@ -197,6 +214,30 @@ def search_albums(
         headers={"Authorization": f"Bearer {token}"},
         timeout=10,
     )
+    _MAX_RETRY_AFTER = 60
+    for attempt in range(3):
+        if resp.status_code != 429:
+            break
+        retry_after = int(resp.headers.get("Retry-After", 10))
+        if retry_after > _MAX_RETRY_AFTER:
+            log.error(
+                "Spotify rate limit is severe (Retry-After: %ds). "
+                "Aborting — this client credential is locked out. "
+                "Note: the main app shares these credentials and may also be affected.",
+                retry_after,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Spotify rate limit exceeded (Retry-After: {retry_after}s)",
+            )
+        log.warning("Spotify rate limited (attempt %d/3); retrying after %ds", attempt + 1, retry_after)
+        time.sleep(retry_after)
+        resp = httpx.get(
+            "https://api.spotify.com/v1/search",
+            params={"q": q, "type": "album", "limit": limit},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
     if not resp.is_success:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

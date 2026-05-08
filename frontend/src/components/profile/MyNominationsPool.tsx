@@ -83,8 +83,17 @@ export default function MyNominationsPool() {
     closeShare()
   }
 
+  const ROLE_RANK: Record<string, number> = { owner: 0, admin: 1, member: 2 }
   const eligibleGroups = useMemo(
-    () => (shareTarget ? groups.filter((g) => !shareTarget.nominated_group_ids.includes(g.id)) : []),
+    () =>
+      shareTarget
+        ? groups.filter((g) => {
+            if (shareTarget.nominated_group_ids.includes(g.id)) return false
+            if (!g.current_user_role) return false
+            const minRole = g.settings?.min_role_to_nominate ?? 'member'
+            return (ROLE_RANK[g.current_user_role] ?? 99) <= (ROLE_RANK[minRole] ?? 99)
+          })
+        : [],
     [shareTarget, groups],
   )
 
