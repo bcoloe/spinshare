@@ -354,6 +354,8 @@ class GroupService:
             gs = self.get_group_settings(group_id)
             if update_data.settings.min_role_to_add_members is not None:
                 gs.min_role_to_add_members = update_data.settings.min_role_to_add_members
+            if update_data.settings.min_role_to_nominate is not None:
+                gs.min_role_to_nominate = update_data.settings.min_role_to_nominate
             if update_data.settings.daily_album_count is not None:
                 gs.daily_album_count = update_data.settings.daily_album_count
             if update_data.settings.guess_user_cap is not None:

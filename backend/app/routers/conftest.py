@@ -31,10 +31,12 @@ def _auth_headers_for(user) -> dict:
 
 def make_mock_settings(
     min_role_to_add_members="admin",
+    min_role_to_nominate="member",
     daily_album_count=1,
 ) -> MagicMock:
     settings = MagicMock(spec=GroupSettings)
     settings.min_role_to_add_members = min_role_to_add_members
+    settings.min_role_to_nominate = min_role_to_nominate
     settings.daily_album_count = daily_album_count
     return settings
 

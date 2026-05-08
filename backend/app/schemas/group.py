@@ -45,6 +45,7 @@ class GroupSettingsResponse(BaseModel):
     """Schema for group policy settings"""
 
     min_role_to_add_members: str
+    min_role_to_nominate: str
     daily_album_count: int
     allow_guessing: bool
     guess_user_cap: int
@@ -57,11 +58,12 @@ class GroupSettingsUpdate(BaseModel):
     """Schema for updating group policy settings"""
 
     min_role_to_add_members: str | None = None
+    min_role_to_nominate: str | None = None
     daily_album_count: int | None = None
     guess_user_cap: int | None = None
     chaos_mode: bool | None = None
 
-    @field_validator("min_role_to_add_members")
+    @field_validator("min_role_to_add_members", "min_role_to_nominate")
     @classmethod
     def validate_role(cls, v):
         if v is None:

@@ -17,6 +17,7 @@ class GroupSettings(Base):
         nullable=False,
     )
     min_role_to_add_members = Column(String, nullable=False, default="admin", server_default="admin")
+    min_role_to_nominate = Column(String, nullable=False, default="member", server_default="member")
     daily_album_count = Column(Integer, nullable=False, default=1, server_default="1")
     allow_guessing = Column(Boolean, nullable=False, default=True, server_default="true")
     guess_user_cap = Column(Integer, nullable=False, default=5, server_default="5")

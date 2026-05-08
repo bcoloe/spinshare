@@ -86,20 +86,26 @@ def setup_bot_source(
         db.commit()
         log.info("Added bot user to group %d with Owner role", group.id)
 
-    # 4. Group settings — allow_guessing=False so bot nominations skip the guessing game
+    # 4. Group settings — disable guessing and lock nominations to owner (bot) only
     settings = db.query(GroupSettings).filter(GroupSettings.group_id == group.id).first()
     if settings:
+        changed = []
         if settings.allow_guessing:
             settings.allow_guessing = False
+            changed.append("allow_guessing=False")
+        if settings.min_role_to_nominate != "owner":
+            settings.min_role_to_nominate = "owner"
+            changed.append("min_role_to_nominate=owner")
+        if changed:
             db.commit()
-            log.info("Updated group settings: allow_guessing=False")
+            log.info("Updated group settings: %s", ", ".join(changed))
         else:
             log.info("Group settings already correct")
     else:
-        settings = GroupSettings(group_id=group.id, allow_guessing=False)
+        settings = GroupSettings(group_id=group.id, allow_guessing=False, min_role_to_nominate="owner")
         db.add(settings)
         db.commit()
-        log.info("Created group settings with allow_guessing=False")
+        log.info("Created group settings with allow_guessing=False, min_role_to_nominate=owner")
 
     # 5. BotSource record
     bot_source = db.query(BotSource).filter(BotSource.name == source_name).first()

@@ -96,6 +96,11 @@ class AlbumService:
         group_service = gs.GroupService(self.db)
         group_service.require_membership(user.id, group_id)
 
+        settings = group_service.get_group_settings(group_id)
+        group_service.require_permission(
+            user.id, group_id, gs.GroupRole(settings.min_role_to_nominate)
+        )
+
         self.get_album_by_id(album_id)
 
         group_album = GroupAlbum(
