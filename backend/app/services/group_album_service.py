@@ -30,7 +30,7 @@ from app.services import group_service as gs
 from app.services.notification_service import NotificationService
 
 
-_CHAOS_PROBABILITY = 1.0
+_CHAOS_PROBABILITY = 0.10
 
 
 class GroupAlbumService:
