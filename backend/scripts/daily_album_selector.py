@@ -46,7 +46,7 @@ def run(n: int | None, group_id: int | None, db: Session) -> None:
         try:
             selected = svc.select_daily_albums(group.id, n=group_n)
             titles = [ga.albums.title for ga in selected]
-            log.info("Group %d (%s): selected %s", group.id, group.name, titles)
+            log.info("Group %d (%s): today's albums: %s", group.id, group.name, titles)
         except Exception as exc:
             log.warning("Group %d (%s): skipped — %s", group.id, group.name, exc)
 

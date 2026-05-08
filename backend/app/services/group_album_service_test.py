@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
@@ -48,13 +48,32 @@ class TestSelectDailyAlbums:
         assert len(results) == 2
         assert all(ga.selected_date is not None for ga in results)
 
-    def test_select_skips_already_selected(
+    def test_select_idempotent_same_day(
         self, group_album_service, sample_group, sample_group_album, db_session
     ):
+        """Calling select_daily_albums again on the same day returns existing selection."""
         _mark_selected(db_session, sample_group_album)
-        with pytest.raises(HTTPException) as exc_info:
-            group_album_service.select_daily_albums(sample_group.id, n=1)
-        assert exc_info.value.status_code == status.HTTP_409_CONFLICT
+        results = group_album_service.select_daily_albums(sample_group.id, n=1)
+        assert len(results) == 1
+        assert results[0].id == sample_group_album.id
+
+    def test_select_idempotent_does_not_add_more(
+        self, group_album_service, sample_group, sample_group_album, sample_user, db_session
+    ):
+        """Running selection twice on the same day does not add new albums even if pool has more."""
+        group_album_service.select_daily_albums(sample_group.id, n=1)
+
+        album2 = Album(spotify_album_id="spotify_idem_2", title="Kid A", artist="Radiohead")
+        db_session.add(album2)
+        db_session.commit()
+        db_session.refresh(album2)
+        ga2 = GroupAlbum(group_id=sample_group.id, album_id=album2.id, added_by=sample_user.id)
+        db_session.add(ga2)
+        db_session.commit()
+
+        second = group_album_service.select_daily_albums(sample_group.id, n=1)
+        assert len(second) == 1
+        assert second[0].id == sample_group_album.id
 
     def test_select_partial_pool_returns_available(
         self, group_album_service, sample_group, sample_group_album
@@ -650,13 +669,19 @@ class TestGlobalGroupSelection:
         sample_album,
         sample_user,
     ):
-        """Albums already spun in the global group are not re-selected."""
+        """Albums already spun in the global group are not re-selected on a subsequent day."""
         ga = GroupAlbum(group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id)
         db_session.add(ga)
         db_session.commit()
 
-        # Spin once to mark it as already-spun in the global group
         group_album_service.select_daily_albums(global_group.id, n=1)
+
+        # Backdate the selection to yesterday so the idempotency guard does not fire,
+        # letting us verify the cross-day exclusion logic independently.
+        yesterday = datetime.now(tz=timezone.utc) - timedelta(days=1)
+        global_ga = db_session.query(GroupAlbum).filter(GroupAlbum.group_id == global_group.id).first()
+        global_ga.selected_date = yesterday
+        db_session.commit()
 
         with pytest.raises(HTTPException) as exc_info:
             group_album_service.select_daily_albums(global_group.id, n=1)
