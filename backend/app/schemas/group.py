@@ -20,9 +20,9 @@ class GroupBase(BaseModel):
     @field_validator("name")
     @classmethod
     def validate_name(cls, v):
-        pattern = re.compile(r"^[A-Za-z0-9_-]+$")
+        pattern = re.compile(r"^[A-Za-z0-9_\- ]+$")
         if not bool(pattern.fullmatch(v)):
-            raise ValueError("May only be alphanumeric with -_")
+            raise ValueError("May only contain letters, numbers, spaces, hyphens, and underscores")
         return v
 
 
@@ -45,6 +45,7 @@ class GroupSettingsResponse(BaseModel):
     """Schema for group policy settings"""
 
     min_role_to_add_members: str
+    min_role_to_nominate: str
     daily_album_count: int
     allow_guessing: bool
     guess_user_cap: int
@@ -57,11 +58,12 @@ class GroupSettingsUpdate(BaseModel):
     """Schema for updating group policy settings"""
 
     min_role_to_add_members: str | None = None
+    min_role_to_nominate: str | None = None
     daily_album_count: int | None = None
     guess_user_cap: int | None = None
     chaos_mode: bool | None = None
 
-    @field_validator("min_role_to_add_members")
+    @field_validator("min_role_to_add_members", "min_role_to_nominate")
     @classmethod
     def validate_role(cls, v):
         if v is None:
@@ -104,9 +106,9 @@ class GroupModifyRequest(BaseModel):
             return v
         if len(v) < MIN_GROUP_NAME or len(v) > MAX_GROUP_NAME:
             raise ValueError(f"Character limit violation [{MIN_GROUP_NAME}, {MAX_GROUP_NAME}]")
-        pattern = re.compile(r"^[A-Za-z0-9_-]+$")
+        pattern = re.compile(r"^[A-Za-z0-9_\- ]+$")
         if not bool(pattern.fullmatch(v)):
-            raise ValueError("May only be alphanumeric with -_")
+            raise ValueError("May only contain letters, numbers, spaces, hyphens, and underscores")
         return v
 
 
