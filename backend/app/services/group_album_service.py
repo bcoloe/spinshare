@@ -44,6 +44,9 @@ class GroupAlbumService:
     def select_daily_albums(self, group_id: int, n: int = 1) -> list[GroupAlbum]:
         """Randomly select N unselected albums as today's daily spins for a group.
 
+        Idempotent: if albums were already selected today, returns the existing selection
+        without adding more. Safe to call multiple times on the same day (e.g. cron retry).
+
         For the global group, samples from all nominations across every non-global group.
         For regular groups, operates on distinct pending nominations within the group.
         If the group has chaos_mode enabled, each slot has a 20% chance of being filled
@@ -56,6 +59,25 @@ class GroupAlbumService:
         Raises:
             HTTPException 409: If no eligible distinct albums are available.
         """
+        today = date.today()
+        existing = (
+            self.db.query(GroupAlbum)
+            .filter(
+                GroupAlbum.group_id == group_id,
+                func.date(GroupAlbum.selected_date) == today,
+            )
+            .order_by(GroupAlbum.id)
+            .all()
+        )
+        if existing:
+            seen: set[int] = set()
+            canonical: list[GroupAlbum] = []
+            for ga in existing:
+                if ga.album_id not in seen:
+                    seen.add(ga.album_id)
+                    canonical.append(ga)
+            return canonical
+
         group = self.db.query(Group).filter(Group.id == group_id).first()
         if group and group.is_global:
             return self._select_global_daily_albums(group_id, n)
