@@ -128,42 +128,58 @@ def _process_album(
     *,
     dry_run: bool,
 ) -> str:
-    try:
-        results = search_albums(artist=pitchfork_album.artist, album=pitchfork_album.title, limit=1)
-    except HTTPException as exc:
-        log.warning(
-            "Spotify unavailable for %r by %r: %s",
-            pitchfork_album.title,
-            pitchfork_album.artist,
-            exc.detail,
+    # Avoid a Spotify API call when the album is already in our database.
+    album = album_svc.get_album_by_title_artist(pitchfork_album.artist, pitchfork_album.title)
+
+    if album is None:
+        try:
+            results = search_albums(
+                artist=pitchfork_album.artist,
+                album=pitchfork_album.title,
+                limit=1,
+                max_retry_after=60,
+            )
+        except HTTPException as exc:
+            log.warning(
+                "Spotify unavailable for %r by %r: %s",
+                pitchfork_album.title,
+                pitchfork_album.artist,
+                exc.detail,
+            )
+            return "error"
+
+        if not results:
+            log.info("No Spotify match: %r by %r", pitchfork_album.title, pitchfork_album.artist)
+            return "no_match"
+
+        spotify = results[0]
+
+        if dry_run:
+            log.info(
+                "[dry-run] Would nominate: %r by %r (%s)",
+                spotify.title,
+                spotify.artist,
+                spotify.spotify_album_id,
+            )
+            return "dry_run"
+
+        album = album_svc.get_or_create_album(
+            AlbumCreate(
+                spotify_album_id=spotify.spotify_album_id,
+                title=spotify.title,
+                artist=spotify.artist,
+                release_date=spotify.release_date,
+                cover_url=spotify.cover_url,
+                genres=spotify.genres,
+            )
         )
-        return "error"
-
-    if not results:
-        log.info("No Spotify match: %r by %r", pitchfork_album.title, pitchfork_album.artist)
-        return "no_match"
-
-    spotify = results[0]
-
-    if dry_run:
+    elif dry_run:
         log.info(
-            "[dry-run] Would nominate: %r by %r (%s)",
-            spotify.title,
-            spotify.artist,
-            spotify.spotify_album_id,
+            "[dry-run] Would nominate: %r by %r (from DB cache)",
+            album.title,
+            album.artist,
         )
         return "dry_run"
-
-    album = album_svc.get_or_create_album(
-        AlbumCreate(
-            spotify_album_id=spotify.spotify_album_id,
-            title=spotify.title,
-            artist=spotify.artist,
-            release_date=spotify.release_date,
-            cover_url=spotify.cover_url,
-            genres=spotify.genres,
-        )
-    )
 
     try:
         album_svc.nominate_album(group_id=group_id, album_id=album.id, user=bot_user)
