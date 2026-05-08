@@ -105,7 +105,7 @@ def run(db):
             name=BOT_SOURCE_NAME,
             bot_user_id=bot_user.id,
             bot_group_id=group.id,
-            processing_state={"last_processed_page": 0},
+            processing_state={},
         )
         db.add(bot_source)
         db.commit()

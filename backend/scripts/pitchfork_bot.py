@@ -10,6 +10,7 @@ Usage:
     python scripts/pitchfork_bot.py
     python scripts/pitchfork_bot.py --max-pages 5    # limit pages (useful for testing)
     python scripts/pitchfork_bot.py --dry-run         # scrape + match, no DB writes
+    python scripts/pitchfork_bot.py --force           # ignore cursor and 409 stop signals
 
 Cron example (weekly, Mondays 3am UTC):
     0 3 * * 1 cd /path/to/spinshare/backend && .venv/bin/python scripts/pitchfork_bot.py
@@ -39,10 +40,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 BOT_SOURCE_NAME = "pitchfork_best_new"
-MAX_CONSECUTIVE_SKIPPED_PAGES = 3
 
 
-def run(db, *, max_pages: int, dry_run: bool) -> None:
+def run(db, *, max_pages: int, dry_run: bool, force: bool) -> None:
     bot_source = db.query(BotSource).filter(BotSource.name == BOT_SOURCE_NAME).first()
     if not bot_source:
         log.error("BotSource %r not found. Run scripts/setup_bot.py first.", BOT_SOURCE_NAME)
@@ -52,8 +52,13 @@ def run(db, *, max_pages: int, dry_run: bool) -> None:
     group_id = bot_source.bot_group_id
     album_svc = AlbumService(db)
 
-    counts = {"nominated": 0, "skipped": 0, "no_match": 0, "error": 0}
-    consecutive_all_skipped = 0
+    # URL of the first (newest) album seen last run — stop here next time.
+    last_seen_url = (bot_source.processing_state or {}).get("last_seen_review_url")
+    # URL of the first album we see this run; becomes the cursor for the next run.
+    first_url_this_run = None
+    done = False
+
+    counts = {"nominated": 0, "skipped": 0, "no_match": 0, "error": 0, "dry_run": 0}
 
     for page in range(1, max_pages + 1):
         log.info("Scraping page %d...", page)
@@ -62,35 +67,53 @@ def run(db, *, max_pages: int, dry_run: bool) -> None:
             log.warning("Page %d returned no albums — stopping", page)
             break
 
-        skipped_this_page = 0
         for pitchfork_album in albums:
+            # Cursor check: stop when we reach the album we started with last run.
+            # Everything from here onwards was already processed (newest-first ordering).
+            if not force and last_seen_url and pitchfork_album.review_url == last_seen_url:
+                log.info("Reached last-processed album (%s) — stopping", pitchfork_album.review_url)
+                done = True
+                break
+
+            # Capture the newest album URL to use as the cursor for the next run.
+            if first_url_this_run is None and pitchfork_album.review_url:
+                first_url_this_run = pitchfork_album.review_url
+
             result = _process_album(pitchfork_album, bot_user, group_id, album_svc, dry_run=dry_run)
-            counts[result] = counts.get(result, 0) + 1
-            if result in ("skipped", "no_match"):
-                skipped_this_page += 1
+            counts[result] += 1
 
-        if skipped_this_page == len(albums):
-            consecutive_all_skipped += 1
-            log.debug("Page %d fully skipped (%d/%d)", page, consecutive_all_skipped, MAX_CONSECUTIVE_SKIPPED_PAGES)
-        else:
-            consecutive_all_skipped = 0
+            # Newest-first: a 409 means we've crossed into already-processed territory.
+            if not force and result == "skipped":
+                log.info(
+                    "Album %r already nominated — stopping (use --force to continue past this point)",
+                    pitchfork_album.title,
+                )
+                done = True
+                break
 
-        if not dry_run:
-            bot_source.processing_state = {"last_processed_page": page}
-            bot_source.last_run_at = datetime.now(timezone.utc)
-            db.commit()
-
-        if consecutive_all_skipped >= MAX_CONSECUTIVE_SKIPPED_PAGES:
-            log.info("Reached already-processed content after page %d — stopping early", page)
+        if done:
             break
 
-    log.info(
-        "Done. Nominated: %d | Skipped (existing): %d | No Spotify match: %d | Errors: %d",
-        counts["nominated"],
-        counts["skipped"],
-        counts["no_match"],
-        counts["error"],
-    )
+    if not dry_run and first_url_this_run:
+        bot_source.processing_state = {"last_seen_review_url": first_url_this_run}
+        bot_source.last_run_at = datetime.now(timezone.utc)
+        db.commit()
+
+    if dry_run:
+        log.info(
+            "Dry run complete. Would nominate: %d | No Spotify match: %d | Errors: %d",
+            counts["dry_run"],
+            counts["no_match"],
+            counts["error"],
+        )
+    else:
+        log.info(
+            "Done. Nominated: %d | Skipped (existing): %d | No Spotify match: %d | Errors: %d",
+            counts["nominated"],
+            counts["skipped"],
+            counts["no_match"],
+            counts["error"],
+        )
 
 
 def _process_album(
@@ -125,7 +148,7 @@ def _process_album(
             spotify.artist,
             spotify.spotify_album_id,
         )
-        return "skipped"
+        return "dry_run"
 
     album = album_svc.get_or_create_album(
         AlbumCreate(
@@ -162,6 +185,11 @@ def main() -> None:
         action="store_true",
         help="Scrape and match on Spotify but make no DB writes",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Ignore cursor and 409 stop signals; scrape all pages up to --max-pages",
+    )
     args = parser.parse_args()
 
     settings = get_settings()
@@ -170,7 +198,7 @@ def main() -> None:
     db = SessionLocal()
 
     try:
-        run(db, max_pages=args.max_pages, dry_run=args.dry_run)
+        run(db, max_pages=args.max_pages, dry_run=args.dry_run, force=args.force)
     finally:
         db.close()
         engine.dispose()
