@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Button,
   Group,
@@ -60,7 +60,17 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
     (debouncedQuery?.length ?? 0) >= 2 ||
     (debouncedArtist?.length ?? 0) >= 2 ||
     (debouncedAlbum?.length ?? 0) >= 2
-  const { data: results, isLoading } = useAlbumSearch(searchParams)
+  const { data: results, isLoading, error: searchError } = useAlbumSearch(searchParams)
+
+  useEffect(() => {
+    if (!searchError) return
+    const message =
+      searchError instanceof ApiError && searchError.status === 429
+        ? 'Spotify is rate-limited right now — please wait a moment and try again'
+        : 'Album search failed — please try again'
+    notifications.show({ color: 'red', message })
+  }, [searchError])
+
   const { data: poolItems = [], isLoading: poolLoading } = useMyNominations()
   const nominate = useNominateAlbum(effectiveGroupId ?? 0)
   const nominateFromPool = useNominateFromPool(effectiveGroupId ?? 0)
@@ -177,8 +187,16 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
                   </Button>
                 </Group>
               ))}
-              {results?.length === 0 && isSearching && !isLoading && (
-                <Text size="sm" c="dimmed">No albums found</Text>
+              {isSearching && !isLoading && (
+                searchError ? (
+                  <Text size="sm" c="red.4">
+                    {searchError instanceof ApiError && searchError.status === 429
+                      ? 'Spotify is rate-limited right now — please wait a moment and try again'
+                      : 'Album search failed — please try again'}
+                  </Text>
+                ) : results?.length === 0 ? (
+                  <Text size="sm" c="dimmed">No albums found</Text>
+                ) : null
               )}
             </Stack>
           </Tabs.Panel>

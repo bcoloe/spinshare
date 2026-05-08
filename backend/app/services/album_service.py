@@ -223,6 +223,17 @@ class AlbumService:
             )
         return album
 
+    def get_album_by_title_artist(self, title: str, artist: str) -> Album | None:
+        """Case-insensitive lookup by title and artist. Returns None if not found."""
+        return (
+            self.db.query(Album)
+            .filter(
+                func.lower(Album.title) == title.lower(),
+                func.lower(Album.artist) == artist.lower(),
+            )
+            .first()
+        )
+
     def get_album_by_spotify_id(
         self, spotify_album_id: str, *, raise_on_missing: bool = True
     ) -> Album | None:

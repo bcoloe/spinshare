@@ -78,6 +78,22 @@ class TestAlbumServiceGet:
         result = album_service.get_album_by_spotify_id("nope_123", raise_on_missing=False)
         assert result is None
 
+    def test_get_album_by_title_artist_exact_match(self, album_service, sample_album):
+        result = album_service.get_album_by_title_artist(sample_album.title, sample_album.artist)
+        assert result is not None
+        assert result.id == sample_album.id
+
+    def test_get_album_by_title_artist_case_insensitive(self, album_service, sample_album):
+        result = album_service.get_album_by_title_artist(
+            sample_album.title.upper(), sample_album.artist.lower()
+        )
+        assert result is not None
+        assert result.id == sample_album.id
+
+    def test_get_album_by_title_artist_not_found_returns_none(self, album_service):
+        result = album_service.get_album_by_title_artist("Nonexistent Album", "Nobody")
+        assert result is None
+
 
 class TestAlbumServiceNominate:
     def test_nominate_album_success(self, album_service, sample_group, sample_album, sample_user):
