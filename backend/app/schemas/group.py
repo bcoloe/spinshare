@@ -20,9 +20,9 @@ class GroupBase(BaseModel):
     @field_validator("name")
     @classmethod
     def validate_name(cls, v):
-        pattern = re.compile(r"^[A-Za-z0-9_-]+$")
+        pattern = re.compile(r"^[A-Za-z0-9_\- ]+$")
         if not bool(pattern.fullmatch(v)):
-            raise ValueError("May only be alphanumeric with -_")
+            raise ValueError("May only contain letters, numbers, spaces, hyphens, and underscores")
         return v
 
 
@@ -104,9 +104,9 @@ class GroupModifyRequest(BaseModel):
             return v
         if len(v) < MIN_GROUP_NAME or len(v) > MAX_GROUP_NAME:
             raise ValueError(f"Character limit violation [{MIN_GROUP_NAME}, {MAX_GROUP_NAME}]")
-        pattern = re.compile(r"^[A-Za-z0-9_-]+$")
+        pattern = re.compile(r"^[A-Za-z0-9_\- ]+$")
         if not bool(pattern.fullmatch(v)):
-            raise ValueError("May only be alphanumeric with -_")
+            raise ValueError("May only contain letters, numbers, spaces, hyphens, and underscores")
         return v
 
 
