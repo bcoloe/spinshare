@@ -1,47 +1,52 @@
-"""One-time setup: creates the Pitchfork bot user, group, and BotSource record.
+"""Shared setup utility for bot users.
 
-Run once per environment (dev, staging, prod) before the first cron execution:
-    python scripts/setup_bot.py
+Any bot's setup script calls setup_bot_source() with its specific config.
+The function is idempotent — safe to re-run in any environment.
 
-Safe to re-run — checks for existing records before creating anything.
+Example (future Rolling Stone bot):
+    from bots.shared import setup_bot_source
+    bot_user, group, bot_source = setup_bot_source(
+        db,
+        username="rolling-stone-bot",
+        email="rolling-stone-bot@spinshare.internal",
+        group_name="Rolling Stone 500 Greatest Albums",
+        source_name="rolling_stone_500",
+    )
 """
 
-import secrets
-import sys
-
-# Ensure the app package is importable when run from the backend/ directory.
-sys.path.insert(0, ".")
-
 import logging
+import secrets
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
-from app.config import get_settings
-from app.models import BotSource, Group, GroupSettings, User  # noqa: F401 — register all models
-from app.models.group import GroupRole, group_members
-from app.models.group_settings import GroupSettings
-from app.utils.security import hash_password
 from sqlalchemy import insert, select
+from sqlalchemy.orm import Session
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+from app.models import BotSource, Group, GroupSettings, User
+from app.models.group import GroupRole, group_members
+from app.utils.security import hash_password
+
 log = logging.getLogger(__name__)
 
-BOT_USERNAME = "pitchfork-bot"
-BOT_EMAIL = "pitchfork-bot@spinshare.internal"
-GROUP_NAME = "Pitchfork Best New Albums"
-BOT_SOURCE_NAME = "pitchfork_best_new"
 
+def setup_bot_source(
+    db: Session,
+    *,
+    username: str,
+    email: str,
+    group_name: str,
+    source_name: str,
+) -> tuple[User, Group, BotSource]:
+    """Idempotent setup: creates the bot user, group, and BotSource if they don't exist.
 
-def run(db):
+    Returns (bot_user, group, bot_source).
+    """
     # 1. Bot user
-    bot_user = db.query(User).filter(User.username == BOT_USERNAME).first()
+    bot_user = db.query(User).filter(User.username == username).first()
     if bot_user:
         log.info("Bot user already exists: id=%d", bot_user.id)
     else:
         bot_user = User(
-            email=BOT_EMAIL,
-            username=BOT_USERNAME,
+            email=email,
+            username=username,
             password_hash=hash_password(secrets.token_urlsafe(48)),
             is_bot=True,
         )
@@ -51,11 +56,11 @@ def run(db):
         log.info("Created bot user: id=%d username=%s", bot_user.id, bot_user.username)
 
     # 2. Bot group
-    group = db.query(Group).filter(Group.name == GROUP_NAME).first()
+    group = db.query(Group).filter(Group.name == group_name).first()
     if group:
         log.info("Bot group already exists: id=%d", group.id)
     else:
-        group = Group(name=GROUP_NAME, is_public=True, created_by=bot_user.id)
+        group = Group(name=group_name, is_public=True, created_by=bot_user.id)
         db.add(group)
         db.commit()
         db.refresh(group)
@@ -97,12 +102,12 @@ def run(db):
         log.info("Created group settings with allow_guessing=False")
 
     # 5. BotSource record
-    bot_source = db.query(BotSource).filter(BotSource.name == BOT_SOURCE_NAME).first()
+    bot_source = db.query(BotSource).filter(BotSource.name == source_name).first()
     if bot_source:
         log.info("BotSource already exists: id=%d", bot_source.id)
     else:
         bot_source = BotSource(
-            name=BOT_SOURCE_NAME,
+            name=source_name,
             bot_user_id=bot_user.id,
             bot_group_id=group.id,
             processing_state={},
@@ -112,23 +117,4 @@ def run(db):
         db.refresh(bot_source)
         log.info("Created BotSource: id=%d name=%s", bot_source.id, bot_source.name)
 
-    print(f"\nSetup complete:")
-    print(f"  Bot user id : {bot_user.id}  ({bot_user.username})")
-    print(f"  Bot group id: {group.id}  ({group.name})")
-    print(f"  BotSource id: {bot_source.id}  ({bot_source.name})")
-
-
-def main():
-    settings = get_settings()
-    engine = create_engine(settings.DATABASE_URL)
-    SessionLocal = sessionmaker(bind=engine)
-    db = SessionLocal()
-    try:
-        run(db)
-    finally:
-        db.close()
-        engine.dispose()
-
-
-if __name__ == "__main__":
-    main()
+    return bot_user, group, bot_source

@@ -4,16 +4,16 @@ Scrapes pitchfork.com/reviews/best/albums/, matches each album on Spotify,
 and nominates it to the bot-owned group. Already-nominated albums are
 silently skipped (duplicate constraint).
 
-Run setup_bot.py once before the first execution.
+Run pitchfork_setup.py once before the first execution.
 
 Usage:
-    python scripts/pitchfork_bot.py
-    python scripts/pitchfork_bot.py --max-pages 5    # limit pages (useful for testing)
-    python scripts/pitchfork_bot.py --dry-run         # scrape + match, no DB writes
-    python scripts/pitchfork_bot.py --force           # ignore cursor and 409 stop signals
+    python bots/pitchfork_bot.py
+    python bots/pitchfork_bot.py --max-pages 5    # limit pages (useful for testing)
+    python bots/pitchfork_bot.py --dry-run         # scrape + match, no DB writes
+    python bots/pitchfork_bot.py --force           # ignore cursor and 409 stop signals
 
 Cron example (weekly, Mondays 3am UTC):
-    0 3 * * 1 cd /path/to/spinshare/backend && .venv/bin/python scripts/pitchfork_bot.py
+    0 3 * * 1 cd /path/to/spinshare/backend && .venv/bin/python bots/pitchfork_bot.py
 """
 
 import argparse
@@ -21,7 +21,6 @@ import logging
 import sys
 from datetime import datetime, timezone
 
-# Ensure the app package is importable when run from the backend/ directory.
 sys.path.insert(0, ".")
 
 from fastapi import HTTPException
@@ -45,7 +44,7 @@ BOT_SOURCE_NAME = "pitchfork_best_new"
 def run(db, *, max_pages: int, dry_run: bool, force: bool) -> None:
     bot_source = db.query(BotSource).filter(BotSource.name == BOT_SOURCE_NAME).first()
     if not bot_source:
-        log.error("BotSource %r not found. Run scripts/setup_bot.py first.", BOT_SOURCE_NAME)
+        log.error("BotSource %r not found. Run bots/pitchfork_setup.py first.", BOT_SOURCE_NAME)
         sys.exit(1)
 
     bot_user = db.query(User).filter(User.id == bot_source.bot_user_id).first()
