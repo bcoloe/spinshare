@@ -22,7 +22,8 @@ export function useTodaysAlbums(groupId: number) {
 export function useTriggerDailySelection(groupId: number) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: () => albumService.triggerDailySelection(groupId),
+    mutationFn: ({ forceChaos = false }: { forceChaos?: boolean } = {}) =>
+      albumService.triggerDailySelection(groupId, forceChaos),
     onSuccess: (albums) => {
       qc.setQueryData(['groups', groupId, 'albums', 'today'], albums)
       qc.invalidateQueries({ queryKey: ['groups', groupId, 'nominations', 'count'] })

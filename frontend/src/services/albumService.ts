@@ -18,8 +18,11 @@ export const albumService = {
     return apiFetch(`/groups/${groupId}/albums/today`)
   },
 
-  triggerDailySelection(groupId: number): Promise<GroupAlbumResponse[]> {
-    return apiFetch(`/groups/${groupId}/albums/select-today`, { method: 'POST' })
+  triggerDailySelection(groupId: number, forceChaos = false): Promise<GroupAlbumResponse[]> {
+    const url = forceChaos
+      ? `/groups/${groupId}/albums/select-today?force_chaos=true`
+      : `/groups/${groupId}/albums/select-today`
+    return apiFetch(url, { method: 'POST' })
   },
 
   getMyReview(albumId: number): Promise<ReviewResponse | null> {

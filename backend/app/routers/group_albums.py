@@ -17,7 +17,7 @@ from app.schemas.group_album import (
     NominationGuessCreate,
 )
 from app.services.group_album_service import GroupAlbumService
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
 router = APIRouter(prefix="/groups", tags=["group-album-workflow"])
 
@@ -39,13 +39,16 @@ def get_todays_albums(
 @router.post("/{group_id}/albums/select-today", response_model=list[GroupAlbumResponse])
 def trigger_daily_selection(
     group_id: int,
+    force_chaos: bool = Query(default=False),
     current_user: User = Depends(get_current_user),
     svc: GroupAlbumService = Depends(get_group_album_service),
 ):
     """Trigger random daily album selection if none have been chosen today.
     Idempotent — safe to call concurrently. Requires membership.
+    Set force_chaos=true to fill all slots from the global pool when the nomination
+    pool is empty and chaos mode is enabled (FULL CHAOS MODE).
     """
-    gas = svc.trigger_daily_selection(group_id, current_user)
+    gas = svc.trigger_daily_selection(group_id, current_user, force_chaos=force_chaos)
     return [GroupAlbumResponse.from_orm(ga) for ga in gas]
 
 

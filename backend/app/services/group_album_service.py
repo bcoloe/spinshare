@@ -30,7 +30,7 @@ from app.services import group_service as gs
 from app.services.notification_service import NotificationService
 
 
-_CHAOS_PROBABILITY = 0.20
+_CHAOS_PROBABILITY = 1.0
 
 
 class GroupAlbumService:
@@ -251,13 +251,20 @@ class GroupAlbumService:
             self.db.refresh(ga)
         return result
 
-    def trigger_daily_selection(self, group_id: int, user: User) -> list[GroupAlbum]:
+    def trigger_daily_selection(
+        self, group_id: int, user: User, force_chaos: bool = False
+    ) -> list[GroupAlbum]:
         """Trigger random daily album selection if none have been chosen today.
 
         Idempotent — returns existing selections if today's albums are already chosen.
         Race-condition safe: acquires a row-level lock on group_settings to serialize
         concurrent calls from multiple members clicking simultaneously.
         Any group member may trigger selection (not restricted to admins).
+
+        When chaos_mode is enabled and the nomination pool is empty:
+        - force_chaos=False raises 409 with detail "no_nominations_chaos_available" so
+          the caller can prompt the user before proceeding.
+        - force_chaos=True fills all slots from the global album pool (FULL CHAOS MODE).
 
         Raises:
             HTTPException 403: If user is not a group member.
@@ -297,7 +304,84 @@ class GroupAlbumService:
                     canonical.append(ga)
             return canonical
 
-        return self.select_daily_albums(group_id, n=settings.daily_album_count)
+        n = settings.daily_album_count
+
+        if force_chaos:
+            if not settings.chaos_mode:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Chaos mode is not enabled for this group",
+                )
+            group = self.db.query(Group).filter(Group.id == group_id).first()
+            return self._select_full_chaos(group_id, group, n)
+
+        if settings.chaos_mode:
+            pool_empty = not (
+                self.db.query(GroupAlbum.album_id)
+                .filter(GroupAlbum.group_id == group_id, GroupAlbum.selected_date.is_(None))
+                .limit(1)
+                .first()
+            )
+            if pool_empty:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="no_nominations_chaos_available",
+                )
+
+        return self.select_daily_albums(group_id, n=n)
+
+    def _select_full_chaos(self, group_id: int, group: Group | None, n: int) -> list[GroupAlbum]:
+        """Fill all N daily slots from the global album pool (FULL CHAOS MODE).
+
+        Picks albums not yet associated with this group in any way.
+
+        Raises:
+            HTTPException 409: If no global albums are available.
+        """
+        all_group_album_ids = {
+            row[0]
+            for row in self.db.query(GroupAlbum.album_id)
+            .filter(GroupAlbum.group_id == group_id)
+            .distinct()
+            .all()
+        }
+        chaos_pool_ids = [
+            row[0]
+            for row in self.db.query(Album.id)
+            .filter(Album.id.notin_(all_group_album_ids))
+            .all()
+        ] if all_group_album_ids else [row[0] for row in self.db.query(Album.id).all()]
+
+        if not chaos_pool_ids:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="No albums available for chaos selection",
+            )
+
+        actual_n = min(n, len(chaos_pool_ids))
+        chosen_ids = random.sample(chaos_pool_ids, actual_n)
+        now = datetime.now(tz=timezone.utc)
+
+        result = []
+        for album_id in chosen_ids:
+            chaos_ga = GroupAlbum(
+                group_id=group_id,
+                album_id=album_id,
+                added_by=None,
+                selected_date=now,
+                is_chaos_selection=True,
+            )
+            self.db.add(chaos_ga)
+            result.append(chaos_ga)
+
+        self.db.commit()
+        for ga in result:
+            self.db.refresh(ga)
+
+        if actual_n < n and group:
+            self._notify_pool_exhausted(group_id, group.name, actual_n, n)
+
+        return result
 
     def get_todays_albums(self, group_id: int, user: User) -> list[GroupAlbum]:
         """Return albums selected as today's daily spins for a group. Requires membership.
