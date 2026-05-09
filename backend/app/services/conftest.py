@@ -139,7 +139,14 @@ def sample_album(db_session) -> Album:
 
 @pytest.fixture(scope="function")
 def global_group(db_session) -> Group:
-    """Create the platform global group directly (bypasses create_group to avoid needing an owner)."""
+    """Return the platform global group, creating it if the migration hasn't seeded it yet.
+
+    In CI, alembic upgrade head runs first and seeds the group. In local tests,
+    Base.metadata.create_all is used (no migration data), so we create it here.
+    """
+    existing = db_session.query(Group).filter(Group.is_global == True).first()  # noqa: E712
+    if existing:
+        return existing
     group = Group(name="spinshare", is_public=True, is_global=True, created_by=None)
     db_session.add(group)
     db_session.commit()
