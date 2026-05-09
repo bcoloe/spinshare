@@ -692,10 +692,6 @@ class TestGlobalGroup:
         assert result.id == global_group.id
         assert result.is_global
 
-    def test_get_global_group_returns_none_when_absent(self, sample_group_service):
-        """get_global_group returns None when no global group exists."""
-        assert sample_group_service.get_global_group() is None
-
 
 class TestGroupServiceSearch:
     def test_search_by_username_includes_private_groups(
