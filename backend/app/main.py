@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.config import get_settings
 from app.routers import groups, users
 from app.routers.albums import albums_router, group_albums_router
 from app.routers.group_albums import router as group_album_workflow_router
@@ -8,11 +9,13 @@ from app.routers.invitations import router as invitations_router
 from app.routers.notifications import router as notifications_router
 from app.routers.stats import router as stats_router
 
+settings = get_settings()
+
 app = FastAPI(title="SpinShare API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[settings.FRONTEND_URL],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
