@@ -64,3 +64,13 @@ export interface InvitationResponse {
   accepted_at: string | null
   status: 'pending' | 'accepted' | 'expired'
 }
+
+export interface InviteLinkResponse {
+  id: number
+  group_id: number
+  group_name: string
+  created_by: number
+  creator_username: string
+  token: string
+  created_at: string
+}

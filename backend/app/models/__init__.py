@@ -5,6 +5,7 @@ from .group import Group, group_members
 from .group_album import GroupAlbum
 from .group_settings import GroupSettings
 from .invitation import GroupInvitation
+from .invite_link import GroupInviteLink
 from .nomination_guess import NominationGuess
 from .notification import Notification
 from .review import Review
@@ -21,6 +22,7 @@ __all__ = [
     "GroupAlbum",
     "GroupSettings",
     "GroupInvitation",
+    "GroupInviteLink",
     "NominationGuess",
     "Notification",
     "Review",

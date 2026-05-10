@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { groupService } from '../services/groupService'
 import { invitationService } from '../services/invitationService'
+import { inviteLinkService } from '../services/inviteLinkService'
 import type { GroupCreate, GroupModify } from '../types/group'
 
 export function useMyGroups(username: string) {
@@ -155,5 +156,50 @@ export function useGroupPendingInvitations(groupId: number, enabled: boolean) {
     queryKey: ['groups', groupId, 'invitations'],
     queryFn: () => invitationService.list(groupId),
     enabled: enabled && !!groupId,
+  })
+}
+
+export function useGroupInviteLink(groupId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['groups', groupId, 'invite-link'],
+    queryFn: () => inviteLinkService.get(groupId),
+    enabled: enabled && !!groupId,
+    retry: false,
+  })
+}
+
+export function useCreateOrRotateInviteLink(groupId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => inviteLinkService.createOrRotate(groupId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'invite-link'] }),
+  })
+}
+
+export function useRevokeInviteLink(groupId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => inviteLinkService.revoke(groupId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'invite-link'] }),
+  })
+}
+
+export function useInviteLink(token: string) {
+  return useQuery({
+    queryKey: ['invite-links', token],
+    queryFn: () => inviteLinkService.getByToken(token),
+    enabled: !!token,
+    retry: false,
+  })
+}
+
+export function useAcceptInviteLink() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (token: string) => inviteLinkService.accept(token),
+    onSuccess: (link) => {
+      qc.invalidateQueries({ queryKey: ['groups', link.group_id, 'members'] })
+      qc.invalidateQueries({ queryKey: ['groups', 'mine'] })
+    },
   })
 }
