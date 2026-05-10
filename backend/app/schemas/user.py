@@ -40,6 +40,7 @@ class UserUpdate(BaseModel):
 
     email: EmailStr | None = None
     username: str | None = Field(None, min_length=3, max_length=50)
+    display_name: str | None = Field(None, max_length=50)
     password: str | None = Field(None, min_length=MIN_PWD_LEN, max_length=MAX_PWD_LEN)
 
     @field_validator("password")
@@ -63,6 +64,7 @@ class UserResponse(UserBase):
     """Schema for user response (without password)"""
 
     id: int
+    display_name: str | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -120,6 +122,7 @@ class SpotifyTokenResponse(BaseModel):
 
 class PublicProfileResponse(BaseModel):
     username: str
+    display_name: str | None
     email: str
     member_since: datetime
     total_reviews: int

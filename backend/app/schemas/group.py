@@ -10,6 +10,7 @@ MAX_GROUP_NAME = 50
 MAX_DAILY_ALBUM_COUNT = 10
 MIN_GUESS_USER_CAP = 3
 MAX_GUESS_USER_CAP = 10
+MAX_DAILY_NOMINATION_LIMIT = 50
 
 
 class GroupBase(BaseModel):
@@ -50,6 +51,7 @@ class GroupSettingsResponse(BaseModel):
     allow_guessing: bool
     guess_user_cap: int
     chaos_mode: bool
+    daily_nomination_limit: int | None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -62,6 +64,7 @@ class GroupSettingsUpdate(BaseModel):
     daily_album_count: int | None = None
     guess_user_cap: int | None = None
     chaos_mode: bool | None = None
+    daily_nomination_limit: int | None = None
 
     @field_validator("min_role_to_add_members", "min_role_to_nominate")
     @classmethod
@@ -89,6 +92,15 @@ class GroupSettingsUpdate(BaseModel):
             return v
         if v < MIN_GUESS_USER_CAP or v > MAX_GUESS_USER_CAP:
             raise ValueError(f"Must be between {MIN_GUESS_USER_CAP} and {MAX_GUESS_USER_CAP}")
+        return v
+
+    @field_validator("daily_nomination_limit")
+    @classmethod
+    def validate_daily_nomination_limit(cls, v):
+        if v is None:
+            return v
+        if v < 1 or v > MAX_DAILY_NOMINATION_LIMIT:
+            raise ValueError(f"Must be between 1 and {MAX_DAILY_NOMINATION_LIMIT}")
         return v
 
 

@@ -61,9 +61,10 @@ def get_nomination_count(
     current_user: User = Depends(get_current_user),
     svc: GroupAlbumService = Depends(get_group_album_service),
 ):
-    """Return the number of pending (unselected) nominations remaining in the pool."""
-    count = svc.get_pending_nomination_count(group_id, current_user)
-    return NominationCountResponse(pending_count=count)
+    """Return the number of pending nominations in the pool and today's nominations by the caller."""
+    pending_count = svc.get_pending_nomination_count(group_id, current_user)
+    today_count = svc.get_today_nomination_count(group_id, current_user)
+    return NominationCountResponse(pending_count=pending_count, today_count=today_count)
 
 
 # ==================== GUESSING ====================

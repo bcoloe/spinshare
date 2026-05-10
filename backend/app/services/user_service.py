@@ -124,6 +124,7 @@ class UserService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         return {
             "username": user.username,
+            "display_name": user.display_name,
             "email": user.email,
             "member_since": user.created_at,
             "total_reviews": sum(1 for r in user.reviews if not r.is_draft),
@@ -329,6 +330,10 @@ class UserService:
                     status_code=status.HTTP_409_CONFLICT, detail="Username already taken"
                 )
             user.username = user_data.username.lower()
+
+        # Update display_name if provided (can be set to None to clear)
+        if "display_name" in user_data.model_fields_set:
+            user.display_name = user_data.display_name
 
         # Update password if provided
         if user_data.password:

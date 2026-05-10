@@ -607,7 +607,10 @@ class GroupAlbumService:
             pool.extend(non_nominators[:remaining])
 
         return GuessOptionsResponse(
-            options=[GuessOptionUser(user_id=u.id, username=u.username) for u in pool],
+            options=[
+                GuessOptionUser(user_id=u.id, username=u.username, display_name=u.display_name)
+                for u in pool
+            ],
             has_chaos_option=settings.chaos_mode if settings else False,
         )
 
@@ -649,6 +652,26 @@ class GroupAlbumService:
             self.db.query(GroupAlbum.album_id)
             .filter(GroupAlbum.group_id == group_id, GroupAlbum.selected_date.is_(None))
             .distinct()
+            .count()
+        )
+
+    def get_today_nomination_count(self, group_id: int, user: User) -> int:
+        """Return the number of albums the user has nominated in this group today.
+
+        Raises:
+            HTTPException 403: If user is not a group member.
+        """
+        group_service = gs.GroupService(self.db)
+        group_service.require_membership(user.id, group_id)
+
+        today = date.today()
+        return (
+            self.db.query(GroupAlbum)
+            .filter(
+                GroupAlbum.group_id == group_id,
+                GroupAlbum.added_by == user.id,
+                func.date(GroupAlbum.added_at) == today,
+            )
             .count()
         )
 

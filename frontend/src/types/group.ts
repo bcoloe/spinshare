@@ -11,6 +11,7 @@ export interface GroupSettings {
   allow_guessing: boolean
   guess_user_cap: number
   chaos_mode: boolean
+  daily_nomination_limit: number | null
 }
 
 export interface GroupDetailResponse extends GroupResponse {
@@ -48,6 +49,7 @@ export interface GroupModify {
     daily_album_count?: number
     guess_user_cap?: number
     chaos_mode?: boolean
+    daily_nomination_limit?: number | null
   }
 }
 

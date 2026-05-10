@@ -56,6 +56,7 @@ export default function GroupSettingsPage() {
   const [dailyAlbumCount, setDailyAlbumCount] = useState<number | string | null>(null)
   const [guessUserCap, setGuessUserCap] = useState<number | string | null>(null)
   const [chaosMode, setChaosMode] = useState<boolean | null>(null)
+  const [dailyNominationLimit, setDailyNominationLimit] = useState<number | string | null | undefined>(undefined)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [memberToRemove, setMemberToRemove] = useState<GroupMemberResponse | null>(null)
 
@@ -65,6 +66,13 @@ export default function GroupSettingsPage() {
   const currentDailyCount = dailyAlbumCount ?? group?.settings?.daily_album_count ?? 1
   const currentGuessUserCap = guessUserCap ?? group?.settings?.guess_user_cap ?? 5
   const currentChaosMode = chaosMode ?? group?.settings?.chaos_mode ?? false
+  const currentDailyNominationLimit: string | number = (() => {
+    const raw = dailyNominationLimit === undefined
+      ? group?.settings?.daily_nomination_limit
+      : dailyNominationLimit
+    if (raw === null || raw === undefined || raw === '') return ''
+    return raw as number
+  })()
 
   const isOwner = group?.current_user_role === 'owner'
   const currentRole = group?.current_user_role
@@ -79,6 +87,11 @@ export default function GroupSettingsPage() {
           daily_album_count: typeof currentDailyCount === 'number' ? currentDailyCount : undefined,
           guess_user_cap: typeof currentGuessUserCap === 'number' ? currentGuessUserCap : undefined,
           chaos_mode: currentChaosMode,
+          daily_nomination_limit: typeof currentDailyNominationLimit === 'number'
+            ? currentDailyNominationLimit
+            : currentDailyNominationLimit === ''
+            ? null
+            : undefined,
         },
       })
       notifications.show({ color: 'green', message: 'Settings saved' })
@@ -205,6 +218,17 @@ export default function GroupSettingsPage() {
             min={3}
             max={10}
             w={120}
+          />
+          <NumberInput
+            label="Max nominations per user per day"
+            description="Limit how many albums each member can nominate per day. Leave empty for no limit."
+            value={currentDailyNominationLimit}
+            onChange={setDailyNominationLimit}
+            min={1}
+            max={50}
+            placeholder="No limit"
+            w={160}
+            allowDecimal={false}
           />
           <Switch
             label="Chaos mode"

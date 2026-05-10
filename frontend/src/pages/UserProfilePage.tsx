@@ -300,7 +300,10 @@ export default function UserProfilePage() {
         ) : (
           <Group justify="space-between" align="flex-start">
             <div>
-              <Title order={3}>{profile?.username}</Title>
+              <Title order={3}>{profile?.display_name || profile?.username}</Title>
+              {profile?.display_name && (
+                <Text size="sm" c="dimmed">@{profile.username}</Text>
+              )}
               <Text size="sm" c="dimmed">
                 Member since{' '}
                 {profile?.member_since

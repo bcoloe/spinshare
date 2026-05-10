@@ -97,11 +97,13 @@ export interface CheckGuessResponse {
 
 export interface NominationCountResponse {
   pending_count: number
+  today_count: number
 }
 
 export interface GuessOptionUser {
   user_id: number
   username: string
+  display_name?: string | null
 }
 
 export interface GuessOptionsResponse {
