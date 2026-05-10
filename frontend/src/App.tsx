@@ -22,6 +22,7 @@ const GroupSettingsPage = lazy(() => import('./pages/GroupSettingsPage'))
 const DailySpinPage = lazy(() => import('./pages/DailySpinPage'))
 const ProfilePage = lazy(() => import('./pages/ProfilePage'))
 const InviteAcceptPage = lazy(() => import('./pages/InviteAcceptPage'))
+const JoinGroupPage = lazy(() => import('./pages/JoinGroupPage'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 const UserProfilePage = lazy(() => import('./pages/UserProfilePage'))
 const AlbumPage = lazy(() => import('./pages/AlbumPage'))
@@ -31,6 +32,7 @@ const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
   { path: '/register', element: <RegisterPage /> },
   { path: '/invite/:token', element: <InviteAcceptPage /> },
+  { path: '/join/:token', element: <JoinGroupPage /> },
   {
     element: <ProtectedRoute />,
     children: [
