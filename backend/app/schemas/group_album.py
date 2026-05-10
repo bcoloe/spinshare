@@ -32,11 +32,13 @@ class CheckGuessResponse(BaseModel):
 
 class NominationCountResponse(BaseModel):
     pending_count: int
+    today_count: int = 0
 
 
 class GuessOptionUser(BaseModel):
     user_id: int
     username: str
+    display_name: str | None = None
 
 
 class GuessOptionsResponse(BaseModel):

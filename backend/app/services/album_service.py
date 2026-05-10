@@ -1,6 +1,6 @@
 """Album and group album service."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from app.models import Album, Group, GroupAlbum, User
 from app.models.genre import Genre
@@ -100,6 +100,23 @@ class AlbumService:
         group_service.require_permission(
             user.id, group_id, gs.GroupRole(settings.min_role_to_nominate)
         )
+
+        if settings.daily_nomination_limit is not None:
+            today = date.today()
+            today_count = (
+                self.db.query(GroupAlbum)
+                .filter(
+                    GroupAlbum.group_id == group_id,
+                    GroupAlbum.added_by == user.id,
+                    func.date(GroupAlbum.added_at) == today,
+                )
+                .count()
+            )
+            if today_count >= settings.daily_nomination_limit:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=f"Daily nomination limit of {settings.daily_nomination_limit} reached",
+                )
 
         self.get_album_by_id(album_id)
 

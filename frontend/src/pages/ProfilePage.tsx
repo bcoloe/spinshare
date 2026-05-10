@@ -28,6 +28,7 @@ import { getSpotifyConnectUrl, disconnectSpotify } from '../services/streamingSe
 interface EditFormValues {
   username: string
   email: string
+  display_name: string
   password: string
   confirmPassword: string
 }
@@ -102,6 +103,7 @@ export default function ProfilePage() {
     initialValues: {
       username: user?.username ?? '',
       email: user?.email ?? '',
+      display_name: user?.display_name ?? '',
       password: '',
       confirmPassword: '',
     },
@@ -122,9 +124,11 @@ export default function ProfilePage() {
   const handleSave = async (values: EditFormValues) => {
     setSaving(true)
     try {
-      const payload: Record<string, string> = {}
+      const payload: Record<string, string | null> = {}
       if (values.username !== user?.username) payload.username = values.username.toLowerCase()
       if (values.email !== user?.email) payload.email = values.email.toLowerCase()
+      const newDisplayName = values.display_name.trim() || null
+      if (newDisplayName !== (user?.display_name ?? null)) payload.display_name = newDisplayName
       if (values.password) payload.password = values.password
 
       if (Object.keys(payload).length === 0) {
@@ -185,6 +189,13 @@ export default function ProfilePage() {
             <Stack gap="md">
               <TextInput label="Username" {...form.getInputProps('username')} />
               <TextInput label="Email" {...form.getInputProps('email')} />
+              <TextInput
+                label="Display name"
+                description="Shown on hover in group guessing. Leave blank to use your username."
+                placeholder={user?.username}
+                maxLength={50}
+                {...form.getInputProps('display_name')}
+              />
               <PasswordInput
                 label="New password"
                 description="Leave blank to keep current password"
@@ -205,14 +216,33 @@ export default function ProfilePage() {
             </Stack>
           </form>
         ) : (
-          <Stack gap="xs">
-            <Group justify="space-between">
+          <Stack gap="sm">
+            <Group justify="space-between" align="flex-start">
               <div>
                 <Text fw={500}>{user?.username}</Text>
                 <Text size="sm" c="dimmed">{user?.email}</Text>
               </div>
-              <Button size="xs" variant="light" onClick={() => { form.setValues({ username: user?.username ?? '', email: user?.email ?? '', password: '', confirmPassword: '' }); setEditing(true) }}>Edit</Button>
+              <Button size="xs" variant="light" onClick={() => { form.setValues({ username: user?.username ?? '', email: user?.email ?? '', display_name: user?.display_name ?? '', password: '', confirmPassword: '' }); setEditing(true) }}>Edit</Button>
             </Group>
+            <div>
+              <Text size="xs" c="dimmed" mb={2}>Display name</Text>
+              {user?.display_name ? (
+                <Group gap="xs" align="baseline">
+                  <Text size="sm">{user.display_name}</Text>
+                  <Text size="sm" c="dimmed" fs="italic">({user.username})</Text>
+                </Group>
+              ) : (
+                <Text
+                  size="sm"
+                  c="dimmed"
+                  fs="italic"
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => { form.setValues({ username: user?.username ?? '', email: user?.email ?? '', display_name: '', password: '', confirmPassword: '' }); setEditing(true) }}
+                >
+                  Not set — click Edit to add one
+                </Text>
+              )}
+            </div>
           </Stack>
         )}
 

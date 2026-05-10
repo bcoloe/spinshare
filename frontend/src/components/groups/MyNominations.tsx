@@ -24,7 +24,7 @@ import {
 } from '@tabler/icons-react'
 import AlbumSearchModal from '../albums/AlbumSearchModal'
 import { notifications } from '@mantine/notifications'
-import { useGroupAlbums, useRemoveGroupAlbum } from '../../hooks/useAlbums'
+import { useGroupAlbums, useNominationCount, useRemoveGroupAlbum } from '../../hooks/useAlbums'
 import { useGroup } from '../../hooks/useGroups'
 import { useAuth } from '../../hooks/useAuth'
 import { ApiError } from '../../services/apiClient'
@@ -85,12 +85,17 @@ export default function MyNominations({ groupId }: Props) {
   const { user } = useAuth()
   const { data: group } = useGroup(groupId)
   const { data: allAlbums = [], isLoading } = useGroupAlbums(groupId)
+  const { data: nominationCount } = useNominationCount(groupId)
   const removeGroupAlbum = useRemoveGroupAlbum(groupId)
 
   const minRoleToNominate = group?.settings?.min_role_to_nominate ?? 'member'
+  const dailyLimit = group?.settings?.daily_nomination_limit ?? null
+  const todayCount = nominationCount?.today_count ?? 0
+  const dailyLimitReached = dailyLimit !== null && todayCount >= dailyLimit
   const canNominate =
     !!group?.current_user_role &&
-    (ROLE_RANK[group.current_user_role] ?? 99) <= (ROLE_RANK[minRoleToNominate] ?? 99)
+    (ROLE_RANK[group.current_user_role] ?? 99) <= (ROLE_RANK[minRoleToNominate] ?? 99) &&
+    !dailyLimitReached
   const [filter, setFilter] = useState('')
   const [sortField, setSortField] = useState<SortField>('title')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
@@ -161,7 +166,11 @@ export default function MyNominations({ groupId }: Props) {
           style={{ flex: 1 }}
         />
         <Tooltip
-          label="You don't have permission to nominate albums in this group"
+          label={
+            dailyLimitReached
+              ? `Daily nomination limit of ${dailyLimit} reached — come back tomorrow`
+              : "You don't have permission to nominate albums in this group"
+          }
           disabled={canNominate}
         >
           <Box component="span" style={canNominate ? undefined : { cursor: 'not-allowed' }}>

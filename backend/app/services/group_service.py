@@ -362,6 +362,8 @@ class GroupService:
                 gs.guess_user_cap = update_data.settings.guess_user_cap
             if update_data.settings.chaos_mode is not None:
                 gs.chaos_mode = update_data.settings.chaos_mode
+            if "daily_nomination_limit" in update_data.settings.model_fields_set:
+                gs.daily_nomination_limit = update_data.settings.daily_nomination_limit
 
         try:
             self.db.commit()

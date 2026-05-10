@@ -52,7 +52,11 @@ function AvatarSelector({ groupId, groupAlbumId, selected, onChange }: AvatarSel
       {eligible.map((o) => {
         const isSelected = selected === o.user_id
         return (
-          <Tooltip key={o.user_id} label={o.username} withArrow>
+          <Tooltip
+            key={o.user_id}
+            label={o.display_name ? `${o.display_name} (${o.username})` : o.username}
+            withArrow
+          >
             <Avatar
               size="md"
               radius="xl"

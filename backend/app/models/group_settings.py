@@ -22,5 +22,6 @@ class GroupSettings(Base):
     allow_guessing = Column(Boolean, nullable=False, default=True, server_default="true")
     guess_user_cap = Column(Integer, nullable=False, default=5, server_default="5")
     chaos_mode = Column(Boolean, nullable=False, default=False, server_default="false")
+    daily_nomination_limit = Column(Integer, nullable=True)
 
     group = relationship("Group", back_populates="settings")
