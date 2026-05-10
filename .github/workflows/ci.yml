@@ -1,0 +1,86 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: spinshare_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost/spinshare_test
+      SECRET_KEY: testsecretkey32charsminimumhere!
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+        working-directory: backend
+      - name: Run migrations
+        run: alembic upgrade head
+        working-directory: backend
+      - name: Run tests
+        run: pytest
+        working-directory: backend
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+      - name: Type check
+        run: npx tsc --noEmit
+        working-directory: frontend
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+      - name: Build frontend
+        run: npm ci --silent && npm run build
+        working-directory: frontend
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DO_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.DO_HOST }} >> ~/.ssh/known_hosts
+      - name: Sync frontend dist
+        run: rsync -az --delete frontend/dist/ spinshare@${{ secrets.DO_HOST }}:/opt/spinshare/frontend/dist/
+      - name: Deploy backend
+        run: |
+          ssh spinshare@${{ secrets.DO_HOST }} "
+            set -e
+            cd /opt/spinshare
+            git pull origin main
+            cd backend
+            .venv/bin/pip install -r requirements.txt -q
+            .venv/bin/alembic upgrade head
+            sudo systemctl restart spinshare-api
+          "
