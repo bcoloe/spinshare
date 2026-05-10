@@ -23,12 +23,17 @@ export default function JoinGroupPage() {
   const acceptInviteLink = useAcceptInviteLink()
 
   const handleJoin = async () => {
-    if (!token) return
+    if (!token || !link) return
     try {
       const joined = await acceptInviteLink.mutateAsync(token)
       notifications.show({ color: 'green', message: `You joined ${joined.group_name}!` })
       navigate(`/groups/${joined.group_id}`)
     } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        notifications.show({ color: 'blue', message: `You're already a member of ${link.group_name}` })
+        navigate(`/groups/${link.group_id}`)
+        return
+      }
       const message = err instanceof ApiError ? err.message : 'Could not join group'
       notifications.show({ color: 'red', message })
     }
