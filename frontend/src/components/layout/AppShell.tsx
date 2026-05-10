@@ -1,10 +1,13 @@
+import { Fragment } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import {
   ActionIcon,
+  Anchor,
   AppShell as MantineAppShell,
   Avatar,
   Burger,
   Button,
+  Divider,
   Group,
   Indicator,
   Menu,
@@ -39,7 +42,7 @@ import { useEffect } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { useMyGroups, useMyPendingInvitations, useAcceptInvitation, useDeclineInvitation } from '../../hooks/useGroups'
 import { useFavoriteGroup } from '../../context/FavoriteGroupContext'
-import { useUnreadNotifications, useMarkAllNotificationsRead } from '../../hooks/useNotifications'
+import { useUnreadNotifications, useMarkAllNotificationsRead, useNotificationHistory } from '../../hooks/useNotifications'
 import { usePlayer } from '../../context/PlayerContext'
 import { ApiError } from '../../services/apiClient'
 import CreateGroupModal from '../groups/CreateGroupModal'
@@ -71,6 +74,8 @@ export default function AppShell({ children }: AppShellProps) {
   const declineInvitation = useDeclineInvitation()
   const markAllRead = useMarkAllNotificationsRead()
   const [bellOpened, { toggle: toggleBell, close: closeBell }] = useDisclosure()
+  const [showHistory, setShowHistory] = useState(false)
+  const { data: historyNotifications, isLoading: historyLoading } = useNotificationHistory(showHistory && bellOpened)
 
   const totalUnread = pendingInvitations.length + unreadNotifications.length
 
@@ -82,6 +87,8 @@ export default function AppShell({ children }: AppShellProps) {
     if (bellOpened) {
       setNotificationSnapshot(unreadNotifications)
       if (unreadNotifications.length > 0) markAllRead.mutate()
+    } else {
+      setShowHistory(false)
     }
   }, [bellOpened]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -164,80 +171,136 @@ export default function AppShell({ children }: AppShellProps) {
                 </Indicator>
               </Popover.Target>
               <Popover.Dropdown p="sm">
-                {pendingInvitations.length === 0 && notificationSnapshot.length === 0 ? (
-                  <Text size="sm" c="dimmed">No new notifications</Text>
-                ) : (
-                  <Stack gap="md">
-                    {pendingInvitations.length > 0 && (
-                      <div>
-                        <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb="xs">
-                          Invitations
-                        </Text>
-                        <Stack gap="xs">
-                          {pendingInvitations.map((inv) => (
-                            <Group key={inv.id} justify="space-between" wrap="nowrap">
-                              <div>
-                                <Text size="sm" fw={500} lineClamp={1}>{inv.group_name}</Text>
-                                <Text size="xs" c="dimmed">from {inv.inviter_username}</Text>
-                              </div>
-                              <Group gap={4} wrap="nowrap">
-                                <ActionIcon
-                                  size="sm"
-                                  variant="light"
-                                  color="green"
-                                  loading={acceptInvitation.isPending}
-                                  onClick={() => handleAccept(inv.token, inv.group_name, inv.group_id)}
-                                  aria-label="Accept"
-                                >
-                                  <IconCheck size={14} />
-                                </ActionIcon>
-                                <ActionIcon
-                                  size="sm"
-                                  variant="light"
-                                  color="red"
-                                  loading={declineInvitation.isPending}
-                                  onClick={() => handleDecline(inv.token)}
-                                  aria-label="Decline"
-                                >
-                                  <IconX size={14} />
-                                </ActionIcon>
-                              </Group>
-                            </Group>
-                          ))}
-                        </Stack>
-                      </div>
-                    )}
+                <Stack gap="md">
+                  {pendingInvitations.length === 0 && notificationSnapshot.length === 0 && (
+                    <Text size="sm" c="dimmed">No new notifications</Text>
+                  )}
 
-                    {notificationSnapshot.length > 0 && (
-                      <div>
-                        <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb="xs">
-                          Activity
-                        </Text>
-                        <Stack gap="xs">
-                          {notificationSnapshot.map((n) => (
-                            <Group key={n.id} wrap="nowrap" gap="xs">
-                              <Text
+                  {pendingInvitations.length > 0 && (
+                    <div>
+                      <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb="xs">
+                        Invitations
+                      </Text>
+                      <Stack gap="xs">
+                        {pendingInvitations.map((inv) => (
+                          <Group key={inv.id} justify="space-between" wrap="nowrap">
+                            <div>
+                              <Text size="sm" fw={500} lineClamp={1}>{inv.group_name}</Text>
+                              <Text size="xs" c="dimmed">from {inv.inviter_username}</Text>
+                            </div>
+                            <Group gap={4} wrap="nowrap">
+                              <ActionIcon
                                 size="sm"
-                                style={{ cursor: n.group_id ? 'pointer' : 'default' }}
-                                onClick={() => {
-                                  if (n.group_id) {
-                                    closeBell()
-                                    const dest = n.type === 'member_reviewed_album'
-                                      ? `/groups/${n.group_id}?tab=history`
-                                      : `/groups/${n.group_id}`
-                                    navigate(dest)
-                                  }
-                                }}
+                                variant="light"
+                                color="green"
+                                loading={acceptInvitation.isPending}
+                                onClick={() => handleAccept(inv.token, inv.group_name, inv.group_id)}
+                                aria-label="Accept"
                               >
-                                {n.message}
-                              </Text>
+                                <IconCheck size={14} />
+                              </ActionIcon>
+                              <ActionIcon
+                                size="sm"
+                                variant="light"
+                                color="red"
+                                loading={declineInvitation.isPending}
+                                onClick={() => handleDecline(inv.token)}
+                                aria-label="Decline"
+                              >
+                                <IconX size={14} />
+                              </ActionIcon>
                             </Group>
-                          ))}
-                        </Stack>
+                          </Group>
+                        ))}
+                      </Stack>
+                    </div>
+                  )}
+
+                  {notificationSnapshot.length > 0 && (
+                    <div>
+                      <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb="xs">
+                        New Activity
+                      </Text>
+                      <Stack gap={0}>
+                        {notificationSnapshot.map((n, i) => (
+                          <Fragment key={n.id}>
+                            {i > 0 && <Divider />}
+                            <Text
+                              size="sm"
+                              py={6}
+                              style={{ cursor: n.group_id ? 'pointer' : 'default' }}
+                              onClick={() => {
+                                if (n.group_id) {
+                                  closeBell()
+                                  const dest = n.type === 'member_reviewed_album'
+                                    ? `/groups/${n.group_id}?tab=history`
+                                    : `/groups/${n.group_id}`
+                                  navigate(dest)
+                                }
+                              }}
+                            >
+                              {n.message}
+                            </Text>
+                          </Fragment>
+                        ))}
+                      </Stack>
+                    </div>
+                  )}
+
+                  <div>
+                    <Anchor
+                      component="button"
+                      size="xs"
+                      c="dimmed"
+                      onClick={() => setShowHistory((v) => !v)}
+                    >
+                      {showHistory ? 'Hide history' : 'View older notifications'}
+                    </Anchor>
+                    {showHistory && (
+                      <div style={{ marginTop: 8 }}>
+                        <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb="xs">
+                          History
+                        </Text>
+                        <ScrollArea h={200}>
+                          {historyLoading ? (
+                            <Stack gap="xs">
+                              {Array.from({ length: 3 }).map((_, i) => (
+                                <Skeleton key={i} h={18} radius="sm" />
+                              ))}
+                            </Stack>
+                          ) : !historyNotifications?.length ? (
+                            <Text size="xs" c="dimmed">No notification history</Text>
+                          ) : (
+                            <Stack gap={0}>
+                              {historyNotifications.map((n, i) => (
+                                <Fragment key={n.id}>
+                                  {i > 0 && <Divider />}
+                                  <Text
+                                    size="sm"
+                                    py={6}
+                                    c={n.read_at ? 'dimmed' : undefined}
+                                    style={{ cursor: n.group_id ? 'pointer' : 'default' }}
+                                    onClick={() => {
+                                      if (n.group_id) {
+                                        closeBell()
+                                        const dest = n.type === 'member_reviewed_album'
+                                          ? `/groups/${n.group_id}?tab=history`
+                                          : `/groups/${n.group_id}`
+                                        navigate(dest)
+                                      }
+                                    }}
+                                  >
+                                    {n.message}
+                                  </Text>
+                                </Fragment>
+                              ))}
+                            </Stack>
+                          )}
+                        </ScrollArea>
                       </div>
                     )}
-                  </Stack>
-                )}
+                  </div>
+                </Stack>
               </Popover.Dropdown>
             </Popover>
 

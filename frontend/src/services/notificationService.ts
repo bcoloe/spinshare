@@ -6,6 +6,10 @@ export const notificationService = {
     return apiFetch('/notifications')
   },
 
+  getHistory(): Promise<NotificationResponse[]> {
+    return apiFetch('/notifications/history')
+  },
+
   markRead(notificationId: number): Promise<NotificationResponse> {
     return apiFetch(`/notifications/${notificationId}/read`, { method: 'POST' })
   },

@@ -51,6 +51,17 @@ class NotificationService:
             ).all()
         )
 
+    def get_all(self, user: User, limit: int = 50) -> list[Notification]:
+        """Return all notifications for a user, newest first."""
+        return list(
+            self.db.scalars(
+                select(Notification)
+                .where(Notification.user_id == user.id)
+                .order_by(Notification.created_at.desc())
+                .limit(limit)
+            ).all()
+        )
+
     # ==================== UPDATE ====================
 
     def mark_read(self, notification_id: int, user: User) -> Notification:

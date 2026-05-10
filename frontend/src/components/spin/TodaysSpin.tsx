@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Alert,
+  Anchor,
   Badge,
   Box,
   Button,
@@ -41,59 +42,58 @@ function SpinSlide({ groupAlbum, groupId, allowGuessing = true }: { groupAlbum: 
       <Stack gap="xl">
         <AlbumCard album={groupAlbum.album} />
         {spotifyId && (
-          <Group gap="sm" wrap="wrap">
-            <Tooltip
-              label="Connect your Spotify account to enable the embedded player"
-              withArrow
-              disabled={hasSpotify}
-            >
-              <span style={{ display: 'inline-block' }}>
-                <Button
-                  variant="filled"
-                  color="green"
-                  size="sm"
-                  leftSection={<IconBrandSpotify size={16} />}
-                  loading={hasSpotify && playerStatus === 'loading'}
-                  disabled={!hasSpotify}
-                  onClick={() => startAlbum(
-                    spotifyId,
-                    {
-                      spotifyAlbumId: spotifyId,
-                      title: groupAlbum.album.title,
-                      artist: groupAlbum.album.artist,
-                      coverUrl: groupAlbum.album.cover_url ?? null,
-                      appAlbumId: groupAlbum.album_id,
-                      groupId,
-                      groupAlbumId: groupAlbum.id,
-                    },
-                  )}
-                >
-                  Play in Player
-                </Button>
-              </span>
-            </Tooltip>
-            <Button
-              component="a"
-              href={`spotify:album:${spotifyId}`}
-              variant="light"
-              color="green"
-              size="sm"
-              leftSection={<IconBrandSpotify size={16} />}
-            >
-              Open in Spotify
-            </Button>
-            <Button
-              component="a"
-              href={`https://open.spotify.com/album/${spotifyId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              variant="subtle"
-              size="sm"
-              leftSection={<IconExternalLink size={16} />}
-            >
-              Web Player
-            </Button>
-          </Group>
+          <Stack gap={4}>
+            <Group gap="sm" wrap="wrap">
+              <Button
+                variant="filled"
+                color="green"
+                size="sm"
+                leftSection={<IconBrandSpotify size={16} />}
+                loading={hasSpotify && playerStatus === 'loading'}
+                disabled={!hasSpotify}
+                onClick={() => startAlbum(
+                  spotifyId,
+                  {
+                    spotifyAlbumId: spotifyId,
+                    title: groupAlbum.album.title,
+                    artist: groupAlbum.album.artist,
+                    coverUrl: groupAlbum.album.cover_url ?? null,
+                    appAlbumId: groupAlbum.album_id,
+                    groupId,
+                    groupAlbumId: groupAlbum.id,
+                  },
+                )}
+              >
+                Play in Player
+              </Button>
+              <Button
+                component="a"
+                href={`spotify:album:${spotifyId}`}
+                variant="light"
+                color="green"
+                size="sm"
+                leftSection={<IconBrandSpotify size={16} />}
+              >
+                Open in Spotify
+              </Button>
+              <Button
+                component="a"
+                href={`https://open.spotify.com/album/${spotifyId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                variant="subtle"
+                size="sm"
+                leftSection={<IconExternalLink size={16} />}
+              >
+                Web Player
+              </Button>
+            </Group>
+            {!hasSpotify && (
+              <Text size="xs" c="dimmed">
+                <Anchor component={Link} to="/profile" size="xs">Connect Spotify</Anchor> on your profile to enable the embedded player
+              </Text>
+            )}
+          </Stack>
         )}
         <Divider />
         <ReviewAndGuessForm
@@ -141,59 +141,58 @@ function MultiAlbumSpin({ albums, groupId, allowGuessing = true }: { albums: Gro
         <Stack gap="xl">
           <AlbumCard album={activeAlbum.album} />
           {spotifyId && (
-            <Group gap="sm" wrap="wrap">
-              <Tooltip
-                label="Connect your Spotify account to enable the embedded player"
-                withArrow
-                disabled={hasSpotify}
-              >
-                <span style={{ display: 'inline-block' }}>
-                  <Button
-                    variant="filled"
-                    color="green"
-                    size="sm"
-                    leftSection={<IconBrandSpotify size={16} />}
-                    loading={hasSpotify && playerStatus === 'loading'}
-                    disabled={!hasSpotify}
-                    onClick={() => startAlbum(
-                      spotifyId,
-                      {
-                        spotifyAlbumId: spotifyId,
-                        title: activeAlbum.album.title,
-                        artist: activeAlbum.album.artist,
-                        coverUrl: activeAlbum.album.cover_url ?? null,
-                        appAlbumId: activeAlbum.album_id,
-                        groupId,
-                        groupAlbumId: activeAlbum.id,
-                      },
-                    )}
-                  >
-                    Play in Player
-                  </Button>
-                </span>
-              </Tooltip>
-              <Button
-                component="a"
-                href={`spotify:album:${spotifyId}`}
-                variant="light"
-                color="green"
-                size="sm"
-                leftSection={<IconBrandSpotify size={16} />}
-              >
-                Open in Spotify
-              </Button>
-              <Button
-                component="a"
-                href={`https://open.spotify.com/album/${spotifyId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                variant="subtle"
-                size="sm"
-                leftSection={<IconExternalLink size={16} />}
-              >
-                Web Player
-              </Button>
-            </Group>
+            <Stack gap={4}>
+              <Group gap="sm" wrap="wrap">
+                <Button
+                  variant="filled"
+                  color="green"
+                  size="sm"
+                  leftSection={<IconBrandSpotify size={16} />}
+                  loading={hasSpotify && playerStatus === 'loading'}
+                  disabled={!hasSpotify}
+                  onClick={() => startAlbum(
+                    spotifyId,
+                    {
+                      spotifyAlbumId: spotifyId,
+                      title: activeAlbum.album.title,
+                      artist: activeAlbum.album.artist,
+                      coverUrl: activeAlbum.album.cover_url ?? null,
+                      appAlbumId: activeAlbum.album_id,
+                      groupId,
+                      groupAlbumId: activeAlbum.id,
+                    },
+                  )}
+                >
+                  Play in Player
+                </Button>
+                <Button
+                  component="a"
+                  href={`spotify:album:${spotifyId}`}
+                  variant="light"
+                  color="green"
+                  size="sm"
+                  leftSection={<IconBrandSpotify size={16} />}
+                >
+                  Open in Spotify
+                </Button>
+                <Button
+                  component="a"
+                  href={`https://open.spotify.com/album/${spotifyId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  variant="subtle"
+                  size="sm"
+                  leftSection={<IconExternalLink size={16} />}
+                >
+                  Web Player
+                </Button>
+              </Group>
+              {!hasSpotify && (
+                <Text size="xs" c="dimmed">
+                  <Anchor component={Link} to="/profile" size="xs">Connect Spotify</Anchor> on your profile to enable the embedded player
+                </Text>
+              )}
+            </Stack>
           )}
           <Divider />
           <ReviewAndGuessForm

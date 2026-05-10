@@ -65,6 +65,21 @@ class TestGetUnreadNotifications:
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
 
+class TestGetNotificationHistory:
+    def test_returns_all_notifications(self, client, mock_notification_service):
+        mock_notification_service.get_all.return_value = [
+            _make_mock_notification(id=1),
+            _make_mock_notification(id=2, read=True),
+        ]
+        resp = client.get("/notifications/history")
+        assert resp.status_code == status.HTTP_200_OK
+        assert len(resp.json()) == 2
+
+    def test_unauthenticated(self, unauthed_client):
+        resp = unauthed_client.get("/notifications/history")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+
 class TestMarkAllRead:
     def test_success(self, client, mock_notification_service):
         mock_notification_service.mark_all_read.return_value = None
