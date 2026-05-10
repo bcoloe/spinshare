@@ -26,6 +26,14 @@ def mark_all_notifications_read(
     notification_service.mark_all_read(current_user)
 
 
+@router.get("/notifications/history", response_model=list[NotificationResponse])
+def get_notification_history(
+    current_user: User = Depends(get_current_user),
+    notification_service: NotificationService = Depends(get_notification_service),
+):
+    return notification_service.get_all(current_user)
+
+
 @router.post("/notifications/{notification_id}/read", response_model=NotificationResponse)
 def mark_notification_read(
     notification_id: int,

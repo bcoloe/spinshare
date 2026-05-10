@@ -9,6 +9,14 @@ export function useUnreadNotifications() {
   })
 }
 
+export function useNotificationHistory(enabled: boolean) {
+  return useQuery({
+    queryKey: ['notifications', 'history'],
+    queryFn: () => notificationService.getHistory(),
+    enabled,
+  })
+}
+
 export function useMarkAllNotificationsRead() {
   const qc = useQueryClient()
   return useMutation({

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
 import {
   ActionIcon,
+  Anchor,
   Badge,
   Box,
   Button,
@@ -458,34 +459,26 @@ export default function AlbumPage() {
         ) : album?.spotify_album_id ? (
           <Stack gap="sm">
             <Group gap="sm" wrap="wrap">
-              <Tooltip
-                label="Connect your Spotify account to enable the embedded player"
-                withArrow
-                disabled={hasSpotify}
+              <Button
+                variant="filled"
+                color="green"
+                size="sm"
+                leftSection={<IconBrandSpotify size={16} />}
+                loading={hasSpotify && playerStatus === 'loading'}
+                disabled={!hasSpotify}
+                onClick={() => startAlbum(
+                  album.spotify_album_id!,
+                  {
+                    spotifyAlbumId: album.spotify_album_id!,
+                    title: album.title,
+                    artist: album.artist,
+                    coverUrl: album.cover_url ?? null,
+                    appAlbumId: album.id,
+                  },
+                )}
               >
-                <span style={{ display: 'inline-block' }}>
-                  <Button
-                    variant="filled"
-                    color="green"
-                    size="sm"
-                    leftSection={<IconBrandSpotify size={16} />}
-                    loading={hasSpotify && playerStatus === 'loading'}
-                    disabled={!hasSpotify}
-                    onClick={() => startAlbum(
-                      album.spotify_album_id!,
-                      {
-                        spotifyAlbumId: album.spotify_album_id!,
-                        title: album.title,
-                        artist: album.artist,
-                        coverUrl: album.cover_url ?? null,
-                        appAlbumId: album.id,
-                      },
-                    )}
-                  >
-                    Play in Player
-                  </Button>
-                </span>
-              </Tooltip>
+                Play in Player
+              </Button>
               <Button
                 component="a"
                 href={`spotify:album:${album.spotify_album_id}`}
@@ -513,6 +506,11 @@ export default function AlbumPage() {
                 </Badge>
               )}
             </Group>
+            {!hasSpotify && (
+              <Text size="xs" c="dimmed">
+                <Anchor component={Link} to="/profile" size="xs">Connect Spotify</Anchor> on your profile to enable the embedded player
+              </Text>
+            )}
             {hasSpotify && (playerStatus === 'ready' || playerStatus === 'playing' || playerStatus === 'paused') && (
               <AlbumTracklist
                 spotifyAlbumId={album.spotify_album_id}

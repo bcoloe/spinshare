@@ -85,6 +85,50 @@ class TestMarkRead:
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
 
 
+class TestGetAll:
+    def test_returns_all_notifications(self, db_session, notification_service, sample_user):
+        _make_notification(db_session, user_id=sample_user.id)
+        _make_notification(db_session, user_id=sample_user.id, read=True)
+
+        results = notification_service.get_all(sample_user)
+        assert len(results) == 2
+
+    def test_excludes_other_users(self, db_session, notification_service, sample_user, user_factory):
+        other = user_factory(email="other@test.com", username="other")
+        _make_notification(db_session, user_id=other.id)
+
+        assert notification_service.get_all(sample_user) == []
+
+    def test_respects_limit(self, db_session, notification_service, sample_user):
+        for _ in range(5):
+            _make_notification(db_session, user_id=sample_user.id)
+
+        results = notification_service.get_all(sample_user, limit=3)
+        assert len(results) == 3
+
+    def test_ordered_newest_first(self, db_session, notification_service, sample_user):
+        from datetime import datetime, timezone, timedelta
+        now = datetime.now(timezone.utc)
+        older = Notification(
+            user_id=sample_user.id,
+            type=NotificationType.invitation_accepted,
+            message="older",
+            created_at=now - timedelta(hours=1),
+        )
+        newer = Notification(
+            user_id=sample_user.id,
+            type=NotificationType.invitation_accepted,
+            message="newer",
+            created_at=now,
+        )
+        db_session.add_all([older, newer])
+        db_session.commit()
+
+        results = notification_service.get_all(sample_user)
+        assert results[0].message == "newer"
+        assert results[1].message == "older"
+
+
 class TestMarkAllRead:
     def test_marks_all_unread(self, db_session, notification_service, sample_user):
         _make_notification(db_session, user_id=sample_user.id)
