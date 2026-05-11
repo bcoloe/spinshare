@@ -125,6 +125,54 @@ class TestAlbumServiceNominate:
             album_service.nominate_album(sample_group.id, 99999, sample_user)
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_nominate_album_already_selected_conflict(
+        self, album_service, sample_group, sample_album, sample_user, sample_group_service, user_factory, db_session
+    ):
+        from datetime import datetime, timezone
+        ga = GroupAlbum(
+            group_id=sample_group.id,
+            album_id=sample_album.id,
+            added_by=sample_user.id,
+            selected_date=datetime.now(timezone.utc),
+        )
+        db_session.add(ga)
+        db_session.commit()
+
+        other = user_factory(email="other@test.com", username="other_user")
+        sample_group_service.add_user(sample_group.id, other.id)
+        with pytest.raises(HTTPException) as exc_info:
+            album_service.nominate_album(sample_group.id, sample_album.id, other)
+        assert exc_info.value.status_code == status.HTTP_409_CONFLICT
+        assert "already been selected" in exc_info.value.detail
+
+    def test_nominate_album_previously_reviewed_conflict(
+        self, album_service, sample_group, sample_album, sample_user, sample_group_service, user_factory, db_session
+    ):
+        from datetime import datetime, timezone
+        from app.models.review import Review
+        ga = GroupAlbum(
+            group_id=sample_group.id,
+            album_id=sample_album.id,
+            added_by=sample_user.id,
+            selected_date=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        )
+        db_session.add(ga)
+        review = Review(
+            user_id=sample_user.id,
+            album_id=sample_album.id,
+            rating=8.5,
+            comment="Classic",
+        )
+        db_session.add(review)
+        db_session.commit()
+
+        other = user_factory(email="other@test.com", username="other_user")
+        sample_group_service.add_user(sample_group.id, other.id)
+        with pytest.raises(HTTPException) as exc_info:
+            album_service.nominate_album(sample_group.id, sample_album.id, other)
+        assert exc_info.value.status_code == status.HTTP_409_CONFLICT
+        assert "already been selected" in exc_info.value.detail
+
 
 class TestAlbumServiceGroupAlbumGet:
     def test_get_group_albums_all(self, album_service, sample_group, sample_group_album):
