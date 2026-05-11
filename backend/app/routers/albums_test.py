@@ -69,6 +69,7 @@ def make_mock_review(
     album_id=1,
     user_id=1,
     username="testuser",
+    display_name=None,
     rating=8.5,
     comment="Great album",
     is_draft=False,
@@ -80,6 +81,7 @@ def make_mock_review(
     review.album_id = album_id
     review.user_id = user_id
     review.username = username
+    review.display_name = display_name
     review.rating = rating
     review.comment = comment
     review.is_draft = is_draft
