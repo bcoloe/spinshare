@@ -2,6 +2,7 @@
 
 import re
 from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -52,6 +53,7 @@ class GroupSettingsResponse(BaseModel):
     guess_user_cap: int
     chaos_mode: bool
     daily_nomination_limit: int | None
+    timezone: str
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -65,6 +67,18 @@ class GroupSettingsUpdate(BaseModel):
     guess_user_cap: int | None = None
     chaos_mode: bool | None = None
     daily_nomination_limit: int | None = None
+    timezone: str | None = None
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, v):
+        if v is None:
+            return v
+        try:
+            ZoneInfo(v)
+        except (ZoneInfoNotFoundError, KeyError):
+            raise ValueError(f"Unknown timezone: {v}")
+        return v
 
     @field_validator("min_role_to_add_members", "min_role_to_nominate")
     @classmethod

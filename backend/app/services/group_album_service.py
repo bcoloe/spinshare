@@ -10,6 +10,7 @@ Guess lifecycle (per-user, instant feedback):
 
 import random
 from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
@@ -31,6 +32,17 @@ from app.services.notification_service import NotificationService
 
 
 _CHAOS_PROBABILITY = 0.10
+_DEFAULT_TIMEZONE = "America/New_York"
+
+
+def _group_today(tz_name: str) -> date:
+    """Return the current date in the given IANA timezone."""
+    return datetime.now(tz=ZoneInfo(tz_name)).date()
+
+
+def _date_in_tz(col, tz_name: str):
+    """SQLAlchemy expression: extract date from a UTC timestamptz column in the given timezone."""
+    return func.date(func.timezone(tz_name, col))
 
 
 class GroupAlbumService:
@@ -59,12 +71,14 @@ class GroupAlbumService:
         Raises:
             HTTPException 409: If no eligible distinct albums are available.
         """
-        today = date.today()
+        settings = self.db.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
+        tz_name = settings.timezone if settings else _DEFAULT_TIMEZONE
+        today = _group_today(tz_name)
         existing = (
             self.db.query(GroupAlbum)
             .filter(
                 GroupAlbum.group_id == group_id,
-                func.date(GroupAlbum.selected_date) == today,
+                _date_in_tz(GroupAlbum.selected_date, tz_name) == today,
             )
             .order_by(GroupAlbum.id)
             .all()
@@ -82,7 +96,6 @@ class GroupAlbumService:
         if group and group.is_global:
             return self._select_global_daily_albums(group_id, n)
 
-        settings = self.db.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
         chaos_mode = settings.chaos_mode if settings else False
 
         available_album_ids = [
@@ -307,12 +320,13 @@ class GroupAlbumService:
                 detail="Group settings not found",
             )
 
-        today = date.today()
+        tz_name = settings.timezone
+        today = _group_today(tz_name)
         existing = (
             self.db.query(GroupAlbum)
             .filter(
                 GroupAlbum.group_id == group_id,
-                func.date(GroupAlbum.selected_date) == today,
+                _date_in_tz(GroupAlbum.selected_date, tz_name) == today,
             )
             .order_by(GroupAlbum.id)
             .all()
@@ -417,12 +431,14 @@ class GroupAlbumService:
         group_service = gs.GroupService(self.db)
         group_service.require_membership(user.id, group_id)
 
-        today = date.today()
+        settings = self.db.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
+        tz_name = settings.timezone if settings else _DEFAULT_TIMEZONE
+        today = _group_today(tz_name)
         all_today = (
             self.db.query(GroupAlbum)
             .filter(
                 GroupAlbum.group_id == group_id,
-                func.date(GroupAlbum.selected_date) == today,
+                _date_in_tz(GroupAlbum.selected_date, tz_name) == today,
             )
             .order_by(GroupAlbum.id)
             .all()

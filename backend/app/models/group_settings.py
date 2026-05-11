@@ -23,5 +23,6 @@ class GroupSettings(Base):
     guess_user_cap = Column(Integer, nullable=False, default=5, server_default="5")
     chaos_mode = Column(Boolean, nullable=False, default=False, server_default="false")
     daily_nomination_limit = Column(Integer, nullable=True)
+    timezone = Column(String, nullable=False, default="America/New_York", server_default="America/New_York")
 
     group = relationship("Group", back_populates="settings")

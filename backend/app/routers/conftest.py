@@ -33,11 +33,21 @@ def make_mock_settings(
     min_role_to_add_members="admin",
     min_role_to_nominate="member",
     daily_album_count=1,
+    allow_guessing=True,
+    guess_user_cap=5,
+    chaos_mode=False,
+    daily_nomination_limit=None,
+    timezone="America/New_York",
 ) -> MagicMock:
     settings = MagicMock(spec=GroupSettings)
     settings.min_role_to_add_members = min_role_to_add_members
     settings.min_role_to_nominate = min_role_to_nominate
     settings.daily_album_count = daily_album_count
+    settings.allow_guessing = allow_guessing
+    settings.guess_user_cap = guess_user_cap
+    settings.chaos_mode = chaos_mode
+    settings.daily_nomination_limit = daily_nomination_limit
+    settings.timezone = timezone
     return settings
 
 

@@ -32,17 +32,19 @@ SyslogIdentifier=spinshare-daily-select
 
 ```ini
 [Unit]
-Description=Run SpinShare daily album selector at midnight UTC
+Description=Run SpinShare daily album selector hourly
 
 [Timer]
-OnCalendar=*-*-* 00:00:00 UTC
+OnCalendar=hourly
 Persistent=true
 
 [Install]
 WantedBy=timers.target
 ```
 
-`Persistent=true` ensures the job catches up on the next boot if the host was down at midnight.
+The selector is idempotent — each group is selected at most once per its local calendar day.
+Running hourly ensures that midnight is caught for every configured group timezone.
+`Persistent=true` ensures the job catches up on the next boot if the host was down.
 
 ## Installation
 
@@ -92,4 +94,4 @@ sudo systemctl daemon-reload
 sudo systemctl restart spinshare-daily-select.timer
 ```
 
-`systemd-analyze calendar '*-*-* 00:00:00 UTC'` can be used to validate calendar expressions before applying them.
+`systemd-analyze calendar 'hourly'` can be used to validate calendar expressions before applying them.
