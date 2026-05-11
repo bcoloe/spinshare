@@ -251,14 +251,17 @@ function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: 
       return next
     })
 
+  const memberIds = useMemo(() => new Set(members.map((m) => m.user_id)), [members])
+  const memberReviews = useMemo(() => allReviews.filter((r) => memberIds.has(r.user_id)), [allReviews, memberIds])
+
   const groupAvg = useMemo(() => {
-    const rated = allReviews.filter((r) => r.rating !== null)
+    const rated = memberReviews.filter((r) => r.rating !== null)
     if (rated.length === 0) return null
     const sum = rated.reduce((s, r) => s + r.rating!, 0)
     return Math.round((sum / rated.length) * 10) / 10
-  }, [allReviews])
+  }, [memberReviews])
 
-  const displayReviews = allReviews.length > 0 ? allReviews : [review]
+  const displayReviews = memberReviews.length > 0 ? memberReviews : [review]
 
   const handleEditOpen = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -336,7 +339,8 @@ function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: 
           >
             <Stack gap="sm">
               {displayReviews.map((r) => {
-                const memberName = members.find((m) => m.user_id === r.user_id)?.username ?? 'Unknown'
+                const username = ('username' in r ? (r as AlbumReviewItem).username : members.find((m) => m.user_id === r.user_id)?.username) ?? 'Unknown'
+                const memberName = r.display_name ? `${r.display_name} (${username})` : username
                 const isMine = r.user_id === review.user_id
                 const isCardExpanded = expandedCards.has(r.id) || (isMine && editMode)
                 const previewLine = r.comment?.split('\n')[0]

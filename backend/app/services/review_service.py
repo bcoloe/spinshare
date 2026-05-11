@@ -107,7 +107,7 @@ class ReviewService:
     def get_reviews_for_album(self, album_id: int) -> list[AlbumReviewItem]:
         """Return all published (non-draft) reviews for a given album, including reviewer usernames."""
         rows = (
-            self.db.query(Review, User.username)
+            self.db.query(Review, User.username, User.display_name)
             .join(User, Review.user_id == User.id)
             .filter(Review.album_id == album_id, Review.is_draft == False)  # noqa: E712
             .all()
@@ -118,13 +118,14 @@ class ReviewService:
                 album_id=r.album_id,
                 user_id=r.user_id,
                 username=username,
+                display_name=display_name,
                 rating=r.rating,
                 comment=r.comment,
                 is_draft=r.is_draft,
                 reviewed_at=r.reviewed_at,
                 updated_at=r.updated_at,
             )
-            for r, username in rows
+            for r, username, display_name in rows
         ]
 
     def get_album_stats(self, album_id: int) -> AlbumStatsResponse:

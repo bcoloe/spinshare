@@ -145,6 +145,20 @@ class GroupMemberResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AlbumsPerMemberItem(BaseModel):
+    """Album count for a single group member"""
+
+    username: str
+    count: int
+
+
+class GroupDecadeBreakdownItem(BaseModel):
+    """Album count for a single release decade"""
+
+    decade: str
+    count: int
+
+
 class GroupStatsResponse(BaseModel):
     """Aggregate statistics for a group"""
 
@@ -152,6 +166,9 @@ class GroupStatsResponse(BaseModel):
     albums_added: int
     albums_reviewed: int
     formed_at: datetime
+    albums_per_member: list[AlbumsPerMemberItem]
+    selected_per_member: list[AlbumsPerMemberItem]
+    decade_breakdown: list[GroupDecadeBreakdownItem]
 
 
 class RoleUpdateRequest(BaseModel):

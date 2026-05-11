@@ -29,11 +29,24 @@ export interface GroupMemberResponse {
   joined_at: string
 }
 
+export interface AlbumsPerMemberItem {
+  username: string
+  count: number
+}
+
+export interface GroupDecadeBreakdownItem {
+  decade: string
+  count: number
+}
+
 export interface GroupStatsResponse {
   member_count: number
   albums_added: number
   albums_reviewed: number
   formed_at: string
+  albums_per_member: AlbumsPerMemberItem[]
+  selected_per_member: AlbumsPerMemberItem[]
+  decade_breakdown: GroupDecadeBreakdownItem[]
 }
 
 export interface GroupCreate {

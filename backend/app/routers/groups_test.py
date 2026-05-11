@@ -276,6 +276,9 @@ class TestGroupStats:
             "albums_added": 10,
             "albums_reviewed": 5,
             "formed_at": _NOW,
+            "albums_per_member": [{"username": "alice", "count": 6}, {"username": "bob", "count": 4}],
+            "selected_per_member": [{"username": "alice", "count": 3}, {"username": "bob", "count": 2}],
+            "decade_breakdown": [{"decade": "1990s", "count": 7}, {"decade": "2000s", "count": 3}],
         }
 
         resp = client.get("/groups/1/stats")

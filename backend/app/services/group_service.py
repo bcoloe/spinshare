@@ -1,5 +1,6 @@
 """Group service."""
 
+from collections import Counter
 from datetime import datetime
 
 from app.models import Group, GroupAlbum, GroupSettings, User, group_members
@@ -427,11 +428,74 @@ class GroupService:
         """
         group = self.get_group_by_id(group_id)
         albums_reviewed = sum(1 for a in group.albums if a.status == "reviewed")
+
+        member_ids = {m.id for m in group.members}
+
+        all_nominator_ids = {ga.added_by for ga in group.albums if ga.added_by}
+        if all_nominator_ids:
+            users = self.db.query(User).filter(User.id.in_(all_nominator_ids)).all()
+            username_map = {u.id: u.username for u in users}
+        else:
+            username_map = {}
+
+        user_id_counts = Counter(ga.added_by for ga in group.albums if ga.added_by)
+        member_counts: dict[str, int] = {}
+        outside_count = 0
+        for uid, cnt in user_id_counts.items():
+            if uid in member_ids:
+                member_counts[username_map.get(uid, "Unknown")] = (
+                    member_counts.get(username_map.get(uid, "Unknown"), 0) + cnt
+                )
+            else:
+                outside_count += cnt
+        albums_per_member = sorted(
+            [{"username": u, "count": c} for u, c in member_counts.items()],
+            key=lambda x: -x["count"],
+        )
+        if outside_count > 0:
+            albums_per_member.append({"username": "Outside Group", "count": outside_count})
+
+        selected_id_counts = Counter(
+            ga.added_by for ga in group.albums if ga.added_by and ga.selected_date is not None
+        )
+        selected_member_counts: dict[str, int] = {}
+        selected_outside_count = 0
+        for uid, cnt in selected_id_counts.items():
+            if uid in member_ids:
+                selected_member_counts[username_map.get(uid, "Unknown")] = (
+                    selected_member_counts.get(username_map.get(uid, "Unknown"), 0) + cnt
+                )
+            else:
+                selected_outside_count += cnt
+        selected_per_member = sorted(
+            [{"username": u, "count": c} for u, c in selected_member_counts.items()],
+            key=lambda x: -x["count"],
+        )
+        if selected_outside_count > 0:
+            selected_per_member.append({"username": "Outside Group", "count": selected_outside_count})
+
+        decade_counts: dict[str, int] = {}
+        for ga in group.albums:
+            release_date = ga.albums.release_date if ga.albums else None
+            try:
+                year = int(str(release_date)[:4])
+                decade = f"{(year // 10) * 10}s"
+            except (TypeError, ValueError):
+                decade = "Unknown"
+            decade_counts[decade] = decade_counts.get(decade, 0) + 1
+        decade_breakdown = sorted(
+            [{"decade": d, "count": c} for d, c in decade_counts.items()],
+            key=lambda x: x["decade"],
+        )
+
         return {
             "member_count": len(group.members),
             "albums_added": len(group.albums),
             "albums_reviewed": albums_reviewed,
             "formed_at": group.created_at,
+            "albums_per_member": albums_per_member,
+            "selected_per_member": selected_per_member,
+            "decade_breakdown": decade_breakdown,
         }
 
     # ==================== MEMBERS ====================
