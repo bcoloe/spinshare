@@ -91,7 +91,7 @@ class AlbumService:
         Raises:
             HTTPException 403: If user is not a group member.
             HTTPException 404: If album or group not found.
-            HTTPException 409: If album already nominated by this user in this group.
+            HTTPException 409: If album already selected for this group, or already nominated by this user.
         """
         group_service = gs.GroupService(self.db)
         group_service.require_membership(user.id, group_id)
@@ -119,6 +119,21 @@ class AlbumService:
                 )
 
         self.get_album_by_id(album_id)
+
+        already_selected = (
+            self.db.query(GroupAlbum)
+            .filter(
+                GroupAlbum.group_id == group_id,
+                GroupAlbum.album_id == album_id,
+                GroupAlbum.selected_date.isnot(None),
+            )
+            .first()
+        )
+        if already_selected:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This album has already been selected for this group",
+            )
 
         group_album = GroupAlbum(
             group_id=group_id,

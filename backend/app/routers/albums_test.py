@@ -356,6 +356,15 @@ class TestGroupAlbumNominate:
         resp = client.post("/groups/1/albums", json={"album_id": 1})
         assert resp.status_code == status.HTTP_409_CONFLICT
 
+    def test_nominate_album_already_selected_conflict(self, client, mock_album_service):
+        mock_album_service.nominate_album.side_effect = HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This album has already been selected for this group",
+        )
+        resp = client.post("/groups/1/albums", json={"album_id": 1})
+        assert resp.status_code == status.HTTP_409_CONFLICT
+        assert "already been selected" in resp.json()["detail"]
+
 
 class TestGroupAlbumList:
     def test_list_group_albums_success(self, client, mock_album_service):
