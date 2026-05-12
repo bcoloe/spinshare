@@ -763,9 +763,8 @@ class TestChaosSelection:
         next_day = date(2099, 1, 2)
         with (
             patch("app.services.group_album_service.random.random", return_value=0.0),
-            patch("app.services.group_album_service.date") as mock_date,
+            patch("app.services.group_album_service._group_today", return_value=next_day),
         ):
-            mock_date.today.return_value = next_day
             # Only the nominated album is unselected — chaos has nothing to pull from,
             # so it falls back to normal selection.
             results = group_album_service.select_daily_albums(sample_group.id, n=1)

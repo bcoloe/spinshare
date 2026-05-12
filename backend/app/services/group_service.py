@@ -365,6 +365,8 @@ class GroupService:
                 gs.chaos_mode = update_data.settings.chaos_mode
             if "daily_nomination_limit" in update_data.settings.model_fields_set:
                 gs.daily_nomination_limit = update_data.settings.daily_nomination_limit
+            if update_data.settings.timezone is not None:
+                gs.timezone = update_data.settings.timezone
 
         try:
             self.db.commit()
