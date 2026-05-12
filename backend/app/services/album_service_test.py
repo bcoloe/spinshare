@@ -1,9 +1,17 @@
 import pytest
+from unittest.mock import patch
 from app.models import Album, GroupAlbum
 from app.models.group import GroupRole
 from app.schemas.album import AlbumCreate, GroupAlbumStatus, GroupAlbumStatusUpdate
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
+
+
+@pytest.fixture(autouse=True)
+def mock_ytmusic(request):
+    """Prevent live YouTube Music API calls in service tests."""
+    with patch("app.services.album_service.search_album_browse_id", return_value=None):
+        yield
 
 
 class TestAlbumServiceCreate:

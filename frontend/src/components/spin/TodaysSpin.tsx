@@ -22,7 +22,7 @@ import {
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { IconBrandSpotify, IconCheck, IconDice5, IconExternalLink, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
+import { IconBrandSpotify, IconBrandYoutube, IconCheck, IconDice5, IconExternalLink, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
 import AlbumCard from './AlbumCard'
 import ReviewAndGuessForm from './ReviewAndGuessForm'
 import AlbumSearchModal from '../albums/AlbumSearchModal'
@@ -87,6 +87,19 @@ function SpinSlide({ groupAlbum, groupId, allowGuessing = true }: { groupAlbum: 
               >
                 Web Player
               </Button>
+              {groupAlbum.album.youtube_music_id && (
+                <Button
+                  component="a"
+                  href={`https://music.youtube.com/browse/${groupAlbum.album.youtube_music_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  variant="subtle"
+                  size="sm"
+                  leftSection={<IconBrandYoutube size={16} />}
+                >
+                  YouTube Music
+                </Button>
+              )}
             </Group>
             {!hasSpotify && (
               <Text size="xs" c="dimmed">
@@ -186,6 +199,19 @@ function MultiAlbumSpin({ albums, groupId, allowGuessing = true }: { albums: Gro
                 >
                   Web Player
                 </Button>
+                {activeAlbum.album.youtube_music_id && (
+                  <Button
+                    component="a"
+                    href={`https://music.youtube.com/browse/${activeAlbum.album.youtube_music_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    variant="subtle"
+                    size="sm"
+                    leftSection={<IconBrandYoutube size={16} />}
+                  >
+                    YouTube Music
+                  </Button>
+                )}
               </Group>
               {!hasSpotify && (
                 <Text size="xs" c="dimmed">

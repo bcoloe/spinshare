@@ -6,6 +6,7 @@ from app.models import Album, Group, GroupAlbum, User
 from app.models.genre import Genre
 from app.schemas.album import AlbumCreate, GroupAlbumStatus, GroupAlbumStatusUpdate
 from app.services import group_service as gs
+from app.utils.ytmusic_client import search_album_browse_id
 from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -40,11 +41,23 @@ class AlbumService:
         If the album already exists but has no genres and the caller provides some,
         the genres are backfilled so albums registered before the artist-genre fix
         are healed on their next nomination.
+
+        If the album exists but has no youtube_music_id, resolution is attempted
+        opportunistically so existing albums are healed over time.
         """
         existing = self.get_album_by_spotify_id(data.spotify_album_id, raise_on_missing=False)
         if existing:
+            dirty = False
             if not existing.genres and data.genres:
                 existing.genres = self._get_or_create_genres(data.genres)
+                dirty = True
+            if existing.youtube_music_id is None:
+                try:
+                    existing.youtube_music_id = search_album_browse_id(existing.title, existing.artist)
+                    dirty = True
+                except Exception:
+                    pass
+            if dirty:
                 self.db.commit()
                 self.db.refresh(existing)
             return existing
@@ -52,12 +65,18 @@ class AlbumService:
 
     def _persist_album(self, data: AlbumCreate) -> Album:
         genres = self._get_or_create_genres(data.genres)
+        ytm_id = None
+        try:
+            ytm_id = search_album_browse_id(data.title, data.artist)
+        except Exception:
+            pass
         album = Album(
             spotify_album_id=data.spotify_album_id,
             title=data.title,
             artist=data.artist,
             release_date=data.release_date,
             cover_url=data.cover_url,
+            youtube_music_id=ytm_id,
             genres=genres,
         )
         try:

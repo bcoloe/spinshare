@@ -5,6 +5,7 @@ export interface AlbumResponse {
   artist: string
   release_date: string | null
   cover_url: string | null
+  youtube_music_id: string | null
   added_at: string
   genres: string[]
 }
