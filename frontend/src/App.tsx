@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom'
 import { LoadingOverlay } from '@mantine/core'
 import { useAuth } from './hooks/useAuth'
+import ChunkErrorBoundary from './components/ChunkErrorBoundary'
 
 const ProtectedRoute = lazy(() => import('./components/auth/ProtectedRoute'))
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
@@ -53,8 +54,10 @@ const router = createBrowserRouter([
 
 export default function App() {
   return (
-    <Suspense fallback={<LoadingOverlay visible />}>
-      <RouterProvider router={router} />
-    </Suspense>
+    <ChunkErrorBoundary>
+      <Suspense fallback={<LoadingOverlay visible />}>
+        <RouterProvider router={router} />
+      </Suspense>
+    </ChunkErrorBoundary>
   )
 }

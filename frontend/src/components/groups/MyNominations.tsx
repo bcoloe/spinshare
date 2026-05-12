@@ -94,6 +94,7 @@ export default function MyNominations({ groupId }: Props) {
   const dailyLimitReached = dailyLimit !== null && todayCount >= dailyLimit
   const canNominate =
     !!group?.current_user_role &&
+    !group?.is_global &&
     (ROLE_RANK[group.current_user_role] ?? 99) <= (ROLE_RANK[minRoleToNominate] ?? 99) &&
     !dailyLimitReached
   const [filter, setFilter] = useState('')
@@ -167,9 +168,11 @@ export default function MyNominations({ groupId }: Props) {
         />
         <Tooltip
           label={
-            dailyLimitReached
-              ? `Daily nomination limit of ${dailyLimit} reached — come back tomorrow`
-              : "You don't have permission to nominate albums in this group"
+            group?.is_global
+              ? 'Nominations are not open for the global group'
+              : dailyLimitReached
+                ? `Daily nomination limit of ${dailyLimit} reached — come back tomorrow`
+                : "You don't have permission to nominate albums in this group"
           }
           disabled={canNominate}
         >

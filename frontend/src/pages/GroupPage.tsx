@@ -12,7 +12,7 @@ import {
   Title,
   Tooltip,
 } from '@mantine/core'
-import { useDisclosure } from '@mantine/hooks'
+import { useDisclosure, useMediaQuery } from '@mantine/hooks'
 import { IconDoorExit, IconSettings, IconUserPlus } from '@tabler/icons-react'
 import AppShell from '../components/layout/AppShell'
 import TodaysSpin from '../components/spin/TodaysSpin'
@@ -36,6 +36,7 @@ export default function GroupPage() {
   const tab: Tab = (searchParams.get('tab') as Tab) ?? 'spin'
   const [leaveOpened, { open: openLeave, close: closeLeave }] = useDisclosure(false)
   const [inviteOpened, { open: openInvite, close: closeInvite }] = useDisclosure(false)
+  const isMobile = useMediaQuery('(max-width: 768px)')
 
   const { data: group, isLoading: groupLoading } = useGroup(gid)
   const { data: members = [], isLoading: membersLoading } = useGroupMembers(gid)
@@ -108,18 +109,20 @@ export default function GroupPage() {
             borderRadius: 'var(--mantine-radius-sm)',
           }}
         >
-          <SegmentedControl
-            fullWidth
-            value={tab}
-            onChange={(v) => setSearchParams({ tab: v })}
-            data={[
-              { label: "Today's Spin", value: 'spin' },
-              { label: 'Review History', value: 'history' },
-              { label: 'My Nominations', value: 'nominations' },
-              { label: 'Group Info', value: 'info' },
-            ]}
-            styles={{ root: { background: 'transparent' } }}
-          />
+          <ScrollArea type="scroll" scrollbarSize={0}>
+            <SegmentedControl
+              fullWidth={!isMobile}
+              value={tab}
+              onChange={(v) => setSearchParams({ tab: v })}
+              data={[
+                { label: "Today's Spin", value: 'spin' },
+                { label: 'Review History', value: 'history' },
+                { label: 'My Nominations', value: 'nominations' },
+                { label: 'Group Info', value: 'info' },
+              ]}
+              styles={{ root: { background: 'transparent' } }}
+            />
+          </ScrollArea>
         </Box>
 
         {tab === 'spin' && <TodaysSpin groupId={gid} group={group} />}
