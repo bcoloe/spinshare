@@ -48,7 +48,7 @@ function validatePassword(v: string): string | null {
 }
 
 export default function ProfilePage() {
-  const { user, logout } = useAuth()
+  const { user, logout, refreshUser } = useAuth()
   const qc = useQueryClient()
   const { data: stats, isLoading: statsLoading } = useMyStats()
   const { data: groups } = useMyGroups(user?.username ?? '')
@@ -142,8 +142,11 @@ export default function ProfilePage() {
       }
 
       await apiFetch('/users/me', { method: 'PUT', body: JSON.stringify(payload) })
-      await qc.invalidateQueries({ queryKey: ['stats', 'me'] })
-      await qc.invalidateQueries({ queryKey: ['groups', 'mine'] })
+      await Promise.all([
+        refreshUser(),
+        qc.invalidateQueries({ queryKey: ['stats', 'me'] }),
+        qc.invalidateQueries({ queryKey: ['groups', 'mine'] }),
+      ])
       notifications.show({ color: 'green', message: 'Profile updated' })
       form.reset()
       setEditing(false)
