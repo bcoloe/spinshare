@@ -24,6 +24,8 @@ class UserCreate(UserBase):
     """Schema for creating a user"""
 
     password: str = Field(..., min_length=MIN_PWD_LEN, max_length=MAX_PWD_LEN)
+    first_name: str | None = Field(None, max_length=50)
+    last_name: str | None = Field(None, max_length=50)
 
     @field_validator("password")
     @classmethod
@@ -40,7 +42,9 @@ class UserUpdate(BaseModel):
 
     email: EmailStr | None = None
     username: str | None = Field(None, min_length=3, max_length=50)
-    display_name: str | None = Field(None, max_length=50)
+    first_name: str | None = Field(None, max_length=50)
+    last_name: str | None = Field(None, max_length=50)
+    name_is_public: bool | None = None
     password: str | None = Field(None, min_length=MIN_PWD_LEN, max_length=MAX_PWD_LEN)
 
     @field_validator("password")
@@ -64,7 +68,9 @@ class UserResponse(UserBase):
     """Schema for user response (without password)"""
 
     id: int
-    display_name: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    name_is_public: bool = False
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -122,7 +128,8 @@ class SpotifyTokenResponse(BaseModel):
 
 class PublicProfileResponse(BaseModel):
     username: str
-    display_name: str | None
+    first_name: str | None
+    last_name: str | None
     email: str
     member_since: datetime
     total_reviews: int

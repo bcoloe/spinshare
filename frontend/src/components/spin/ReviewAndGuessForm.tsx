@@ -54,7 +54,7 @@ function AvatarSelector({ groupId, groupAlbumId, selected, onChange }: AvatarSel
         return (
           <Tooltip
             key={o.user_id}
-            label={o.display_name ? `${o.display_name} (${o.username})` : o.username}
+            label={(() => { const n = [o.first_name, o.last_name].filter(Boolean).join(' '); return n ? `${n} (${o.username})` : o.username })()}
             withArrow
           >
             <Avatar

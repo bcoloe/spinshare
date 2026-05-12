@@ -300,9 +300,9 @@ export default function UserProfilePage() {
         ) : (
           <Group justify="space-between" align="flex-start">
             <div>
-              <Title order={3}>{profile?.display_name || profile?.username}</Title>
-              {profile?.display_name && (
-                <Text size="sm" c="dimmed">@{profile.username}</Text>
+              <Title order={3}>{[profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || profile?.username}</Title>
+              {(profile?.first_name || profile?.last_name) && (
+                <Text size="sm" c="dimmed">@{profile?.username}</Text>
               )}
               <Text size="sm" c="dimmed">
                 Member since{' '}

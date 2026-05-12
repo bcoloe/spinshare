@@ -9,6 +9,7 @@ interface AuthContextValue {
   isInitializing: boolean
   login: (credentials: LoginRequest) => Promise<void>
   logout: () => void
+  refreshUser: () => Promise<void>
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null)
@@ -71,8 +72,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(res.user)
   }, [])
 
+  const refreshUser = useCallback(async () => {
+    const updated = await authService.getMe()
+    setUser(updated)
+  }, [])
+
   return (
-    <AuthContext.Provider value={{ user, isInitializing, login, logout }}>
+    <AuthContext.Provider value={{ user, isInitializing, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   )

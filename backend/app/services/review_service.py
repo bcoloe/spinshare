@@ -104,10 +104,29 @@ class ReviewService:
             )
         return review
 
-    def get_reviews_for_album(self, album_id: int) -> list[AlbumReviewItem]:
-        """Return all published (non-draft) reviews for a given album, including reviewer usernames."""
+    def get_reviews_for_album(
+        self, album_id: int, viewer_id: int | None = None, group_id: int | None = None
+    ) -> list[AlbumReviewItem]:
+        """Return all published (non-draft) reviews for a given album, including reviewer usernames.
+
+        Names are shown when:
+        - The reviewer has name_is_public=True, OR
+        - A group_id is provided, the viewer is a member, and the group is not global.
+        """
+        show_names_in_group = False
+        if group_id is not None and viewer_id is not None:
+            group = self.db.query(Group).filter(Group.id == group_id).first()
+            if group and not group.is_global:
+                is_member = self.db.execute(
+                    select(group_members).where(
+                        group_members.c.group_id == group_id,
+                        group_members.c.user_id == viewer_id,
+                    )
+                ).first()
+                show_names_in_group = is_member is not None
+
         rows = (
-            self.db.query(Review, User.username, User.display_name)
+            self.db.query(Review, User.username, User.first_name, User.last_name, User.name_is_public)
             .join(User, Review.user_id == User.id)
             .filter(Review.album_id == album_id, Review.is_draft == False)  # noqa: E712
             .all()
@@ -118,14 +137,15 @@ class ReviewService:
                 album_id=r.album_id,
                 user_id=r.user_id,
                 username=username,
-                display_name=display_name,
+                first_name=first_name if (name_is_public or show_names_in_group) else None,
+                last_name=last_name if (name_is_public or show_names_in_group) else None,
                 rating=r.rating,
                 comment=r.comment,
                 is_draft=r.is_draft,
                 reviewed_at=r.reviewed_at,
                 updated_at=r.updated_at,
             )
-            for r, username, display_name in rows
+            for r, username, first_name, last_name, name_is_public in rows
         ]
 
     def get_album_stats(self, album_id: int) -> AlbumStatsResponse:

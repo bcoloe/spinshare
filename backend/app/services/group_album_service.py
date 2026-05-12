@@ -573,6 +573,7 @@ class GroupAlbumService:
         group_service = gs.GroupService(self.db)
         group_service.require_membership(user.id, group_id)
 
+        group = self.db.query(Group).filter(Group.id == group_id).first()
         group_album = self._get_group_album_or_404(group_id, group_album_id)
 
         settings = self.db.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
@@ -606,9 +607,16 @@ class GroupAlbumService:
         if remaining > 0:
             pool.extend(non_nominators[:remaining])
 
+        is_global = group.is_global if group else False
+        show_name_in_context = not is_global and not user.is_bot
         return GuessOptionsResponse(
             options=[
-                GuessOptionUser(user_id=u.id, username=u.username, display_name=u.display_name)
+                GuessOptionUser(
+                    user_id=u.id,
+                    username=u.username,
+                    first_name=u.first_name if (u.name_is_public or show_name_in_context) else None,
+                    last_name=u.last_name if (u.name_is_public or show_name_in_context) else None,
+                )
                 for u in pool
             ],
             has_chaos_option=settings.chaos_mode if settings else False,

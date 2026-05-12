@@ -121,13 +121,14 @@ def create_review(
 @albums_router.get("/{album_id}/reviews", response_model=list[AlbumReviewItem])
 def list_reviews(
     album_id: int,
+    group_id: int | None = Query(None),
     current_user: User = Depends(get_current_user),
     album_service: AlbumService = Depends(get_album_service),
     review_service: ReviewService = Depends(get_review_service),
 ):
     """List all published reviews for an album, including each reviewer's username."""
     album_service.get_album_by_id(album_id)
-    return review_service.get_reviews_for_album(album_id)
+    return review_service.get_reviews_for_album(album_id, viewer_id=current_user.id, group_id=group_id)
 
 
 @albums_router.get("/{album_id}/stats", response_model=AlbumStatsResponse)

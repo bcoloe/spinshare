@@ -146,7 +146,8 @@ class AlbumReviewItem(BaseModel):
     album_id: int
     user_id: int
     username: str
-    display_name: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
     rating: float | None
     comment: str | None = None
     is_draft: bool

@@ -2,7 +2,9 @@ export interface UserResponse {
   id: number
   email: string
   username: string
-  display_name?: string | null
+  first_name?: string | null
+  last_name?: string | null
+  name_is_public: boolean
   created_at: string
 }
 
@@ -31,18 +33,23 @@ export interface RegisterRequest {
   email: string
   username: string
   password: string
+  first_name?: string
+  last_name?: string
 }
 
 export interface UserUpdate {
   email?: string
   username?: string
-  display_name?: string | null
+  first_name?: string | null
+  last_name?: string | null
+  name_is_public?: boolean
   password?: string
 }
 
 export interface PublicProfileResponse {
   username: string
-  display_name?: string | null
+  first_name?: string | null
+  last_name?: string | null
   email: string
   member_since: string
   total_reviews: number

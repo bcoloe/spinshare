@@ -38,7 +38,8 @@ class NominationCountResponse(BaseModel):
 class GuessOptionUser(BaseModel):
     user_id: int
     username: str
-    display_name: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
 
 
 class GuessOptionsResponse(BaseModel):
