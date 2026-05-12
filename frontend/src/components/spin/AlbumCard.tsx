@@ -1,4 +1,5 @@
-import { Badge, Group, Image, Overlay, Stack, Text, Title } from '@mantine/core'
+import { Anchor, Badge, Group, Image, Overlay, Stack, Text, Title } from '@mantine/core'
+import { Link } from 'react-router-dom'
 import type { AlbumResponse } from '../../types/album'
 
 interface Props {
@@ -26,7 +27,9 @@ export default function AlbumCard({ album }: Props) {
 
       <Stack gap="xs" style={{ flex: 1, minWidth: 0 }}>
         <div>
-          <Title order={3} lineClamp={2}>{album.title}</Title>
+          <Anchor component={Link} to={`/albums/${album.id}`} underline="hover" c="inherit">
+            <Title order={3} lineClamp={2}>{album.title}</Title>
+          </Anchor>
           <Text size="lg" c="dimmed">{album.artist}</Text>
           {year && <Text size="sm" c="dimmed">{year}</Text>}
         </div>
