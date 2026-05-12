@@ -75,20 +75,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const player = useSpotifyPlayer(hasSpotify)
 
-  // Auto-resume: once the SDK is ready, restore the last playing track and position
-  const autoResumedRef = useRef(false)
-  useEffect(() => {
-    if (autoResumedRef.current) return
-    if (!persistedState?.playingAlbumMeta) return
-    if (player.status !== 'ready') return
-    autoResumedRef.current = true
-    player.startAlbum(
-      persistedState.playingAlbumMeta.spotifyAlbumId,
-      persistedState.lastTrackUri ?? undefined,
-      persistedState.lastPosition ?? undefined,
-    )
-  }, [player.status]) // eslint-disable-line react-hooks/exhaustive-deps
-
   // Persist player state to localStorage whenever track or minimized state changes.
   // Position is written separately on beforeunload to avoid a write every 250 ms.
   useEffect(() => {
