@@ -93,6 +93,40 @@ export function useSpotifyPlayer(enabled: boolean): UseSpotifyPlayerResult {
     let cancelled = false
     setStatus('loading')
 
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState !== 'visible') return
+      if (!playerRef.current) return
+      const state = await playerRef.current.getCurrentState()
+      if (cancelled) return
+      if (!state) {
+        isPlayingRef.current = false
+      } else {
+        basePositionRef.current = state.position
+        baseTimestampRef.current = Date.now()
+        isPlayingRef.current = !state.paused
+      }
+    }
+
+    let autoPaused = false
+    let offlineTimer: ReturnType<typeof setTimeout> | null = null
+    const handleOffline = () => {
+      if (!isPlayingRef.current || !playerRef.current) return
+      offlineTimer = setTimeout(() => {
+        offlineTimer = null
+        if (isPlayingRef.current && playerRef.current) {
+          autoPaused = true
+          playerRef.current.togglePlay()
+        }
+      }, 5000)
+    }
+    const handleOnline = () => {
+      if (offlineTimer) { clearTimeout(offlineTimer); offlineTimer = null }
+      if (autoPaused && playerRef.current) {
+        autoPaused = false
+        playerRef.current.togglePlay()
+      }
+    }
+
     async function init() {
       try {
         await loadSpotifySdk()
@@ -128,12 +162,16 @@ export function useSpotifyPlayer(enabled: boolean): UseSpotifyPlayerResult {
         })
 
         player.addListener('not_ready', () => {
-          if (!cancelled) setStatus('loading')
+          if (!cancelled) {
+            isPlayingRef.current = false
+            setStatus('loading')
+          }
         })
 
         player.addListener('player_state_changed', (state: Spotify.PlaybackState | null) => {
           if (cancelled) return
           if (!state) {
+            isPlayingRef.current = false
             setCurrentTrackUri(null)
             setCurrentTrackName(null)
             setCurrentTrackNumber(null)
@@ -168,6 +206,9 @@ export function useSpotifyPlayer(enabled: boolean): UseSpotifyPlayerResult {
           if (!cancelled) setStatus('premium_required')
         })
 
+        document.addEventListener('visibilitychange', handleVisibilityChange)
+        window.addEventListener('offline', handleOffline)
+        window.addEventListener('online', handleOnline)
         await player.connect()
         playerRef.current = player
       } catch (err) {
@@ -187,6 +228,10 @@ export function useSpotifyPlayer(enabled: boolean): UseSpotifyPlayerResult {
 
     return () => {
       cancelled = true
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('offline', handleOffline)
+      window.removeEventListener('online', handleOnline)
+      if (offlineTimer) { clearTimeout(offlineTimer); offlineTimer = null }
       stopProgressInterval()
       playerRef.current?.disconnect()
       playerRef.current = null
