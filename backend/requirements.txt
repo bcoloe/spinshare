@@ -10,6 +10,7 @@ python-jose[bcrypt] ~= 3.5.0
 passlib ~= 1.7.4
 bcrypt ~= 4.3.0
 beautifulsoup4 ~= 4.13.0
+ytmusicapi ~= 1.10.0
 
 
 # test-only requirements

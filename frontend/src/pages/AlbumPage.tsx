@@ -21,6 +21,7 @@ import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import {
   IconBrandSpotify,
+  IconBrandYoutube,
   IconChevronDown,
   IconChevronRight,
   IconChevronUp,
@@ -500,6 +501,19 @@ export default function AlbumPage() {
               >
                 Web Player
               </Button>
+              {album.youtube_music_id && (
+                <Button
+                  component="a"
+                  href={`https://music.youtube.com/browse/${album.youtube_music_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  variant="subtle"
+                  size="sm"
+                  leftSection={<IconBrandYoutube size={16} />}
+                >
+                  YouTube Music
+                </Button>
+              )}
               {playingSpotifyAlbumId === album.spotify_album_id && (playerStatus === 'playing' || playerStatus === 'paused') && (
                 <Badge color="green" variant="light" leftSection={<IconMusic size={10} />}>
                   {playerStatus === 'playing' ? 'Now Playing' : 'Paused'}

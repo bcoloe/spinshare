@@ -26,6 +26,7 @@ def make_mock_album(id=1):
     a.artist = "Radiohead"
     a.release_date = "1997-05"
     a.cover_url = None
+    a.youtube_music_id = None
     a.added_at = _NOW
     a.genres = []
     return a
