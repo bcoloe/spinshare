@@ -301,6 +301,88 @@ class TestReviewNotifications:
         assert ns.get_unread(sample_user) == []
 
 
+class TestGroupReviews:
+    def test_get_my_reviews_for_group_returns_own_reviews(
+        self, db_session, review_service, sample_group, sample_album, sample_user, user_factory
+    ):
+        other = user_factory(email="other@test.com", username="other_user")
+        ga = GroupAlbum(group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id)
+        db_session.add(ga)
+        db_session.commit()
+
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=7.0))
+        review_service.create_review(sample_album.id, other.id, ReviewCreate(rating=8.0))
+
+        results = review_service.get_my_reviews_for_group(sample_group.id, sample_user.id)
+        assert len(results) == 1
+        assert results[0].user_id == sample_user.id
+        assert results[0].album_id == sample_album.id
+
+    def test_get_my_reviews_for_group_includes_drafts(
+        self, db_session, review_service, sample_group, sample_album, sample_user
+    ):
+        ga = GroupAlbum(group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id)
+        db_session.add(ga)
+        db_session.commit()
+
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=6.0, is_draft=True))
+
+        results = review_service.get_my_reviews_for_group(sample_group.id, sample_user.id)
+        assert len(results) == 1
+        assert results[0].is_draft is True
+
+    def test_get_my_reviews_for_group_empty_when_no_albums(
+        self, review_service, sample_group, sample_user
+    ):
+        results = review_service.get_my_reviews_for_group(sample_group.id, sample_user.id)
+        assert results == []
+
+    def test_get_my_reviews_for_group_empty_when_no_reviews(
+        self, db_session, review_service, sample_group, sample_album, sample_user
+    ):
+        ga = GroupAlbum(group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id)
+        db_session.add(ga)
+        db_session.commit()
+
+        results = review_service.get_my_reviews_for_group(sample_group.id, sample_user.id)
+        assert results == []
+
+    def test_get_all_reviews_for_group_returns_published(
+        self, db_session, review_service, sample_group, sample_album, sample_user, user_factory
+    ):
+        other = user_factory(email="other@test.com", username="other_user")
+        ga = GroupAlbum(group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id)
+        db_session.add(ga)
+        db_session.commit()
+
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=7.0))
+        review_service.create_review(sample_album.id, other.id, ReviewCreate(rating=8.0))
+
+        results = review_service.get_all_reviews_for_group(sample_group.id, sample_user.id)
+        assert len(results) == 2
+
+    def test_get_all_reviews_for_group_excludes_drafts(
+        self, db_session, review_service, sample_group, sample_album, sample_user, user_factory
+    ):
+        other = user_factory(email="other@test.com", username="other_user")
+        ga = GroupAlbum(group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id)
+        db_session.add(ga)
+        db_session.commit()
+
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=7.0))
+        review_service.create_review(sample_album.id, other.id, ReviewCreate(rating=8.0, is_draft=True))
+
+        results = review_service.get_all_reviews_for_group(sample_group.id, sample_user.id)
+        assert len(results) == 1
+        assert results[0].user_id == sample_user.id
+
+    def test_get_all_reviews_for_group_empty_when_no_albums(
+        self, review_service, sample_group, sample_user
+    ):
+        results = review_service.get_all_reviews_for_group(sample_group.id, sample_user.id)
+        assert results == []
+
+
 class TestAlbumStats:
     def test_empty_album_returns_zero_histogram(self, review_service, sample_album):
         stats = review_service.get_album_stats(sample_album.id)

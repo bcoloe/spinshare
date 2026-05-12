@@ -7,7 +7,17 @@ export function useUpdateReview(albumId: number) {
   return useMutation({
     mutationFn: ({ reviewId, data }: { reviewId: number; data: ReviewUpdate }) =>
       albumService.updateReview(albumId, reviewId, data),
-    onSuccess: (updated) => qc.setQueryData(['reviews', albumId, 'me'], updated),
+    onSuccess: (updated) => {
+      qc.setQueryData(['reviews', albumId, 'me'], updated)
+      qc.invalidateQueries({ queryKey: ['albums', albumId, 'reviews'] })
+      qc.invalidateQueries({ queryKey: ['albums', albumId, 'stats'] })
+      qc.invalidateQueries({
+        predicate: (query) => {
+          const key = query.queryKey as unknown[]
+          return key[0] === 'groups' && key[2] === 'reviews'
+        },
+      })
+    },
   })
 }
 
@@ -59,7 +69,17 @@ export function useSubmitReview(albumId: number) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (data: ReviewCreate) => albumService.submitReview(albumId, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['reviews', albumId, 'me'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['reviews', albumId, 'me'] })
+      qc.invalidateQueries({ queryKey: ['albums', albumId, 'reviews'] })
+      qc.invalidateQueries({ queryKey: ['albums', albumId, 'stats'] })
+      qc.invalidateQueries({
+        predicate: (query) => {
+          const key = query.queryKey as unknown[]
+          return key[0] === 'groups' && key[2] === 'reviews'
+        },
+      })
+    },
   })
 }
 

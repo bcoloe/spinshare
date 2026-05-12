@@ -18,7 +18,7 @@ import {
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { useQueries } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import {
   IconChevronDown,
   IconChevronRight,
@@ -470,42 +470,37 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
     else { setReviewedField(f); setReviewedDir('asc') }
   }
 
-  const reviewQueries = useQueries({
-    queries: albums.map((ga) => ({
-      queryKey: ['reviews', ga.album_id, 'me'],
-      queryFn: () => albumService.getMyReview(ga.album_id),
-      enabled: !!ga.album_id,
-    })),
+  const { data: myReviewsList = [], isLoading: myReviewsLoading } = useQuery({
+    queryKey: ['groups', groupId, 'reviews', 'me'],
+    queryFn: () => albumService.getMyReviewsForGroup(groupId),
+    enabled: !!groupId && albums.length > 0,
   })
 
-  const allReviewQueries = useQueries({
-    queries: albums.map((ga) => ({
-      queryKey: ['reviews', ga.album_id, 'all', groupId],
-      queryFn: () => albumService.getAllReviews(ga.album_id, groupId),
-      enabled: !!ga.album_id,
-    })),
+  const { data: allReviewsList = [], isLoading: allReviewsLoading } = useQuery({
+    queryKey: ['groups', groupId, 'reviews'],
+    queryFn: () => albumService.getAllReviewsForGroup(groupId),
+    enabled: !!groupId && albums.length > 0,
   })
 
-  const reviewsLoading =
-    reviewQueries.some((q) => q.isLoading) || allReviewQueries.some((q) => q.isLoading)
+  const reviewsLoading = myReviewsLoading || allReviewsLoading
 
   const reviewMap = useMemo(() => {
-    const map = new Map<number, ReviewResponse | null>()
-    albums.forEach((ga, i) => {
-      map.set(ga.album_id, reviewQueries[i]?.data ?? null)
-    })
+    const map = new Map<number, ReviewResponse>()
+    for (const review of myReviewsList) {
+      map.set(review.album_id, review)
+    }
     return map
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [albums, reviewQueries])
+  }, [myReviewsList])
 
   const allReviewsMap = useMemo(() => {
     const map = new Map<number, AlbumReviewItem[]>()
-    albums.forEach((ga, i) => {
-      map.set(ga.album_id, allReviewQueries[i]?.data ?? [])
-    })
+    for (const review of allReviewsList) {
+      const existing = map.get(review.album_id) ?? []
+      existing.push(review)
+      map.set(review.album_id, existing)
+    }
     return map
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [albums, allReviewQueries])
+  }, [allReviewsList])
 
   const pending = useMemo(
     () => albums.filter((ga) => !reviewMap.get(ga.album_id)),

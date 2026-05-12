@@ -184,6 +184,29 @@ def delete_review(
     review_service.delete_review(review_id, current_user.id)
 
 
+# ==================== GROUP REVIEWS ====================
+
+
+@group_albums_router.get("/{group_id}/reviews/me", response_model=list[ReviewResponse])
+def get_my_group_reviews(
+    group_id: int,
+    current_user: User = Depends(get_current_user),
+    review_service: ReviewService = Depends(get_review_service),
+):
+    """Get the current user's reviews for all albums in a group."""
+    return review_service.get_my_reviews_for_group(group_id, current_user.id)
+
+
+@group_albums_router.get("/{group_id}/reviews", response_model=list[AlbumReviewItem])
+def get_group_reviews(
+    group_id: int,
+    current_user: User = Depends(get_current_user),
+    review_service: ReviewService = Depends(get_review_service),
+):
+    """Get all published reviews for all albums in a group."""
+    return review_service.get_all_reviews_for_group(group_id, current_user.id)
+
+
 # ==================== GROUP ALBUMS ====================
 
 

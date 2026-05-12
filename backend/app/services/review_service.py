@@ -200,6 +200,76 @@ class ReviewService:
             )
         return review
 
+    def get_my_reviews_for_group(self, group_id: int, user_id: int) -> list[Review]:
+        """Return the current user's reviews for all albums in a group."""
+        album_ids = list(
+            self.db.scalars(
+                select(GroupAlbum.album_id).where(GroupAlbum.group_id == group_id)
+            ).all()
+        )
+        if not album_ids:
+            return []
+        return list(
+            self.db.scalars(
+                select(Review).where(
+                    Review.album_id.in_(album_ids),
+                    Review.user_id == user_id,
+                )
+            ).all()
+        )
+
+    def get_all_reviews_for_group(self, group_id: int, viewer_id: int) -> list[AlbumReviewItem]:
+        """Return all published reviews for all albums in a group.
+
+        Applies the same privacy rules as get_reviews_for_album: names are
+        shown when reviewer has name_is_public=True, or the viewer is a
+        non-global group member.
+        """
+        show_names_in_group = False
+        group = self.db.query(Group).filter(Group.id == group_id).first()
+        if group and not group.is_global:
+            is_member = self.db.execute(
+                select(group_members).where(
+                    group_members.c.group_id == group_id,
+                    group_members.c.user_id == viewer_id,
+                )
+            ).first()
+            show_names_in_group = is_member is not None
+
+        album_ids = list(
+            self.db.scalars(
+                select(GroupAlbum.album_id).where(GroupAlbum.group_id == group_id)
+            ).all()
+        )
+        if not album_ids:
+            return []
+
+        rows = (
+            self.db.query(Review, User.username, User.first_name, User.last_name, User.name_is_public)
+            .join(User, Review.user_id == User.id)
+            .filter(
+                Review.album_id.in_(album_ids),
+                Review.is_draft == False,  # noqa: E712
+            )
+            .all()
+        )
+        return [
+            AlbumReviewItem(
+                id=r.id,
+                album_id=r.album_id,
+                user_id=r.user_id,
+                username=username,
+                first_name=first_name if (name_is_public or show_names_in_group) else None,
+                last_name=last_name if (name_is_public or show_names_in_group) else None,
+                rating=r.rating,
+                comment=r.comment,
+                is_draft=r.is_draft,
+                reviewed_at=r.reviewed_at,
+                updated_at=r.updated_at,
+            )
+            for r, username, first_name, last_name, name_is_public in rows
+        ]
+
     # ==================== UPDATE ====================
 
     def update_review(self, review_id: int, user_id: int, data: ReviewUpdate) -> Review:
