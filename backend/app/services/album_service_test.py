@@ -8,9 +8,10 @@ from sqlalchemy.orm import Session
 
 
 @pytest.fixture(autouse=True)
-def mock_ytmusic(request):
-    """Prevent live YouTube Music API calls in service tests."""
-    with patch("app.services.album_service.search_album_browse_id", return_value=None):
+def mock_external_apis():
+    """Prevent live external API calls in service tests."""
+    with patch("app.services.album_service.search_album_browse_id", return_value=None), \
+         patch("app.services.album_service.get_apple_music_url", return_value=None):
         yield
 
 
@@ -61,6 +62,25 @@ class TestAlbumServiceCreate:
         album = album_service.get_or_create_album(data)
         assert album.id is not None
         assert album.spotify_album_id == "new_spotify_id"
+
+    def test_create_album_stores_apple_music_url(self, album_service):
+        with patch("app.services.album_service.get_apple_music_url", return_value="https://music.apple.com/album/123"):
+            data = AlbumCreate(spotify_album_id="spotify_amc", title="In Rainbows", artist="Radiohead")
+            album = album_service.create_album(data)
+        assert album.apple_music_url == "https://music.apple.com/album/123"
+
+    def test_create_album_apple_music_url_none_on_failure(self, album_service):
+        with patch("app.services.album_service.get_apple_music_url", return_value=None):
+            data = AlbumCreate(spotify_album_id="spotify_no_amc", title="Kid A", artist="Radiohead")
+            album = album_service.create_album(data)
+        assert album.apple_music_url is None
+
+    def test_get_or_create_heals_missing_apple_music_url(self, album_service, sample_album):
+        sample_album.apple_music_url = None
+        data = AlbumCreate(spotify_album_id=sample_album.spotify_album_id, title=sample_album.title, artist=sample_album.artist)
+        with patch("app.services.album_service.get_apple_music_url", return_value="https://music.apple.com/album/456"):
+            result = album_service.get_or_create_album(data)
+        assert result.apple_music_url == "https://music.apple.com/album/456"
 
 
 class TestAlbumServiceGet:

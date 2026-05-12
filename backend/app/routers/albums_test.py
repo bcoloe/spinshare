@@ -39,6 +39,7 @@ def make_mock_album(
     album.release_date = release_date
     album.cover_url = cover_url
     album.youtube_music_id = youtube_music_id
+    album.apple_music_url = None
     album.added_at = added_at or _NOW
     album.genres = genres if genres is not None else []
     return album

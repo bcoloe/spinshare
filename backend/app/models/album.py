@@ -18,6 +18,7 @@ class Album(Base):
     release_date = Column(String)
     cover_url = Column(String)
     youtube_music_id = Column(String, nullable=True)
+    apple_music_url = Column(String, nullable=True)
     added_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships

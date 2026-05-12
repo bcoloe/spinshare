@@ -38,6 +38,7 @@ class AlbumCreate(AlbumBase):
 class AlbumResponse(AlbumBase):
     id: int
     youtube_music_id: str | None = None
+    apple_music_url: str | None = None
     added_at: datetime
     genres: list[str] = []
 
@@ -53,6 +54,7 @@ class AlbumResponse(AlbumBase):
             release_date=album.release_date,
             cover_url=album.cover_url,
             youtube_music_id=album.youtube_music_id,
+            apple_music_url=album.apple_music_url,
             added_at=album.added_at,
             genres=[g.name for g in album.genres],
         )

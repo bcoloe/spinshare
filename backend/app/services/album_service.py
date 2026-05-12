@@ -6,6 +6,7 @@ from app.models import Album, Group, GroupAlbum, User
 from app.models.genre import Genre
 from app.schemas.album import AlbumCreate, GroupAlbumStatus, GroupAlbumStatusUpdate
 from app.services import group_service as gs
+from app.utils.odesli_client import get_apple_music_url
 from app.utils.ytmusic_client import search_album_browse_id
 from fastapi import HTTPException, status
 from sqlalchemy import func
@@ -57,6 +58,11 @@ class AlbumService:
                     dirty = True
                 except Exception:
                     pass
+            if existing.apple_music_url is None:
+                url = get_apple_music_url(existing.spotify_album_id)
+                if url:
+                    existing.apple_music_url = url
+                    dirty = True
             if dirty:
                 self.db.commit()
                 self.db.refresh(existing)
@@ -70,6 +76,7 @@ class AlbumService:
             ytm_id = search_album_browse_id(data.title, data.artist)
         except Exception:
             pass
+        apple_url = get_apple_music_url(data.spotify_album_id)
         album = Album(
             spotify_album_id=data.spotify_album_id,
             title=data.title,
@@ -77,6 +84,7 @@ class AlbumService:
             release_date=data.release_date,
             cover_url=data.cover_url,
             youtube_music_id=ytm_id,
+            apple_music_url=apple_url,
             genres=genres,
         )
         try:
