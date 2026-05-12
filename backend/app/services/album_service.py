@@ -10,7 +10,7 @@ from app.utils.ytmusic_client import search_album_browse_id
 from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 
 class AlbumService:
@@ -311,6 +311,10 @@ class AlbumService:
                 GroupAlbum.status == GroupAlbumStatus.Selected,
                 GroupAlbum.selected_date >= today_start,
             )
+            .options(
+                selectinload(GroupAlbum.albums).selectinload(Album.genres),
+                selectinload(GroupAlbum.albums).selectinload(Album.reviews),
+            )
             .all()
         )
 
@@ -336,6 +340,10 @@ class AlbumService:
         q = (
             self.db.query(GroupAlbum, subq.c.nomination_count)
             .join(subq, GroupAlbum.id == subq.c.canonical_id)
+            .options(
+                selectinload(GroupAlbum.albums).selectinload(Album.genres),
+                selectinload(GroupAlbum.albums).selectinload(Album.reviews),
+            )
         )
         if status_filter:
             q = q.filter(GroupAlbum.status == status_filter)
