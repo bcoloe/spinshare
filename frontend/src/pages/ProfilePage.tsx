@@ -7,6 +7,7 @@ import {
   PasswordInput,
   Skeleton,
   Stack,
+  Switch,
   Text,
   TextInput,
   Title,
@@ -28,12 +29,12 @@ import { getSpotifyConnectUrl, disconnectSpotify } from '../services/streamingSe
 interface EditFormValues {
   username: string
   email: string
-  display_name: string
+  first_name: string
+  last_name: string
+  name_is_public: boolean
   password: string
   confirmPassword: string
 }
-
-const SPECIAL_CHARS = /[!@#$%^&*(),.?":{}|<>]/
 
 function validatePassword(v: string): string | null {
   if (!v) return null
@@ -42,7 +43,6 @@ function validatePassword(v: string): string | null {
   if (!/[A-Z]/.test(v)) return 'Must contain an uppercase letter'
   if (!/[a-z]/.test(v)) return 'Must contain a lowercase letter'
   if (!/[0-9]/.test(v)) return 'Must contain a number'
-  if (!SPECIAL_CHARS.test(v)) return 'Must contain a special character (!@#$%^&*…)'
   if (/\s/.test(v)) return 'Must not contain spaces'
   return null
 }
@@ -103,7 +103,9 @@ export default function ProfilePage() {
     initialValues: {
       username: user?.username ?? '',
       email: user?.email ?? '',
-      display_name: user?.display_name ?? '',
+      first_name: user?.first_name ?? '',
+      last_name: user?.last_name ?? '',
+      name_is_public: user?.name_is_public ?? false,
       password: '',
       confirmPassword: '',
     },
@@ -124,11 +126,14 @@ export default function ProfilePage() {
   const handleSave = async (values: EditFormValues) => {
     setSaving(true)
     try {
-      const payload: Record<string, string | null> = {}
+      const payload: Record<string, string | null | boolean> = {}
       if (values.username !== user?.username) payload.username = values.username.toLowerCase()
       if (values.email !== user?.email) payload.email = values.email.toLowerCase()
-      const newDisplayName = values.display_name.trim() || null
-      if (newDisplayName !== (user?.display_name ?? null)) payload.display_name = newDisplayName
+      const newFirstName = values.first_name.trim() || null
+      const newLastName = values.last_name.trim() || null
+      if (newFirstName !== (user?.first_name ?? null)) payload.first_name = newFirstName
+      if (newLastName !== (user?.last_name ?? null)) payload.last_name = newLastName
+      if (values.name_is_public !== (user?.name_is_public ?? false)) payload.name_is_public = values.name_is_public
       if (values.password) payload.password = values.password
 
       if (Object.keys(payload).length === 0) {
@@ -189,12 +194,24 @@ export default function ProfilePage() {
             <Stack gap="md">
               <TextInput label="Username" {...form.getInputProps('username')} />
               <TextInput label="Email" {...form.getInputProps('email')} />
-              <TextInput
-                label="Display name"
-                description="Shown on hover in group guessing. Leave blank to use your username."
-                placeholder={user?.username}
-                maxLength={50}
-                {...form.getInputProps('display_name')}
+              <Group gap="sm" grow>
+                <TextInput
+                  label="First name"
+                  placeholder="First name"
+                  maxLength={50}
+                  {...form.getInputProps('first_name')}
+                />
+                <TextInput
+                  label="Last name"
+                  placeholder="Last name"
+                  maxLength={50}
+                  {...form.getInputProps('last_name')}
+                />
+              </Group>
+              <Switch
+                label="Show name publicly"
+                description="When on, your name is visible on your public profile. Otherwise it's only visible to members of your groups."
+                {...form.getInputProps('name_is_public', { type: 'checkbox' })}
               />
               <PasswordInput
                 label="New password"
@@ -222,22 +239,22 @@ export default function ProfilePage() {
                 <Text fw={500}>{user?.username}</Text>
                 <Text size="sm" c="dimmed">{user?.email}</Text>
               </div>
-              <Button size="xs" variant="light" onClick={() => { form.setValues({ username: user?.username ?? '', email: user?.email ?? '', display_name: user?.display_name ?? '', password: '', confirmPassword: '' }); setEditing(true) }}>Edit</Button>
+              <Button size="xs" variant="light" onClick={() => { form.setValues({ username: user?.username ?? '', email: user?.email ?? '', first_name: user?.first_name ?? '', last_name: user?.last_name ?? '', name_is_public: user?.name_is_public ?? false, password: '', confirmPassword: '' }); setEditing(true) }}>Edit</Button>
             </Group>
             <div>
-              <Text size="xs" c="dimmed" mb={2}>Display name</Text>
-              {user?.display_name ? (
-                <Group gap="xs" align="baseline">
-                  <Text size="sm">{user.display_name}</Text>
-                  <Text size="sm" c="dimmed" fs="italic">({user.username})</Text>
-                </Group>
+              <Text size="xs" c="dimmed" mb={2}>Name</Text>
+              {(user?.first_name || user?.last_name) ? (
+                <Stack gap={2}>
+                  <Text size="sm">{[user.first_name, user.last_name].filter(Boolean).join(' ')}</Text>
+                  <Text size="xs" c="dimmed">{user?.name_is_public ? 'Visible publicly' : 'Visible to group members only'}</Text>
+                </Stack>
               ) : (
                 <Text
                   size="sm"
                   c="dimmed"
                   fs="italic"
                   style={{ cursor: 'pointer' }}
-                  onClick={() => { form.setValues({ username: user?.username ?? '', email: user?.email ?? '', display_name: '', password: '', confirmPassword: '' }); setEditing(true) }}
+                  onClick={() => { form.setValues({ username: user?.username ?? '', email: user?.email ?? '', first_name: '', last_name: '', name_is_public: user?.name_is_public ?? false, password: '', confirmPassword: '' }); setEditing(true) }}
                 >
                   Not set — click Edit to add one
                 </Text>

@@ -36,8 +36,11 @@ export const albumService = {
     return apiFetch(`/albums/${albumId}`)
   },
 
-  getAllReviews(albumId: number): Promise<AlbumReviewItem[]> {
-    return apiFetch(`/albums/${albumId}/reviews`)
+  getAllReviews(albumId: number, groupId?: number): Promise<AlbumReviewItem[]> {
+    const url = groupId != null
+      ? `/albums/${albumId}/reviews?group_id=${groupId}`
+      : `/albums/${albumId}/reviews`
+    return apiFetch(url)
   },
 
   getAlbumStats(albumId: number): Promise<AlbumStatsResponse> {

@@ -5,6 +5,7 @@ import {
   Box,
   Button,
   Center,
+  Group,
   Paper,
   PasswordInput,
   Progress,
@@ -21,11 +22,11 @@ import { ApiError } from '../services/apiClient'
 interface FormValues {
   username: string
   email: string
+  first_name: string
+  last_name: string
   password: string
   confirmPassword: string
 }
-
-const SPECIAL_CHARS = /[!@#$%^&*(),.?":{}|<>]/
 
 function passwordStrength(password: string): number {
   if (!password) return 0
@@ -34,8 +35,7 @@ function passwordStrength(password: string): number {
   if (/[A-Z]/.test(password)) score++
   if (/[a-z]/.test(password)) score++
   if (/[0-9]/.test(password)) score++
-  if (SPECIAL_CHARS.test(password)) score++
-  return (score / 5) * 100
+  return (score / 4) * 100
 }
 
 const STRENGTH_COLOR = (pct: number) => {
@@ -50,7 +50,6 @@ function validatePassword(v: string): string | null {
   if (!/[A-Z]/.test(v)) return 'Must contain an uppercase letter'
   if (!/[a-z]/.test(v)) return 'Must contain a lowercase letter'
   if (!/[0-9]/.test(v)) return 'Must contain a number'
-  if (!SPECIAL_CHARS.test(v)) return 'Must contain a special character (!@#$%^&*…)'
   if (/\s/.test(v)) return 'Must not contain spaces'
   return null
 }
@@ -62,7 +61,7 @@ export default function RegisterPage() {
   const next = searchParams.get('next')
 
   const form = useForm<FormValues>({
-    initialValues: { username: '', email: '', password: '', confirmPassword: '' },
+    initialValues: { username: '', email: '', first_name: '', last_name: '', password: '', confirmPassword: '' },
     validate: {
       username: (v) => {
         if (!v.trim()) return 'Username is required'
@@ -82,11 +81,14 @@ export default function RegisterPage() {
   const handleSubmit = async (values: FormValues) => {
     setLoading(true)
     try {
-      await authService.register({
+      const registerPayload: Parameters<typeof authService.register>[0] = {
         username: values.username.trim().toLowerCase(),
         email: values.email.trim().toLowerCase(),
         password: values.password,
-      })
+      }
+      if (values.first_name.trim()) registerPayload.first_name = values.first_name.trim()
+      if (values.last_name.trim()) registerPayload.last_name = values.last_name.trim()
+      await authService.register(registerPayload)
       notifications.show({ color: 'green', message: 'Account created — please sign in' })
       navigate(next ? `/login?next=${encodeURIComponent(next)}` : '/login')
     } catch (err) {
@@ -120,6 +122,24 @@ export default function RegisterPage() {
                 autoComplete="email"
                 {...form.getInputProps('email')}
               />
+              <Group gap="sm" grow>
+                <TextInput
+                  label="First name"
+                  description="Optional"
+                  placeholder="First name"
+                  autoComplete="given-name"
+                  maxLength={50}
+                  {...form.getInputProps('first_name')}
+                />
+                <TextInput
+                  label="Last name"
+                  description="Optional"
+                  placeholder="Last name"
+                  autoComplete="family-name"
+                  maxLength={50}
+                  {...form.getInputProps('last_name')}
+                />
+              </Group>
               <div>
                 <PasswordInput
                   label="Password"

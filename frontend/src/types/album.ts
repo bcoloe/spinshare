@@ -38,7 +38,6 @@ export interface ReviewResponse {
   id: number
   album_id: number
   user_id: number
-  display_name?: string | null
   rating: number | null
   comment: string | null
   is_draft: boolean
@@ -51,7 +50,8 @@ export interface AlbumReviewItem {
   album_id: number
   user_id: number
   username: string
-  display_name: string | null
+  first_name: string | null
+  last_name: string | null
   rating: number | null
   comment: string | null
   is_draft: boolean
@@ -105,7 +105,8 @@ export interface NominationCountResponse {
 export interface GuessOptionUser {
   user_id: number
   username: string
-  display_name?: string | null
+  first_name?: string | null
+  last_name?: string | null
 }
 
 export interface GuessOptionsResponse {

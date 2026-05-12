@@ -340,7 +340,8 @@ function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: 
             <Stack gap="sm">
               {displayReviews.map((r) => {
                 const username = ('username' in r ? (r as AlbumReviewItem).username : members.find((m) => m.user_id === r.user_id)?.username) ?? 'Unknown'
-                const memberName = r.display_name ? `${r.display_name} (${username})` : username
+                const fullName = ('first_name' in r ? [r.first_name, r.last_name].filter(Boolean).join(' ') : '')
+                const memberName = fullName ? `${fullName} (${username})` : username
                 const isMine = r.user_id === review.user_id
                 const isCardExpanded = expandedCards.has(r.id) || (isMine && editMode)
                 const previewLine = r.comment?.split('\n')[0]
@@ -479,8 +480,8 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
 
   const allReviewQueries = useQueries({
     queries: albums.map((ga) => ({
-      queryKey: ['reviews', ga.album_id, 'all'],
-      queryFn: () => albumService.getAllReviews(ga.album_id),
+      queryKey: ['reviews', ga.album_id, 'all', groupId],
+      queryFn: () => albumService.getAllReviews(ga.album_id, groupId),
       enabled: !!ga.album_id,
     })),
   })

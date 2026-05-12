@@ -56,6 +56,8 @@ class UserService:
             email=user_data.email.lower(),
             username=user_data.username.lower(),
             password_hash=security.hash_password(user_data.password),
+            first_name=user_data.first_name or None,
+            last_name=user_data.last_name or None,
         )
 
         try:
@@ -124,7 +126,8 @@ class UserService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         return {
             "username": user.username,
-            "display_name": user.display_name,
+            "first_name": user.first_name if user.name_is_public else None,
+            "last_name": user.last_name if user.name_is_public else None,
             "email": user.email,
             "member_since": user.created_at,
             "total_reviews": sum(1 for r in user.reviews if not r.is_draft),
@@ -331,9 +334,13 @@ class UserService:
                 )
             user.username = user_data.username.lower()
 
-        # Update display_name if provided (can be set to None to clear)
-        if "display_name" in user_data.model_fields_set:
-            user.display_name = user_data.display_name
+        # Update name fields if provided (can be set to None to clear)
+        if "first_name" in user_data.model_fields_set:
+            user.first_name = user_data.first_name
+        if "last_name" in user_data.model_fields_set:
+            user.last_name = user_data.last_name
+        if "name_is_public" in user_data.model_fields_set and user_data.name_is_public is not None:
+            user.name_is_public = user_data.name_is_public
 
         # Update password if provided
         if user_data.password:

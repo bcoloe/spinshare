@@ -41,14 +41,13 @@ class TestSecurity:
             ("a-FINE-password!", False, [security.PasswordStrengthConditions.Number]),
             # test spaces
             ("a FINE password123!", False, [security.PasswordStrengthConditions.NoSpaces]),
-            # test no special characters
-            ("a-FINE-password123", False, [security.PasswordStrengthConditions.SpecialCharacters]),
+            # test no special characters (now valid)
+            ("a-FINE-password123", True, []),
             # test multiple violations
             (
                 "a-FINE password",
                 False,
                 [
-                    security.PasswordStrengthConditions.SpecialCharacters,
                     security.PasswordStrengthConditions.Number,
                     security.PasswordStrengthConditions.NoSpaces,
                 ],

@@ -71,13 +71,10 @@ class TestUserServiceCreate:
             ("a-FINE-password!", [security.PasswordStrengthConditions.Number]),
             # test spaces
             ("a FINE password123!", [security.PasswordStrengthConditions.NoSpaces]),
-            # test no special characters
-            ("a-FINE-password123", [security.PasswordStrengthConditions.SpecialCharacters]),
             # test multiple violations
             (
                 "a-FINE password",
                 [
-                    security.PasswordStrengthConditions.SpecialCharacters,
                     security.PasswordStrengthConditions.Number,
                     security.PasswordStrengthConditions.NoSpaces,
                 ],

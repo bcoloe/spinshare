@@ -68,10 +68,6 @@ class PasswordStrengthConditions(enum.Enum):
     NoSpaces = TestCondition(
         "Passwords may not contain spaces", lambda x: not bool(re.search(r"\s", x))
     )
-    SpecialCharacters = TestCondition(
-        "Password must contain at least one special character",
-        lambda x: bool(re.search(r'[!@#$%^&*(),.?":{}|<>]', x)),
-    )
 
 
 def validate_password_strength(plain_password: str) -> tuple[bool, list[str]]:
