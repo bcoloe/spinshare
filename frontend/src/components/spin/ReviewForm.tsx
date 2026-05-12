@@ -12,6 +12,8 @@ interface Props {
 
 export default function ReviewForm({ albumId, existingReview }: Props) {
   const isDraft = !!existingReview?.is_draft
+  const isPublished = !!existingReview && !isDraft
+  const [editing, setEditing] = useState(false)
 
   const [rating, setRating] = useState<number | null>(existingReview?.rating ?? null)
   const [comment, setComment] = useState(existingReview?.comment ?? '')
@@ -19,16 +21,29 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
   const updateReview = useUpdateReview(albumId)
 
   useEffect(() => {
-    if (isDraft && existingReview) {
+    if (existingReview) {
       setRating(existingReview.rating)
       setComment(existingReview.comment ?? '')
     }
   }, [existingReview?.id])
 
-  if (existingReview && !isDraft) {
+  if (isPublished && !editing) {
     return (
       <Stack gap="xs">
-        <Text size="sm" fw={600}>Your review</Text>
+        <Group justify="space-between" align="center">
+          <Text size="sm" fw={600}>Your review</Text>
+          <Button
+            size="xs"
+            variant="subtle"
+            onClick={() => {
+              setRating(existingReview.rating)
+              setComment(existingReview.comment ?? '')
+              setEditing(true)
+            }}
+          >
+            Edit
+          </Button>
+        </Group>
         <Group gap="xs">
           <Text size="sm" c="dimmed">Rating:</Text>
           <Text size="sm" fw={500}>{existingReview.rating} / 10</Text>
@@ -42,7 +57,7 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
 
   const handleSaveDraft = async () => {
     try {
-      if (isDraft && existingReview) {
+      if (existingReview) {
         await updateReview.mutateAsync({
           reviewId: existingReview.id,
           data: { rating: rating ?? undefined, comment: comment || undefined, is_draft: true },
@@ -63,15 +78,16 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
       return
     }
     try {
-      if (isDraft && existingReview) {
+      if (existingReview) {
         await updateReview.mutateAsync({
           reviewId: existingReview.id,
-          data: { rating: rating ?? undefined, comment: comment || undefined, is_draft: false },
+          data: { rating, comment: comment || undefined, is_draft: false },
         })
       } else {
-        await submitReview.mutateAsync({ rating: rating ?? undefined, comment: comment || undefined })
+        await submitReview.mutateAsync({ rating, comment: comment || undefined })
       }
-      notifications.show({ color: 'green', message: 'Review submitted' })
+      if (editing) setEditing(false)
+      notifications.show({ color: 'green', message: existingReview ? 'Review updated' : 'Review submitted' })
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Could not submit review'
       notifications.show({ color: 'red', message })
@@ -79,10 +95,11 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
   }
 
   const isLoading = submitReview.isPending || updateReview.isPending
+  const title = isDraft ? 'Your draft review' : isPublished ? 'Edit your review' : 'Your review'
 
   return (
     <Stack gap="md">
-      <Text size="sm" fw={600}>{isDraft ? 'Your draft review' : 'Your review'}</Text>
+      <Text size="sm" fw={600}>{title}</Text>
       <div>
         <Group justify="space-between" mb={4}>
           <Text size="sm">Rating</Text>
@@ -110,12 +127,19 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
         minRows={2}
       />
       <Group gap="xs">
-        <Button variant="default" onClick={handleSaveDraft} loading={isLoading}>
-          Save draft
-        </Button>
+        {!isPublished && (
+          <Button variant="default" onClick={handleSaveDraft} loading={isLoading}>
+            Save draft
+          </Button>
+        )}
         <Button onClick={handleSubmit} loading={isLoading} disabled={rating === null}>
-          Submit review
+          {isPublished ? 'Save' : 'Submit review'}
         </Button>
+        {editing && (
+          <Button variant="subtle" color="gray" onClick={() => setEditing(false)} disabled={isLoading}>
+            Cancel
+          </Button>
+        )}
       </Group>
     </Stack>
   )

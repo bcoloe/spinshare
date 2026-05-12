@@ -61,6 +61,14 @@ export const albumService = {
     })
   },
 
+  getMyReviewsForGroup(groupId: number): Promise<ReviewResponse[]> {
+    return apiFetch(`/groups/${groupId}/reviews/me`)
+  },
+
+  getAllReviewsForGroup(groupId: number): Promise<AlbumReviewItem[]> {
+    return apiFetch(`/groups/${groupId}/reviews`)
+  },
+
   getMyGuess(groupId: number, groupAlbumId: number): Promise<CheckGuessResponse | null> {
     return apiFetch<CheckGuessResponse>(
       `/groups/${groupId}/albums/${groupAlbumId}/guess/me`,

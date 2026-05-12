@@ -330,6 +330,54 @@ class TestReviewDelete:
 # ==================== GROUP ALBUMS ====================
 
 
+class TestGroupReviews:
+    def test_get_my_group_reviews_success(self, client, mock_review_service):
+        mock_review_service.get_my_reviews_for_group.return_value = [
+            make_mock_review(id=1, album_id=1, rating=7.0),
+            make_mock_review(id=2, album_id=2, rating=8.5),
+        ]
+        resp = client.get("/groups/1/reviews/me")
+        assert resp.status_code == status.HTTP_200_OK
+        body = resp.json()
+        assert len(body) == 2
+        assert body[0]["album_id"] == 1
+        assert body[1]["album_id"] == 2
+        mock_review_service.get_my_reviews_for_group.assert_called_once()
+
+    def test_get_my_group_reviews_empty(self, client, mock_review_service):
+        mock_review_service.get_my_reviews_for_group.return_value = []
+        resp = client.get("/groups/1/reviews/me")
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json() == []
+
+    def test_get_my_group_reviews_unauthenticated(self, unauthed_client):
+        resp = unauthed_client.get("/groups/1/reviews/me")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_get_group_reviews_success(self, client, mock_review_service):
+        mock_review_service.get_all_reviews_for_group.return_value = [
+            make_mock_review(id=1, album_id=1, username="alice", rating=7.0),
+            make_mock_review(id=2, album_id=1, user_id=2, username="bob", rating=8.0),
+        ]
+        resp = client.get("/groups/1/reviews")
+        assert resp.status_code == status.HTTP_200_OK
+        body = resp.json()
+        assert len(body) == 2
+        assert body[0]["username"] == "alice"
+        assert body[1]["username"] == "bob"
+        mock_review_service.get_all_reviews_for_group.assert_called_once()
+
+    def test_get_group_reviews_empty(self, client, mock_review_service):
+        mock_review_service.get_all_reviews_for_group.return_value = []
+        resp = client.get("/groups/1/reviews")
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json() == []
+
+    def test_get_group_reviews_unauthenticated(self, unauthed_client):
+        resp = unauthed_client.get("/groups/1/reviews")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+
 class TestGroupAlbumNominate:
     def test_nominate_album_success(self, client, mock_album_service):
         mock_album_service.nominate_album.return_value = make_mock_group_album()

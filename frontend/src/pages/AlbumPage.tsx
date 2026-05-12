@@ -42,7 +42,9 @@ import {
 } from 'recharts'
 import AppShell from '../components/layout/AppShell'
 import PlaylistPickerModal from '../components/spin/PlaylistPickerModal'
+import ReviewForm from '../components/spin/ReviewForm'
 import { usePlayer } from '../context/PlayerContext'
+import { useMyReview } from '../hooks/useDailySpin'
 import { useAlbumDetails, useAlbumReviews, useAlbumStats } from '../hooks/useAlbumPage'
 import { getSpotifyToken } from '../services/streamingService'
 import { isAlbumSaved, saveAlbum, unsaveAlbum } from '../services/spotifyApiClient'
@@ -383,6 +385,7 @@ export default function AlbumPage() {
   const { data: album, isLoading: albumLoading } = useAlbumDetails(albumId)
   const { data: reviews = [], isLoading: reviewsLoading } = useAlbumReviews(albumId)
   const { data: stats, isLoading: statsLoading } = useAlbumStats(albumId)
+  const { data: myReview = null, isLoading: myReviewLoading } = useMyReview(albumId)
 
   const {
     status: playerStatus,
@@ -616,6 +619,15 @@ export default function AlbumPage() {
                 </Box>
               </Group>
             </Stack>
+          )}
+        </Paper>
+
+        {/* ── YOUR REVIEW ── */}
+        <Paper withBorder p="md" radius="md">
+          {myReviewLoading ? (
+            <Skeleton h={80} />
+          ) : (
+            <ReviewForm albumId={albumId} existingReview={myReview} />
           )}
         </Paper>
 
