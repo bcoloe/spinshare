@@ -43,7 +43,41 @@ class ReviewService:
             ) from None
         if not data.is_draft:
             self._notify_co_reviewers(album_id, user_id)
+        self._refresh_group_album_avgs(album_id)
         return review
+
+    def _refresh_group_album_avgs(self, album_id: int) -> None:
+        """Recompute and cache avg_rating / review_count on all group_albums rows for this album.
+
+        Only published, rated reviews from current group members are counted, matching
+        the member-scoped average shown in the review history table.
+        """
+        group_albums = list(
+            self.db.scalars(select(GroupAlbum).where(GroupAlbum.album_id == album_id)).all()
+        )
+        for ga in group_albums:
+            member_ids = list(
+                self.db.scalars(
+                    select(group_members.c.user_id).where(group_members.c.group_id == ga.group_id)
+                ).all()
+            )
+            ratings = (
+                list(
+                    self.db.scalars(
+                        select(Review.rating).where(
+                            Review.album_id == album_id,
+                            Review.user_id.in_(member_ids),
+                            Review.is_draft == False,  # noqa: E712
+                            Review.rating.isnot(None),
+                        )
+                    ).all()
+                )
+                if member_ids
+                else []
+            )
+            ga.avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else None
+            ga.review_count = len(ratings)
+        self.db.commit()
 
     def _notify_co_reviewers(self, album_id: int, reviewer_id: int) -> None:
         """Notify group members who already reviewed this album that a new review was posted.
@@ -201,10 +235,13 @@ class ReviewService:
         return review
 
     def get_my_reviews_for_group(self, group_id: int, user_id: int) -> list[Review]:
-        """Return the current user's reviews for all albums in a group."""
+        """Return the current user's reviews for all selected albums in a group."""
         album_ids = list(
             self.db.scalars(
-                select(GroupAlbum.album_id).where(GroupAlbum.group_id == group_id)
+                select(GroupAlbum.album_id).where(
+                    GroupAlbum.group_id == group_id,
+                    GroupAlbum.selected_date.isnot(None),
+                )
             ).all()
         )
         if not album_ids:
@@ -238,7 +275,10 @@ class ReviewService:
 
         album_ids = list(
             self.db.scalars(
-                select(GroupAlbum.album_id).where(GroupAlbum.group_id == group_id)
+                select(GroupAlbum.album_id).where(
+                    GroupAlbum.group_id == group_id,
+                    GroupAlbum.selected_date.isnot(None),
+                )
             ).all()
         )
         if not album_ids:
@@ -306,6 +346,7 @@ class ReviewService:
 
         if was_draft and not review.is_draft:
             self._notify_co_reviewers(review.album_id, user_id)
+        self._refresh_group_album_avgs(review.album_id)
 
         return review
 
@@ -324,5 +365,7 @@ class ReviewService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You can only delete your own reviews",
             )
+        album_id = review.album_id
         self.db.delete(review)
         self.db.commit()
+        self._refresh_group_album_avgs(album_id)

@@ -80,6 +80,8 @@ class GroupAlbumResponse(BaseModel):
     album: AlbumResponse
     nomination_count: int = 1
     nominator_user_ids: list[int] = []
+    avg_rating: float | None = None
+    review_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -96,6 +98,8 @@ class GroupAlbumResponse(BaseModel):
             album=AlbumResponse.from_orm_with_genres(ga.albums),
             nomination_count=getattr(ga, "nomination_count", 1),
             nominator_user_ids=getattr(ga, "nominator_user_ids", [ga.added_by] if ga.added_by is not None else []),
+            avg_rating=getattr(ga, "avg_rating", None),
+            review_count=getattr(ga, "review_count", 0),
         )
 
 

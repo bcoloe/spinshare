@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import pytest
 from app.models import GroupAlbum
 from app.models.notification import Notification
@@ -301,14 +303,26 @@ class TestReviewNotifications:
         assert ns.get_unread(sample_user) == []
 
 
+def _selected_ga(db_session, group_id, album_id, added_by) -> GroupAlbum:
+    """Insert a GroupAlbum with selected_date so status-filter queries include it."""
+    ga = GroupAlbum(
+        group_id=group_id,
+        album_id=album_id,
+        added_by=added_by,
+        selected_date=datetime.now(tz=timezone.utc),
+    )
+    db_session.add(ga)
+    db_session.commit()
+    db_session.refresh(ga)
+    return ga
+
+
 class TestGroupReviews:
     def test_get_my_reviews_for_group_returns_own_reviews(
         self, db_session, review_service, sample_group, sample_album, sample_user, user_factory
     ):
         other = user_factory(email="other@test.com", username="other_user")
-        ga = GroupAlbum(group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id)
-        db_session.add(ga)
-        db_session.commit()
+        _selected_ga(db_session, sample_group.id, sample_album.id, sample_user.id)
 
         review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=7.0))
         review_service.create_review(sample_album.id, other.id, ReviewCreate(rating=8.0))
@@ -318,13 +332,22 @@ class TestGroupReviews:
         assert results[0].user_id == sample_user.id
         assert results[0].album_id == sample_album.id
 
-    def test_get_my_reviews_for_group_includes_drafts(
+    def test_get_my_reviews_for_group_excludes_pending_albums(
         self, db_session, review_service, sample_group, sample_album, sample_user
     ):
         ga = GroupAlbum(group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id)
         db_session.add(ga)
         db_session.commit()
 
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=7.0))
+
+        results = review_service.get_my_reviews_for_group(sample_group.id, sample_user.id)
+        assert results == []
+
+    def test_get_my_reviews_for_group_includes_drafts(
+        self, db_session, review_service, sample_group, sample_album, sample_user
+    ):
+        _selected_ga(db_session, sample_group.id, sample_album.id, sample_user.id)
         review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=6.0, is_draft=True))
 
         results = review_service.get_my_reviews_for_group(sample_group.id, sample_user.id)
@@ -340,9 +363,7 @@ class TestGroupReviews:
     def test_get_my_reviews_for_group_empty_when_no_reviews(
         self, db_session, review_service, sample_group, sample_album, sample_user
     ):
-        ga = GroupAlbum(group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id)
-        db_session.add(ga)
-        db_session.commit()
+        _selected_ga(db_session, sample_group.id, sample_album.id, sample_user.id)
 
         results = review_service.get_my_reviews_for_group(sample_group.id, sample_user.id)
         assert results == []
@@ -351,9 +372,7 @@ class TestGroupReviews:
         self, db_session, review_service, sample_group, sample_album, sample_user, user_factory
     ):
         other = user_factory(email="other@test.com", username="other_user")
-        ga = GroupAlbum(group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id)
-        db_session.add(ga)
-        db_session.commit()
+        _selected_ga(db_session, sample_group.id, sample_album.id, sample_user.id)
 
         review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=7.0))
         review_service.create_review(sample_album.id, other.id, ReviewCreate(rating=8.0))
@@ -361,13 +380,23 @@ class TestGroupReviews:
         results = review_service.get_all_reviews_for_group(sample_group.id, sample_user.id)
         assert len(results) == 2
 
+    def test_get_all_reviews_for_group_excludes_pending_albums(
+        self, db_session, review_service, sample_group, sample_album, sample_user
+    ):
+        ga = GroupAlbum(group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id)
+        db_session.add(ga)
+        db_session.commit()
+
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=7.0))
+
+        results = review_service.get_all_reviews_for_group(sample_group.id, sample_user.id)
+        assert results == []
+
     def test_get_all_reviews_for_group_excludes_drafts(
         self, db_session, review_service, sample_group, sample_album, sample_user, user_factory
     ):
         other = user_factory(email="other@test.com", username="other_user")
-        ga = GroupAlbum(group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id)
-        db_session.add(ga)
-        db_session.commit()
+        _selected_ga(db_session, sample_group.id, sample_album.id, sample_user.id)
 
         review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=7.0))
         review_service.create_review(sample_album.id, other.id, ReviewCreate(rating=8.0, is_draft=True))
@@ -381,6 +410,77 @@ class TestGroupReviews:
     ):
         results = review_service.get_all_reviews_for_group(sample_group.id, sample_user.id)
         assert results == []
+
+
+class TestGroupAlbumAvgCache:
+    def test_create_review_updates_avg_rating(
+        self, db_session, review_service, sample_group, sample_album, sample_user
+    ):
+        ga = _selected_ga(db_session, sample_group.id, sample_album.id, sample_user.id)
+
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=8.0))
+
+        db_session.refresh(ga)
+        assert ga.avg_rating == 8.0
+        assert ga.review_count == 1
+
+    def test_avg_counts_only_group_members(
+        self, db_session, review_service, sample_group, sample_album, sample_user, user_factory
+    ):
+        non_member = user_factory(email="outsider@test.com", username="outsider")
+        ga = _selected_ga(db_session, sample_group.id, sample_album.id, sample_user.id)
+
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=6.0))
+        review_service.create_review(sample_album.id, non_member.id, ReviewCreate(rating=10.0))
+
+        db_session.refresh(ga)
+        assert ga.avg_rating == 6.0
+        assert ga.review_count == 1
+
+    def test_avg_excludes_drafts(
+        self, db_session, review_service, sample_group, sample_album, sample_user
+    ):
+        ga = _selected_ga(db_session, sample_group.id, sample_album.id, sample_user.id)
+
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=7.0, is_draft=True))
+
+        db_session.refresh(ga)
+        assert ga.avg_rating is None
+        assert ga.review_count == 0
+
+    def test_update_review_refreshes_avg(
+        self, db_session, review_service, sample_group, sample_album, sample_user
+    ):
+        ga = _selected_ga(db_session, sample_group.id, sample_album.id, sample_user.id)
+        review = review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=6.0))
+
+        review_service.update_review(review.id, sample_user.id, ReviewUpdate(rating=9.0))
+
+        db_session.refresh(ga)
+        assert ga.avg_rating == 9.0
+
+    def test_delete_review_refreshes_avg(
+        self, db_session, review_service, sample_group, sample_album, sample_user
+    ):
+        ga = _selected_ga(db_session, sample_group.id, sample_album.id, sample_user.id)
+        review = review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=8.0))
+
+        review_service.delete_review(review.id, sample_user.id)
+
+        db_session.refresh(ga)
+        assert ga.avg_rating is None
+        assert ga.review_count == 0
+
+    def test_avg_is_none_when_no_rated_reviews(
+        self, db_session, review_service, sample_group, sample_album, sample_user
+    ):
+        ga = _selected_ga(db_session, sample_group.id, sample_album.id, sample_user.id)
+
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=None, is_draft=True))
+
+        db_session.refresh(ga)
+        assert ga.avg_rating is None
+        assert ga.review_count == 0
 
 
 class TestAlbumStats:

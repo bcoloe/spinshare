@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ActionIcon,
+  Avatar,
   Button,
   Collapse,
   Group,
@@ -14,23 +15,29 @@ import {
   Text,
   TextInput,
   Textarea,
+  Tooltip,
   UnstyledButton,
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import { useQuery } from '@tanstack/react-query'
 import {
+  IconCheck,
   IconChevronDown,
   IconChevronRight,
   IconChevronUp,
+  IconHelpCircle,
   IconPencil,
   IconSelector,
+  IconX,
 } from '@tabler/icons-react'
 import { albumService } from '../../services/albumService'
-import { useUpdateReview } from '../../hooks/useDailySpin'
+import { useAuth } from '../../hooks/useAuth'
+import { useCheckGuess, useGuessOptions, useUpdateReview } from '../../hooks/useDailySpin'
 import { ApiError } from '../../services/apiClient'
+import GuessResult from '../spin/GuessResult'
 import ReviewAndGuessForm from '../spin/ReviewAndGuessForm'
-import type { AlbumReviewItem, GroupAlbumResponse, ReviewResponse } from '../../types/album'
+import type { AlbumReviewItem, CheckGuessResponse, GroupAlbumResponse, ReviewResponse } from '../../types/album'
 import type { GroupMemberResponse } from '../../types/group'
 
 // ==================== TYPES ====================
@@ -143,6 +150,93 @@ function CoverCell({ src }: { src: string | null }) {
   )
 }
 
+// ==================== INLINE GUESS FORM ====================
+
+interface InlineGuessFormProps {
+  groupId: number
+  ga: GroupAlbumResponse
+}
+
+function InlineGuessForm({ groupId, ga }: InlineGuessFormProps) {
+  const { user } = useAuth()
+  const [selected, setSelected] = useState<number | 'chaos' | null>(null)
+  const { data: optionsData, isLoading: optionsLoading } = useGuessOptions(groupId, ga.id)
+  const checkGuess = useCheckGuess(groupId, ga.id)
+
+  const eligible = optionsData?.options.filter((o) => o.user_id !== user?.id) ?? []
+  const hasChaosOption = optionsData?.has_chaos_option ?? false
+
+  const handleSubmit = async () => {
+    if (selected === null) return
+    try {
+      await checkGuess.mutateAsync({ guessed_user_id: selected === 'chaos' ? null : selected })
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Could not submit guess'
+      notifications.show({ color: 'red', message })
+    }
+  }
+
+  if (optionsLoading) return <Skeleton h={40} />
+
+  return (
+    <Stack gap="xs">
+      <Text size="sm" fw={600}>Who nominated this?</Text>
+      <Group gap="xs">
+        {eligible.map((o) => {
+          const isSelected = selected === o.user_id
+          const fullName = [o.first_name, o.last_name].filter(Boolean).join(' ')
+          const tooltipLabel = fullName ? `${fullName} (${o.username})` : o.username
+          return (
+            <Tooltip key={o.user_id} label={tooltipLabel} withArrow>
+              <Avatar
+                size="md"
+                radius="xl"
+                color="violet"
+                variant={isSelected ? 'filled' : 'light'}
+                style={{
+                  cursor: 'pointer',
+                  outline: isSelected ? '2px solid var(--mantine-color-violet-5)' : 'none',
+                  outlineOffset: 2,
+                }}
+                onClick={() => setSelected(isSelected ? null : o.user_id)}
+              >
+                {o.username[0].toUpperCase()}
+              </Avatar>
+            </Tooltip>
+          )
+        })}
+        {hasChaosOption && (
+          <Tooltip label="Outside the group — random pick" withArrow>
+            <Avatar
+              size="md"
+              radius="xl"
+              color="gray"
+              variant={selected === 'chaos' ? 'filled' : 'light'}
+              style={{
+                cursor: 'pointer',
+                outline: selected === 'chaos' ? '2px solid var(--mantine-color-gray-5)' : 'none',
+                outlineOffset: 2,
+              }}
+              onClick={() => setSelected(selected === 'chaos' ? null : 'chaos')}
+            >
+              ?
+            </Avatar>
+          </Tooltip>
+        )}
+      </Group>
+      <Button
+        size="xs"
+        disabled={selected === null}
+        loading={checkGuess.isPending}
+        onClick={handleSubmit}
+        w="fit-content"
+      >
+        Submit guess
+      </Button>
+    </Stack>
+  )
+}
+
 // ==================== UNREVIEWED ROW ====================
 
 interface UnreviewedRowProps {
@@ -228,13 +322,16 @@ function UnreviewedRow({ ga, groupId, members: _members, isExpanded, onToggle, a
 interface ReviewedRowProps {
   ga: GroupAlbumResponse
   review: ReviewResponse
-  allReviews: AlbumReviewItem[]
   members: GroupMemberResponse[]
   isExpanded: boolean
   onToggle: () => void
+  groupId: number
+  allowGuessing: boolean
+  guessResult: CheckGuessResponse | undefined
+  currentUserId: number | undefined
 }
 
-function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: ReviewedRowProps) {
+function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allowGuessing, guessResult, currentUserId }: ReviewedRowProps) {
   const { album } = ga
   const navigate = useNavigate()
   const [editMode, setEditMode] = useState(false)
@@ -242,6 +339,12 @@ function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: 
   const [editComment, setEditComment] = useState(review.comment ?? '')
   const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set())
   const updateReview = useUpdateReview(ga.album_id)
+
+  const { data: allReviews = [], isLoading: reviewsLoading } = useQuery({
+    queryKey: ['albums', ga.album_id, 'reviews', groupId],
+    queryFn: () => albumService.getAllReviews(ga.album_id, groupId),
+    enabled: isExpanded,
+  })
 
   const toggleCard = (id: number) =>
     setExpandedCards((prev) => {
@@ -254,14 +357,12 @@ function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: 
   const memberIds = useMemo(() => new Set(members.map((m) => m.user_id)), [members])
   const memberReviews = useMemo(() => allReviews.filter((r) => memberIds.has(r.user_id)), [allReviews, memberIds])
 
-  const groupAvg = useMemo(() => {
-    const rated = memberReviews.filter((r) => r.rating !== null)
-    if (rated.length === 0) return null
-    const sum = rated.reduce((s, r) => s + r.rating!, 0)
-    return Math.round((sum / rated.length) * 10) / 10
-  }, [memberReviews])
+  const groupAvg = ga.avg_rating
 
   const displayReviews = memberReviews.length > 0 ? memberReviews : [review]
+
+  const isSelfNominated = currentUserId !== undefined && currentUserId === ga.added_by
+  const canGuess = allowGuessing && !isSelfNominated
 
   const handleEditOpen = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -319,7 +420,30 @@ function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: 
           </Text>
         </Table.Td>
         <Table.Td>
-          <Text size="sm" c="dimmed">{getNominator(ga, members)}</Text>
+          {canGuess && !guessResult ? (
+            <Tooltip label="Guess who nominated this" withArrow>
+              <ActionIcon
+                size="sm"
+                variant="subtle"
+                color="violet"
+                onClick={(e) => { e.stopPropagation(); if (!isExpanded) onToggle() }}
+              >
+                <IconHelpCircle size={16} />
+              </ActionIcon>
+            </Tooltip>
+          ) : guessResult && canGuess ? (
+            <Group gap={4} wrap="nowrap">
+              <Text size="sm" c="dimmed">
+                {guessResult.is_chaos_selection ? 'Random' : guessResult.nominator_usernames.join(', ')}
+              </Text>
+              {guessResult.correct
+                ? <IconCheck size={13} color="var(--mantine-color-green-6)" />
+                : <IconX size={13} color="var(--mantine-color-red-6)" />
+              }
+            </Group>
+          ) : (
+            <Text size="sm" c="dimmed">{getNominator(ga, members)}</Text>
+          )}
         </Table.Td>
         <Table.Td>
           <Group gap={6} justify="flex-end" wrap="nowrap">
@@ -338,7 +462,14 @@ function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: 
             style={{ background: 'var(--mantine-color-dark-7)', padding: '16px 20px' }}
           >
             <Stack gap="sm">
-              {displayReviews.map((r) => {
+              {canGuess && (
+                guessResult
+                  ? <GuessResult result={guessResult} />
+                  : <InlineGuessForm groupId={groupId} ga={ga} />
+              )}
+              {reviewsLoading
+                ? <Skeleton h={60} radius="sm" />
+                : displayReviews.map((r) => {
                 const username = ('username' in r ? (r as AlbumReviewItem).username : members.find((m) => m.user_id === r.user_id)?.username) ?? 'Unknown'
                 const fullName = ('first_name' in r ? [(r as AlbumReviewItem).first_name, (r as AlbumReviewItem).last_name].filter(Boolean).join(' ') : '')
                 const memberName = fullName ? `${fullName} (${username})` : username
@@ -440,6 +571,7 @@ function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: 
 
 // ==================== MAIN COMPONENT ====================
 
+
 interface Props {
   groupId: number
   albums: GroupAlbumResponse[]
@@ -449,6 +581,7 @@ interface Props {
 }
 
 export default function ReviewHistory({ groupId, albums, members, isLoading, allowGuessing = true }: Props) {
+  const { user } = useAuth()
   const [pendingOpen, { toggle: togglePending }] = useDisclosure(true)
   const [inProgressOpen, { toggle: toggleInProgress }] = useDisclosure(true)
   const [expandedId, setExpandedId] = useState<number | null>(null)
@@ -476,13 +609,13 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
     enabled: !!groupId && albums.length > 0,
   })
 
-  const { data: allReviewsList = [], isLoading: allReviewsLoading } = useQuery({
-    queryKey: ['groups', groupId, 'reviews'],
-    queryFn: () => albumService.getAllReviewsForGroup(groupId),
+  const { data: myGuessesList = [], isLoading: guessesLoading } = useQuery({
+    queryKey: ['groups', groupId, 'guesses', 'me'],
+    queryFn: () => albumService.getMyGuessesForGroup(groupId),
     enabled: !!groupId && albums.length > 0,
   })
 
-  const reviewsLoading = myReviewsLoading || allReviewsLoading
+  const reviewsLoading = myReviewsLoading || guessesLoading
 
   const reviewMap = useMemo(() => {
     const map = new Map<number, ReviewResponse>()
@@ -492,15 +625,13 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
     return map
   }, [myReviewsList])
 
-  const allReviewsMap = useMemo(() => {
-    const map = new Map<number, AlbumReviewItem[]>()
-    for (const review of allReviewsList) {
-      const existing = map.get(review.album_id) ?? []
-      existing.push(review)
-      map.set(review.album_id, existing)
+  const guessMap = useMemo(() => {
+    const map = new Map<number, CheckGuessResponse>()
+    for (const guess of myGuessesList) {
+      map.set(guess.guess.group_album_id, guess)
     }
     return map
-  }, [allReviewsList])
+  }, [myGuessesList])
 
   const pending = useMemo(
     () => albums.filter((ga) => !reviewMap.get(ga.album_id)),
@@ -665,10 +796,13 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
                   key={ga.id}
                   ga={ga}
                   review={reviewMap.get(ga.album_id)!}
-                  allReviews={allReviewsMap.get(ga.album_id) ?? []}
                   members={members}
                   isExpanded={expandedReviewedId === ga.id}
                   onToggle={() => setExpandedReviewedId((prev) => (prev === ga.id ? null : ga.id))}
+                  groupId={groupId}
+                  allowGuessing={allowGuessing}
+                  guessResult={guessMap.get(ga.id)}
+                  currentUserId={user?.id}
                 />
               ))}
             </Table.Tbody>

@@ -212,6 +212,41 @@ class TestCheckGuess:
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
 
+class TestGetMyGroupGuesses:
+    def test_success(self, client, mock_svc):
+        mock_svc.get_my_guesses_for_group.return_value = [
+            CheckGuessResponse(
+                guess=make_mock_guess_response(id=1, group_album_id=1),
+                correct=True,
+                nominator_user_ids=[1],
+                nominator_usernames=["test_user"],
+                is_chaos_selection=False,
+            ),
+            CheckGuessResponse(
+                guess=make_mock_guess_response(id=2, group_album_id=2),
+                correct=False,
+                nominator_user_ids=[2],
+                nominator_usernames=["other_user"],
+                is_chaos_selection=False,
+            ),
+        ]
+        resp = client.get("/groups/1/guesses/me")
+        assert resp.status_code == status.HTTP_200_OK
+        body = resp.json()
+        assert len(body) == 2
+        mock_svc.get_my_guesses_for_group.assert_called_once()
+
+    def test_empty(self, client, mock_svc):
+        mock_svc.get_my_guesses_for_group.return_value = []
+        resp = client.get("/groups/1/guesses/me")
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json() == []
+
+    def test_unauthenticated(self, unauthed_client):
+        resp = unauthed_client.get("/groups/1/guesses/me")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+
 class TestGetMyGuess:
     def test_success(self, client, mock_svc):
         guess = MagicMock()
