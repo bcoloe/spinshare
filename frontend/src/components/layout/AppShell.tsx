@@ -146,8 +146,10 @@ export default function AppShell({ children }: AppShellProps) {
                 ? <IconLayoutSidebarLeftCollapse size={20} />
                 : <IconLayoutSidebarLeftExpand size={20} />}
             </ActionIcon>
-            <IconDisc size={22} />
-            <Title order={4}>SpinShare</Title>
+            <Link to="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'inherit', textDecoration: 'none' }}>
+              <IconDisc size={22} />
+              <Title order={4}>SpinShare</Title>
+            </Link>
           </Group>
 
           <Group gap="xs">
@@ -329,12 +331,6 @@ export default function AppShell({ children }: AppShellProps) {
 
       <MantineAppShell.Navbar p="md">
         <MantineAppShell.Section>
-          <NavLink
-            label="Dashboard"
-            component={Link}
-            to="/"
-            active={location.pathname === '/'}
-          />
           <Button
             fullWidth
             variant="subtle"

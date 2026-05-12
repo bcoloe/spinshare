@@ -37,6 +37,7 @@ const router = createBrowserRouter([
     element: <ProtectedRoute />,
     children: [
       { path: '/', element: <RootRoute /> },
+      { path: '/dashboard', element: <DashboardPage /> },
       { path: '/groups/:groupId', element: <GroupPage /> },
       { path: '/groups/:groupId/spin', element: <DailySpinPage /> },
       { path: '/groups/:groupId/catalog', element: <GroupCatalogPage /> },
