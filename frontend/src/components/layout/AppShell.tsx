@@ -57,7 +57,7 @@ export default function AppShell({ children }: AppShellProps) {
   const { user, logout } = useAuth()
   const { status: playerStatus, playingAlbumMeta, minimized } = usePlayer()
   const showFooter = playingAlbumMeta !== null && (playerStatus === 'ready' || playerStatus === 'playing' || playerStatus === 'paused')
-  const footerHeight = minimized ? 48 : 72
+  const footerHeight = minimized ? 48 : 220
   const navigate = useNavigate()
   const location = useLocation()
   const [mobileOpened, { toggle: toggleMobile }] = useDisclosure()
