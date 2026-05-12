@@ -14,7 +14,7 @@ from datetime import date, datetime, timezone
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models import Album, Group, GroupAlbum, GroupSettings, NominationGuess, User
 from app.models.group import group_members
@@ -423,6 +423,10 @@ class GroupAlbumService:
             .filter(
                 GroupAlbum.group_id == group_id,
                 func.date(GroupAlbum.selected_date) == today,
+            )
+            .options(
+                selectinload(GroupAlbum.albums).selectinload(Album.genres),
+                selectinload(GroupAlbum.albums).selectinload(Album.reviews),
             )
             .order_by(GroupAlbum.id)
             .all()
