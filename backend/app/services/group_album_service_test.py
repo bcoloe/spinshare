@@ -535,6 +535,74 @@ class TestGetMyGuess:
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
 
 
+# ==================== BATCH GUESSES ====================
+
+
+class TestGetMyGuessesForGroup:
+    def test_returns_guesses_for_group(
+        self,
+        group_album_service,
+        sample_group,
+        sample_group_album,
+        sample_user,
+        sample_group_service,
+        user_factory,
+        db_session,
+    ):
+        other = user_factory(email="other@test.com", username="other_user")
+        sample_group_service.add_user(sample_group.id, other.id)
+        _mark_selected(db_session, sample_group_album)
+        group_album_service.check_guess(
+            sample_group.id,
+            sample_group_album.id,
+            other,
+            NominationGuessCreate(guessed_user_id=sample_user.id),
+        )
+
+        results = group_album_service.get_my_guesses_for_group(sample_group.id, other.id)
+        assert len(results) == 1
+        assert results[0].guess.guessing_user_id == other.id
+        assert results[0].correct is True
+        assert sample_user.username in results[0].nominator_usernames
+
+    def test_excludes_other_users_guesses(
+        self,
+        group_album_service,
+        sample_group,
+        sample_group_album,
+        sample_user,
+        sample_group_service,
+        user_factory,
+        db_session,
+    ):
+        other = user_factory(email="other@test.com", username="other_user")
+        third = user_factory(email="third@test.com", username="third_user")
+        sample_group_service.add_user(sample_group.id, other.id)
+        sample_group_service.add_user(sample_group.id, third.id)
+        _mark_selected(db_session, sample_group_album)
+        group_album_service.check_guess(
+            sample_group.id,
+            sample_group_album.id,
+            other,
+            NominationGuessCreate(guessed_user_id=sample_user.id),
+        )
+
+        results = group_album_service.get_my_guesses_for_group(sample_group.id, third.id)
+        assert results == []
+
+    def test_empty_when_no_albums(
+        self, group_album_service, sample_group, sample_user
+    ):
+        results = group_album_service.get_my_guesses_for_group(sample_group.id, sample_user.id)
+        assert results == []
+
+    def test_empty_when_no_guesses(
+        self, group_album_service, sample_group, sample_group_album, sample_user
+    ):
+        results = group_album_service.get_my_guesses_for_group(sample_group.id, sample_user.id)
+        assert results == []
+
+
 # ==================== GUESS OPTIONS ====================
 
 

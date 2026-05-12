@@ -90,6 +90,12 @@ export function useCheckGuess(groupId: number, groupAlbumId: number) {
       albumService.checkGuess(groupId, groupAlbumId, data),
     onSuccess: (result) => {
       qc.setQueryData(['guesses', groupId, groupAlbumId, 'me'], result)
+      qc.invalidateQueries({
+        predicate: (query) => {
+          const key = query.queryKey as unknown[]
+          return key[0] === 'groups' && key[2] === 'guesses'
+        },
+      })
     },
   })
 }

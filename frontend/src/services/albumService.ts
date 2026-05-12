@@ -61,12 +61,12 @@ export const albumService = {
     })
   },
 
-  getMyReviewsForGroup(groupId: number): Promise<ReviewResponse[]> {
-    return apiFetch(`/groups/${groupId}/reviews/me`)
+  getMyGuessesForGroup(groupId: number): Promise<CheckGuessResponse[]> {
+    return apiFetch(`/groups/${groupId}/guesses/me`)
   },
 
-  getAllReviewsForGroup(groupId: number): Promise<AlbumReviewItem[]> {
-    return apiFetch(`/groups/${groupId}/reviews`)
+  getMyReviewsForGroup(groupId: number): Promise<ReviewResponse[]> {
+    return apiFetch(`/groups/${groupId}/reviews/me`)
   },
 
   getMyGuess(groupId: number, groupAlbumId: number): Promise<CheckGuessResponse | null> {

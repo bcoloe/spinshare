@@ -1,6 +1,6 @@
 """Group album table definition."""
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, UniqueConstraint, case, exists
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, UniqueConstraint, case, exists
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -18,6 +18,8 @@ class GroupAlbum(Base):
     selected_date = Column(DateTime(timezone=True), nullable=True)
     added_at = Column(DateTime(timezone=True), server_default=func.now())
     is_chaos_selection = Column(Boolean, nullable=False, default=False, server_default="false")
+    avg_rating = Column(Float, nullable=True)
+    review_count = Column(Integer, nullable=False, default=0, server_default="0")
 
     # Relationships
     group = relationship("Group", back_populates="albums")

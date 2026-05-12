@@ -21,6 +21,8 @@ export interface GroupAlbumResponse {
   album: AlbumResponse
   nomination_count: number
   nominator_user_ids: number[]
+  avg_rating: number | null
+  review_count: number
 }
 
 export interface ReviewCreate {

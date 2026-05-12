@@ -557,6 +557,59 @@ class GroupAlbumService:
             is_chaos_selection=group_album.is_chaos_selection,
         )
 
+    def get_my_guesses_for_group(self, group_id: int, user_id: int) -> list[CheckGuessResponse]:
+        """Return all of the current user's guesses for albums in a group.
+
+        Each response includes the same nominator-reveal context as check_guess.
+        Uses 3 queries regardless of group size (no N+1).
+        """
+        group_albums = (
+            self.db.query(GroupAlbum)
+            .filter(GroupAlbum.group_id == group_id)
+            .all()
+        )
+        if not group_albums:
+            return []
+
+        ga_ids = [ga.id for ga in group_albums]
+        ga_by_id = {ga.id: ga for ga in group_albums}
+
+        guesses = (
+            self.db.query(NominationGuess)
+            .filter(
+                NominationGuess.group_album_id.in_(ga_ids),
+                NominationGuess.guessing_user_id == user_id,
+            )
+            .all()
+        )
+        if not guesses:
+            return []
+
+        nominator_ids = {ga.added_by for ga in group_albums if ga.added_by is not None}
+        nominator_map = {
+            u.id: u
+            for u in self.db.query(User).filter(User.id.in_(nominator_ids)).all()
+        } if nominator_ids else {}
+
+        album_nominators: dict[int, list[User]] = {}
+        for ga in group_albums:
+            nominators = album_nominators.setdefault(ga.album_id, [])
+            if ga.added_by and ga.added_by in nominator_map:
+                nominators.append(nominator_map[ga.added_by])
+
+        results = []
+        for guess in guesses:
+            ga = ga_by_id[guess.group_album_id]
+            nominators = album_nominators.get(ga.album_id, [])
+            results.append(CheckGuessResponse(
+                guess=NominationGuessResponse.model_validate(guess),
+                correct=guess.correct,
+                nominator_user_ids=[n.id for n in nominators],
+                nominator_usernames=[n.username for n in nominators],
+                is_chaos_selection=ga.is_chaos_selection,
+            ))
+        return results
+
     def get_guess_options(self, group_id: int, group_album_id: int, user: User) -> GuessOptionsResponse:
         """Return a deterministic, capped pool of users to present as guessing candidates.
 

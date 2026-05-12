@@ -70,6 +70,16 @@ def get_nomination_count(
 # ==================== GUESSING ====================
 
 
+@router.get("/{group_id}/guesses/me", response_model=list[CheckGuessResponse])
+def get_my_group_guesses(
+    group_id: int,
+    current_user: User = Depends(get_current_user),
+    svc: GroupAlbumService = Depends(get_group_album_service),
+):
+    """Return all of the current user's nomination guesses for albums in a group."""
+    return svc.get_my_guesses_for_group(group_id, current_user.id)
+
+
 @router.post(
     "/{group_id}/albums/{group_album_id}/check-guess",
     response_model=CheckGuessResponse,
