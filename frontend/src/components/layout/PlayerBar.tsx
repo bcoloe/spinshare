@@ -27,6 +27,7 @@ import {
   IconPlayerSkipBackFilled,
   IconPlayerSkipForwardFilled,
   IconPlaylistAdd,
+  IconX,
 } from '@tabler/icons-react'
 import { usePlayer } from '../../context/PlayerContext'
 import PlaylistPickerModal from '../spin/PlaylistPickerModal'
@@ -61,6 +62,7 @@ export default function PlayerBar() {
     skipPrevious,
     seekTo,
     startAlbum,
+    clearPlayer,
   } = usePlayer()
 
   const [seekValue, setSeekValue] = useState<number | null>(null)
@@ -196,6 +198,11 @@ export default function PlayerBar() {
           wrap="nowrap"
           style={{ flexShrink: 0, ...(!minimized && { borderTop: separator }) }}
         >
+          <Tooltip label="Close player" withArrow>
+            <ActionIcon variant="subtle" size="sm" color="gray" onClick={clearPlayer} aria-label="Close player">
+              <IconX size={12} />
+            </ActionIcon>
+          </Tooltip>
           <Image
             src={playingAlbumMeta?.coverUrl ?? undefined}
             w={28}
