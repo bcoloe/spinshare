@@ -340,7 +340,7 @@ function ReviewedRow({ ga, review, allReviews, members, isExpanded, onToggle }: 
             <Stack gap="sm">
               {displayReviews.map((r) => {
                 const username = ('username' in r ? (r as AlbumReviewItem).username : members.find((m) => m.user_id === r.user_id)?.username) ?? 'Unknown'
-                const fullName = ('first_name' in r ? [r.first_name, r.last_name].filter(Boolean).join(' ') : '')
+                const fullName = ('first_name' in r ? [(r as AlbumReviewItem).first_name, (r as AlbumReviewItem).last_name].filter(Boolean).join(' ') : '')
                 const memberName = fullName ? `${fullName} (${username})` : username
                 const isMine = r.user_id === review.user_id
                 const isCardExpanded = expandedCards.has(r.id) || (isMine && editMode)
