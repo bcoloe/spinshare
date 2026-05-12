@@ -103,6 +103,32 @@ export async function getPlaylistsContainingUris(
   return new Set(results.filter((id): id is string => id !== null))
 }
 
+export interface AlbumTrack {
+  uri: string
+  name: string
+  trackNumber: number
+  durationMs: number
+  artists: string
+}
+
+export async function fetchAlbumTracks(token: string, spotifyAlbumId: string): Promise<AlbumTrack[]> {
+  const resp = await spotifyFetch(token, `/albums/${spotifyAlbumId}/tracks?limit=50`)
+  const data = await resp.json()
+  return data.items.map((t: {
+    uri: string
+    name: string
+    track_number: number
+    duration_ms: number
+    artists: Array<{ name: string }>
+  }) => ({
+    uri: t.uri,
+    name: t.name,
+    trackNumber: t.track_number,
+    durationMs: t.duration_ms,
+    artists: t.artists.map((a) => a.name).join(', '),
+  }))
+}
+
 export async function isAlbumSaved(token: string, albumId: string): Promise<boolean> {
   const uri = `spotify:album:${albumId}`
   const resp = await spotifyFetch(token, `/me/library/contains?uris=${encodeURIComponent(uri)}`)

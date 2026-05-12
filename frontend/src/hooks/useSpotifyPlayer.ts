@@ -27,7 +27,7 @@ export interface UseSpotifyPlayerResult {
   skipNext: () => void
   skipPrevious: () => void
   seekTo: (positionMs: number) => void
-  startAlbum: (spotifyAlbumId: string, trackUri?: string) => Promise<void>
+  startAlbum: (spotifyAlbumId: string, trackUri?: string, positionMs?: number) => Promise<void>
 }
 
 // Load the Spotify Web Playback SDK script once globally.
@@ -204,10 +204,11 @@ export function useSpotifyPlayer(enabled: boolean): UseSpotifyPlayerResult {
     playerRef.current?.seek(positionMs)
   }
 
-  const startAlbum = async (albumId: string, trackUri?: string) => {
+  const startAlbum = async (albumId: string, trackUri?: string, positionMs?: number) => {
     if (!deviceIdRef.current || !tokenRef.current) return
     const body: Record<string, unknown> = { context_uri: `spotify:album:${albumId}` }
     if (trackUri) body.offset = { uri: trackUri }
+    if (positionMs && positionMs > 0) body.position_ms = Math.floor(positionMs)
     try {
       await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceIdRef.current}`, {
         method: 'PUT',
