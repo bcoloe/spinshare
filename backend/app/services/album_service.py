@@ -1,6 +1,6 @@
 """Album and group album service."""
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from app.models import Album, Group, GroupAlbum, User
 from app.models.genre import Genre
@@ -304,12 +304,13 @@ class AlbumService:
     def get_todays_albums(self, group_id: int) -> list[GroupAlbum]:
         """Return albums selected for today in this group."""
         today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        tomorrow_start = today_start + timedelta(days=1)
         return (
             self.db.query(GroupAlbum)
             .filter(
                 GroupAlbum.group_id == group_id,
-                GroupAlbum.status == GroupAlbumStatus.Selected,
                 GroupAlbum.selected_date >= today_start,
+                GroupAlbum.selected_date < tomorrow_start,
             )
             .options(
                 selectinload(GroupAlbum.albums).selectinload(Album.genres),

@@ -9,10 +9,10 @@ Guess lifecycle (per-user, instant feedback):
 """
 
 import random
-from datetime import date, datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -31,6 +31,12 @@ from app.services.notification_service import NotificationService
 
 
 _CHAOS_PROBABILITY = 0.10
+
+
+def _utc_today_range() -> tuple[datetime, datetime]:
+    """Return [today_start, tomorrow_start) in UTC for date-boundary queries."""
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    return today_start, today_start + timedelta(days=1)
 
 
 class GroupAlbumService:
@@ -59,12 +65,13 @@ class GroupAlbumService:
         Raises:
             HTTPException 409: If no eligible distinct albums are available.
         """
-        today = date.today()
+        today_start, tomorrow_start = _utc_today_range()
         existing = (
             self.db.query(GroupAlbum)
             .filter(
                 GroupAlbum.group_id == group_id,
-                func.date(GroupAlbum.selected_date) == today,
+                GroupAlbum.selected_date >= today_start,
+                GroupAlbum.selected_date < tomorrow_start,
             )
             .order_by(GroupAlbum.id)
             .all()
@@ -307,12 +314,13 @@ class GroupAlbumService:
                 detail="Group settings not found",
             )
 
-        today = date.today()
+        today_start, tomorrow_start = _utc_today_range()
         existing = (
             self.db.query(GroupAlbum)
             .filter(
                 GroupAlbum.group_id == group_id,
-                func.date(GroupAlbum.selected_date) == today,
+                GroupAlbum.selected_date >= today_start,
+                GroupAlbum.selected_date < tomorrow_start,
             )
             .order_by(GroupAlbum.id)
             .all()
@@ -417,12 +425,13 @@ class GroupAlbumService:
         group_service = gs.GroupService(self.db)
         group_service.require_membership(user.id, group_id)
 
-        today = date.today()
+        today_start, tomorrow_start = _utc_today_range()
         all_today = (
             self.db.query(GroupAlbum)
             .filter(
                 GroupAlbum.group_id == group_id,
-                func.date(GroupAlbum.selected_date) == today,
+                GroupAlbum.selected_date >= today_start,
+                GroupAlbum.selected_date < tomorrow_start,
             )
             .options(
                 selectinload(GroupAlbum.albums).selectinload(Album.genres),
@@ -729,13 +738,14 @@ class GroupAlbumService:
         group_service = gs.GroupService(self.db)
         group_service.require_membership(user.id, group_id)
 
-        today = date.today()
+        today_start, tomorrow_start = _utc_today_range()
         return (
             self.db.query(GroupAlbum)
             .filter(
                 GroupAlbum.group_id == group_id,
                 GroupAlbum.added_by == user.id,
-                func.date(GroupAlbum.added_at) == today,
+                GroupAlbum.added_at >= today_start,
+                GroupAlbum.added_at < tomorrow_start,
             )
             .count()
         )
