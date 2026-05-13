@@ -826,14 +826,17 @@ class TestChaosSelection:
         # The group now has both the nominated album and the chaos album.
         # No unrelated albums remain in the global pool.
         # Advance to the next day so the idempotency check doesn't return yesterday's pick.
-        from datetime import date
+        from datetime import datetime, timezone
 
-        next_day = date(2099, 1, 2)
+        next_day_start = datetime(2099, 1, 2, tzinfo=timezone.utc)
+        next_day_end = datetime(2099, 1, 3, tzinfo=timezone.utc)
         with (
             patch("app.services.group_album_service.random.random", return_value=0.0),
-            patch("app.services.group_album_service.date") as mock_date,
+            patch(
+                "app.services.group_album_service._utc_today_range",
+                return_value=(next_day_start, next_day_end),
+            ),
         ):
-            mock_date.today.return_value = next_day
             # Only the nominated album is unselected — chaos has nothing to pull from,
             # so it falls back to normal selection.
             results = group_album_service.select_daily_albums(sample_group.id, n=1)
