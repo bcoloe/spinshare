@@ -41,7 +41,9 @@ const STORAGE_KEY = 'spinshare_player'
 interface PersistedState {
   playingAlbumMeta: PlayingAlbumMeta
   lastTrackUri: string | null
+  lastTrackName: string | null
   lastPosition: number
+  lastDuration: number
   minimized: boolean
 }
 
@@ -75,20 +77,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const player = useSpotifyPlayer(hasSpotify)
 
-  // Auto-resume: once the SDK is ready, restore the last playing track and position
-  const autoResumedRef = useRef(false)
-  useEffect(() => {
-    if (autoResumedRef.current) return
-    if (!persistedState?.playingAlbumMeta) return
-    if (player.status !== 'ready') return
-    autoResumedRef.current = true
-    player.startAlbum(
-      persistedState.playingAlbumMeta.spotifyAlbumId,
-      persistedState.lastTrackUri ?? undefined,
-      persistedState.lastPosition ?? undefined,
-    )
-  }, [player.status]) // eslint-disable-line react-hooks/exhaustive-deps
-
   // Persist player state to localStorage whenever track or minimized state changes.
   // Position is written separately on beforeunload to avoid a write every 250 ms.
   useEffect(() => {
@@ -97,7 +85,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       return
     }
     try {
-      const state: PersistedState = { playingAlbumMeta, lastTrackUri: player.currentTrackUri, lastPosition: 0, minimized }
+      const state: PersistedState = {
+        playingAlbumMeta,
+        lastTrackUri: player.currentTrackUri,
+        lastTrackName: player.currentTrackName,
+        lastPosition: 0,
+        lastDuration: player.duration,
+        minimized,
+      }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
     } catch {}
   }, [playingAlbumMeta, player.currentTrackUri, minimized])
@@ -120,9 +115,32 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [])
 
+  // When the SDK has no track (e.g. after a refresh), show persisted values
+  // so the player bar displays the correct track and progress before first play.
+  const needsRestore = !player.playingSpotifyAlbumId && !!playingAlbumMeta
+  const currentTrackUri = needsRestore ? (persistedState?.lastTrackUri ?? null) : player.currentTrackUri
+  const currentTrackName = needsRestore ? (persistedState?.lastTrackName ?? null) : player.currentTrackName
+  const position = needsRestore ? (persistedState?.lastPosition ?? 0) : player.position
+  const duration = needsRestore ? (persistedState?.lastDuration ?? 0) : player.duration
+
   const startAlbum = async (spotifyAlbumId: string, meta: PlayingAlbumMeta, trackUri?: string) => {
     setPlayingAlbumMeta(meta)
     await player.startAlbum(spotifyAlbumId, trackUri)
+  }
+
+  // If the SDK has no track yet (e.g. after a page refresh) but we have
+  // persisted state, load the saved track and position on the first play
+  // rather than toggling nothing.
+  const togglePlay = () => {
+    if (!player.playingSpotifyAlbumId && playingAlbumMeta) {
+      player.startAlbum(
+        playingAlbumMeta.spotifyAlbumId,
+        persistedState?.lastTrackUri ?? undefined,
+        persistedState?.lastPosition ?? undefined,
+      )
+      return
+    }
+    player.togglePlay()
   }
 
   const clearPlayer = () => setPlayingAlbumMeta(null)
@@ -130,16 +148,16 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   return (
     <PlayerContext.Provider value={{
       status: player.status,
-      currentTrackUri: player.currentTrackUri,
-      currentTrackName: player.currentTrackName,
+      currentTrackUri,
+      currentTrackName,
       currentTrackNumber: player.currentTrackNumber,
-      position: player.position,
-      duration: player.duration,
+      position,
+      duration,
       playingSpotifyAlbumId: player.playingSpotifyAlbumId,
       hasSpotify,
       minimized,
       toggleMinimized,
-      togglePlay: player.togglePlay,
+      togglePlay,
       skipNext: player.skipNext,
       skipPrevious: player.skipPrevious,
       seekTo: player.seekTo,
