@@ -485,6 +485,10 @@ class TestGroupAlbumStatusUpdate:
 
 
 class TestAlbumSearch:
+    def _make_page(self, items, total=None):
+        from app.utils.spotify_client import SpotifySearchPage
+        return SpotifySearchPage(items=items, total=total if total is not None else len(items))
+
     def test_search_returns_results(self, client):
         from app.utils.spotify_client import SpotifyAlbumResult
 
@@ -496,15 +500,33 @@ class TestAlbumSearch:
             cover_url="https://example.com/cover.jpg",
             genres=["art rock"],
         )
-        with patch("app.routers.albums.spotify_client.search_albums", return_value=[mock_result]):
+        with patch("app.routers.albums.spotify_client.search_albums", return_value=self._make_page([mock_result])):
             resp = client.get("/albums/search?q=radiohead")
 
         assert resp.status_code == status.HTTP_200_OK
         data = resp.json()
-        assert len(data) == 1
-        assert data[0]["spotify_album_id"] == "abc123"
-        assert data[0]["title"] == "OK Computer"
-        assert data[0]["artist"] == "Radiohead"
+        assert len(data["items"]) == 1
+        assert data["items"][0]["spotify_album_id"] == "abc123"
+        assert data["items"][0]["title"] == "OK Computer"
+        assert data["items"][0]["artist"] == "Radiohead"
+        assert data["next_offset"] is None
+
+    def test_search_returns_next_offset_when_more_results(self, client):
+        from app.utils.spotify_client import SpotifyAlbumResult
+
+        mock_result = SpotifyAlbumResult(
+            spotify_album_id="abc123",
+            title="OK Computer",
+            artist="Radiohead",
+            release_date="1997-05-21",
+            cover_url=None,
+            genres=[],
+        )
+        with patch("app.routers.albums.spotify_client.search_albums", return_value=self._make_page([mock_result], total=25)):
+            resp = client.get("/albums/search?q=radiohead")
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["next_offset"] == 10
 
     def test_search_requires_auth(self, unauthed_client):
         resp = unauthed_client.get("/albums/search?q=radiohead")
@@ -537,11 +559,11 @@ class TestAlbumSearch:
             cover_url=None,
             genres=[],
         )
-        with patch("app.routers.albums.spotify_client.search_albums", return_value=[mock_result]) as mock_search:
+        with patch("app.routers.albums.spotify_client.search_albums", return_value=self._make_page([mock_result])) as mock_search:
             resp = client.get("/albums/search?artist=Radiohead")
 
         assert resp.status_code == status.HTTP_200_OK
-        mock_search.assert_called_once_with("", artist="Radiohead", album=None)
+        mock_search.assert_called_once_with("", limit=10, offset=0, artist="Radiohead", album=None)
 
     def test_search_album_filter_only(self, client):
         from app.utils.spotify_client import SpotifyAlbumResult
@@ -554,20 +576,25 @@ class TestAlbumSearch:
             cover_url=None,
             genres=[],
         )
-        with patch("app.routers.albums.spotify_client.search_albums", return_value=[mock_result]) as mock_search:
+        with patch("app.routers.albums.spotify_client.search_albums", return_value=self._make_page([mock_result])) as mock_search:
             resp = client.get("/albums/search?album=OK+Computer")
 
         assert resp.status_code == status.HTTP_200_OK
-        mock_search.assert_called_once_with("", artist=None, album="OK Computer")
+        mock_search.assert_called_once_with("", limit=10, offset=0, artist=None, album="OK Computer")
 
     def test_search_combined_filters(self, client):
-        from app.utils.spotify_client import SpotifyAlbumResult
-
-        with patch("app.routers.albums.spotify_client.search_albums", return_value=[]) as mock_search:
+        with patch("app.routers.albums.spotify_client.search_albums", return_value=self._make_page([])) as mock_search:
             resp = client.get("/albums/search?q=rock&artist=Radiohead&album=OK+Computer")
 
         assert resp.status_code == status.HTTP_200_OK
-        mock_search.assert_called_once_with("rock", artist="Radiohead", album="OK Computer")
+        mock_search.assert_called_once_with("rock", limit=10, offset=0, artist="Radiohead", album="OK Computer")
+
+    def test_search_offset_passed_through(self, client):
+        with patch("app.routers.albums.spotify_client.search_albums", return_value=self._make_page([])) as mock_search:
+            resp = client.get("/albums/search?q=radiohead&offset=10")
+
+        assert resp.status_code == status.HTTP_200_OK
+        mock_search.assert_called_once_with("radiohead", limit=10, offset=10, artist=None, album=None)
 
 
 class TestAlbumStats:

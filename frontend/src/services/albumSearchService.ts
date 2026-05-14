@@ -14,14 +14,21 @@ export interface AlbumSearchParams {
   q?: string
   artist?: string
   album?: string
+  offset?: number
+}
+
+export interface AlbumSearchPage {
+  items: AlbumSearchResult[]
+  next_offset: number | null
 }
 
 export const albumSearchService = {
-  search(params: AlbumSearchParams): Promise<AlbumSearchResult[]> {
+  search(params: AlbumSearchParams): Promise<AlbumSearchPage> {
     const qs = new URLSearchParams()
     if (params.q) qs.set('q', params.q)
     if (params.artist) qs.set('artist', params.artist)
     if (params.album) qs.set('album', params.album)
+    if (params.offset !== undefined) qs.set('offset', String(params.offset))
     return apiFetch(`/albums/search?${qs.toString()}`)
   },
 

@@ -48,6 +48,12 @@ class SpotifyAlbumResult:
     genres: list[str]
 
 
+@dataclass
+class SpotifySearchPage:
+    items: list[SpotifyAlbumResult]
+    total: int
+
+
 def _get_client_token() -> str:
     """Obtain a Spotify access token via Client Credentials flow, reusing a cached token when valid."""
     global _cc_token, _cc_token_expires_at
@@ -198,10 +204,11 @@ def search_albums(
     query: str = "",
     limit: int = 10,
     *,
+    offset: int = 0,
     artist: str | None = None,
     album: str | None = None,
     max_retry_after: int = 10,
-) -> list[SpotifyAlbumResult]:
+) -> SpotifySearchPage:
     """Search Spotify for albums, with optional artist/album field filters.
 
     max_retry_after controls the per-attempt Retry-After ceiling before aborting.
@@ -218,7 +225,7 @@ def search_albums(
         parts.append(query)
     q = " ".join(parts)
     effective_max = min(max_retry_after, _MAX_RETRY_AFTER)
-    params = {"q": q, "type": "album", "limit": limit}
+    params = {"q": q, "type": "album", "limit": limit, "offset": offset}
     headers = {"Authorization": f"Bearer {token}"}
     resp = httpx.get("https://api.spotify.com/v1/search", params=params, headers=headers, timeout=10)
     for attempt in range(3):
@@ -250,7 +257,9 @@ def search_albums(
             detail="Spotify search failed",
         )
 
-    items = resp.json().get("albums", {}).get("items", [])
+    albums_data = resp.json().get("albums", {})
+    items = albums_data.get("items", [])
+    total = albums_data.get("total", 0)
     seen: set[tuple[str, str]] = set()
     results = []
     for item in items:
@@ -271,7 +280,7 @@ def search_albums(
                 genres=item.get("genres", []),
             )
         )
-    return results
+    return SpotifySearchPage(items=results, total=total)
 
 
 def get_albums_batch(ids: list[str]) -> list[SpotifyAlbumResult]:

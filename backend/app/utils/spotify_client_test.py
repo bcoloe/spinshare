@@ -46,10 +46,10 @@ class TestSearchAlbumsDeduplication:
             "genres": [],
         }
 
-    def _mock_search_response(self, items: list[dict]):
+    def _mock_search_response(self, items: list[dict], total: int | None = None):
         mock_resp = MagicMock()
         mock_resp.is_success = True
-        mock_resp.json.return_value = {"albums": {"items": items}}
+        mock_resp.json.return_value = {"albums": {"items": items, "total": total if total is not None else len(items)}}
         return mock_resp
 
     def test_deduplicates_remastered_variant(self):
@@ -62,10 +62,10 @@ class TestSearchAlbumsDeduplication:
 
         with patch("app.utils.spotify_client._get_client_token", return_value="tok"), \
              patch("httpx.get", return_value=mock_resp):
-            results = search_albums("OK Computer")
+            page = search_albums("OK Computer")
 
-        assert len(results) == 1
-        assert results[0].spotify_album_id == "id1"
+        assert len(page.items) == 1
+        assert page.items[0].spotify_album_id == "id1"
 
     def test_keeps_distinct_albums(self):
         items = [
@@ -76,9 +76,9 @@ class TestSearchAlbumsDeduplication:
 
         with patch("app.utils.spotify_client._get_client_token", return_value="tok"), \
              patch("httpx.get", return_value=mock_resp):
-            results = search_albums("radiohead")
+            page = search_albums("radiohead")
 
-        assert len(results) == 2
+        assert len(page.items) == 2
 
     def test_keeps_same_title_different_artist(self):
         items = [
@@ -89,9 +89,9 @@ class TestSearchAlbumsDeduplication:
 
         with patch("app.utils.spotify_client._get_client_token", return_value="tok"), \
              patch("httpx.get", return_value=mock_resp):
-            results = search_albums("greatest hits")
+            page = search_albums("greatest hits")
 
-        assert len(results) == 2
+        assert len(page.items) == 2
 
 
 class TestSearchAlbumsMaxRetryAfter:
@@ -106,7 +106,7 @@ class TestSearchAlbumsMaxRetryAfter:
         mock = MagicMock()
         mock.status_code = 200
         mock.is_success = True
-        mock.json.return_value = {"albums": {"items": []}}
+        mock.json.return_value = {"albums": {"items": [], "total": 0}}
         return mock
 
     def test_short_max_retry_after_aborts_fast(self):
@@ -128,9 +128,9 @@ class TestSearchAlbumsMaxRetryAfter:
         with patch("app.utils.spotify_client._get_client_token", return_value="tok"), \
              patch("httpx.get", side_effect=[mock_429, mock_200]), \
              patch("time.sleep") as mock_sleep:
-            results = search_albums("test", max_retry_after=60)
+            page = search_albums("test", max_retry_after=60)
             mock_sleep.assert_called_once_with(10)
-            assert results == []
+            assert page.items == []
 
     def test_exhausted_retries_raise_429_not_502(self):
         """All 3 retries return 429 (within threshold) → final raise is 429, not 502."""
