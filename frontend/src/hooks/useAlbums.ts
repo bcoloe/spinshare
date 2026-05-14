@@ -1,7 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { albumSearchService } from '../services/albumSearchService'
 import { albumService } from '../services/albumService'
-import type { AlbumSearchParams, AlbumSearchResult } from '../services/albumSearchService'
+import type { AlbumSearchPage, AlbumSearchParams, AlbumSearchResult } from '../services/albumSearchService'
 import type { UserNominationResponse } from '../types/album'
 
 export function useAlbumSearch(params: AlbumSearchParams) {
@@ -9,9 +9,11 @@ export function useAlbumSearch(params: AlbumSearchParams) {
     (params.q?.length ?? 0) >= 2 ||
     (params.artist?.length ?? 0) >= 2 ||
     (params.album?.length ?? 0) >= 2
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ['albums', 'search', params.q ?? '', params.artist ?? '', params.album ?? ''],
-    queryFn: () => albumSearchService.search(params),
+    queryFn: ({ pageParam }) => albumSearchService.search({ ...params, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage: AlbumSearchPage) => lastPage.next_offset ?? undefined,
     enabled: hasInput,
   })
 }

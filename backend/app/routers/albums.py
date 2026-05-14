@@ -6,6 +6,7 @@ from app.schemas.album import (
     AlbumCreate,
     AlbumResponse,
     AlbumReviewItem,
+    AlbumSearchPage,
     AlbumSearchResult,
     AlbumStatsResponse,
     GroupAlbumCreate,
@@ -27,11 +28,15 @@ group_albums_router = APIRouter(prefix="/groups", tags=["group-albums"])
 # ==================== ALBUMS ====================
 
 
-@albums_router.get("/search", response_model=list[AlbumSearchResult])
+_SEARCH_PAGE_SIZE = 10
+
+
+@albums_router.get("/search", response_model=AlbumSearchPage)
 def search_albums(
     q: str | None = Query(default=None, min_length=2),
     artist: str | None = Query(default=None),
     album: str | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
     current_user: User = Depends(get_current_user),
 ):
     """Search for albums via Spotify. At least one of q, artist, or album is required."""
@@ -40,18 +45,22 @@ def search_albums(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="At least one search parameter (q, artist, album) is required",
         )
-    results = spotify_client.search_albums(q or "", artist=artist, album=album)
-    return [
-        AlbumSearchResult(
-            spotify_album_id=r.spotify_album_id,
-            title=r.title,
-            artist=r.artist,
-            release_date=r.release_date,
-            cover_url=r.cover_url,
-            genres=r.genres,
-        )
-        for r in results
-    ]
+    page = spotify_client.search_albums(q or "", limit=_SEARCH_PAGE_SIZE, offset=offset, artist=artist, album=album)
+    next_offset = offset + _SEARCH_PAGE_SIZE if offset + _SEARCH_PAGE_SIZE < page.total else None
+    return AlbumSearchPage(
+        items=[
+            AlbumSearchResult(
+                spotify_album_id=r.spotify_album_id,
+                title=r.title,
+                artist=r.artist,
+                release_date=r.release_date,
+                cover_url=r.cover_url,
+                genres=r.genres,
+            )
+            for r in page.items
+        ],
+        next_offset=next_offset,
+    )
 
 
 @albums_router.post("/", response_model=AlbumResponse, status_code=status.HTTP_201_CREATED)

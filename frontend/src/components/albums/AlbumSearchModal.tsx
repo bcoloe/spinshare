@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Button,
   Group,
@@ -60,7 +60,34 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
     (debouncedQuery?.length ?? 0) >= 2 ||
     (debouncedArtist?.length ?? 0) >= 2 ||
     (debouncedAlbum?.length ?? 0) >= 2
-  const { data: results, isLoading, error: searchError } = useAlbumSearch(searchParams)
+  const {
+    data: searchData,
+    isLoading,
+    isFetching,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    error: searchError,
+  } = useAlbumSearch(searchParams)
+
+  const allResults = searchData?.pages.flatMap((p) => p.items) ?? []
+
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const sentinelRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current
+    const container = scrollContainerRef.current
+    if (!sentinel || !container || !hasNextPage) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && !isFetchingNextPage) fetchNextPage()
+      },
+      { root: container, threshold: 0 },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
   useEffect(() => {
     if (!searchError) return
@@ -82,7 +109,7 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
     return item.album.title.toLowerCase().includes(q) || item.album.artist.toLowerCase().includes(q)
   })
 
-  const handleNominate = async (spotifyId: string, title: string, result: NonNullable<typeof results>[number]) => {
+  const handleNominate = async (spotifyId: string, title: string, result: (typeof allResults)[number]) => {
     if (!result || !effectiveGroupId) return
     try {
       await nominate.mutateAsync(result)
@@ -143,7 +170,7 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
                 value={query}
                 onChange={(e) => setQuery(e.currentTarget.value)}
                 autoFocus
-                rightSection={isLoading && isSearching ? <Loader size="xs" /> : null}
+                rightSection={isFetching && isSearching && !isFetchingNextPage ? <Loader size="xs" /> : null}
               />
               <SimpleGrid cols={2} spacing="sm">
                 <TextInput
@@ -159,34 +186,40 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
                   size="sm"
                 />
               </SimpleGrid>
-              {results?.map((r) => (
-                <Group key={r.spotify_album_id} justify="space-between" wrap="nowrap">
-                  <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
-                    <Image
-                      src={r.cover_url ?? undefined}
-                      w={44}
-                      h={44}
-                      radius="sm"
-                      fallbackSrc="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Crect width='44' height='44' fill='%23373A40'/%3E%3C/svg%3E"
-                    />
-                    <div style={{ minWidth: 0 }}>
-                      <Text size="sm" fw={500} lineClamp={1}>{r.title}</Text>
-                      <Text size="xs" c="dimmed" lineClamp={1}>{r.artist}</Text>
-                    </div>
-                  </Group>
-                  <Button
-                    size="xs"
-                    variant={nominated.has(r.spotify_album_id) ? 'filled' : 'light'}
-                    color={nominated.has(r.spotify_album_id) ? 'green' : 'violet'}
-                    disabled={nominated.has(r.spotify_album_id) || !effectiveGroupId}
-                    loading={nominate.isPending}
-                    onClick={() => handleNominate(r.spotify_album_id, r.title, r)}
-                    style={{ flexShrink: 0 }}
-                  >
-                    {nominated.has(r.spotify_album_id) ? 'Nominated' : 'Nominate'}
-                  </Button>
-                </Group>
-              ))}
+              <div ref={scrollContainerRef} style={{ maxHeight: 340, overflowY: 'auto' }}>
+                <Stack gap="md">
+                  {allResults.map((r) => (
+                    <Group key={r.spotify_album_id} justify="space-between" wrap="nowrap">
+                      <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
+                        <Image
+                          src={r.cover_url ?? undefined}
+                          w={44}
+                          h={44}
+                          radius="sm"
+                          fallbackSrc="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Crect width='44' height='44' fill='%23373A40'/%3E%3C/svg%3E"
+                        />
+                        <div style={{ minWidth: 0 }}>
+                          <Text size="sm" fw={500} lineClamp={1}>{r.title}</Text>
+                          <Text size="xs" c="dimmed" lineClamp={1}>{r.artist}</Text>
+                        </div>
+                      </Group>
+                      <Button
+                        size="xs"
+                        variant={nominated.has(r.spotify_album_id) ? 'filled' : 'light'}
+                        color={nominated.has(r.spotify_album_id) ? 'green' : 'violet'}
+                        disabled={nominated.has(r.spotify_album_id) || !effectiveGroupId}
+                        loading={nominate.isPending}
+                        onClick={() => handleNominate(r.spotify_album_id, r.title, r)}
+                        style={{ flexShrink: 0 }}
+                      >
+                        {nominated.has(r.spotify_album_id) ? 'Nominated' : 'Nominate'}
+                      </Button>
+                    </Group>
+                  ))}
+                  {hasNextPage && <div ref={sentinelRef} style={{ height: 1 }} />}
+                  {isFetchingNextPage && <Loader size="xs" mx="auto" display="block" />}
+                </Stack>
+              </div>
               {isSearching && !isLoading && (
                 searchError ? (
                   <Text size="sm" c="red.4">
@@ -194,7 +227,7 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
                       ? 'Spotify is rate-limited right now — please wait a moment and try again'
                       : 'Album search failed — please try again'}
                   </Text>
-                ) : results?.length === 0 ? (
+                ) : allResults.length === 0 ? (
                   <Text size="sm" c="dimmed">No albums found</Text>
                 ) : null
               )}

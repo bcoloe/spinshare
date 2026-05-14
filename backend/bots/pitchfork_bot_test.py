@@ -8,8 +8,12 @@ import pytest
 sys.path.insert(0, ".")
 
 from app.utils.pitchfork_scraper import PitchforkAlbum
-from app.utils.spotify_client import SpotifyAlbumResult
+from app.utils.spotify_client import SpotifyAlbumResult, SpotifySearchPage
 from bots.pitchfork_bot import _process_album
+
+
+def _make_page(items) -> SpotifySearchPage:
+    return SpotifySearchPage(items=items, total=len(items))
 
 
 def _make_pitchfork_album(artist="Radiohead", title="Kid A") -> PitchforkAlbum:
@@ -64,7 +68,7 @@ class TestProcessAlbumDbCache:
         album_svc.get_or_create_album.return_value = created_album
         album_svc.nominate_album.return_value = MagicMock()
 
-        with patch("bots.pitchfork_bot.search_albums", return_value=[spotify_result]) as mock_search:
+        with patch("bots.pitchfork_bot.search_albums", return_value=_make_page([spotify_result])) as mock_search:
             result = _process_album(
                 _make_pitchfork_album(),
                 bot_user=MagicMock(),
@@ -105,7 +109,7 @@ class TestProcessAlbumDbCache:
         album_svc = MagicMock()
         album_svc.get_album_by_title_artist.return_value = None
 
-        with patch("bots.pitchfork_bot.search_albums", return_value=[spotify_result]):
+        with patch("bots.pitchfork_bot.search_albums", return_value=_make_page([spotify_result])):
             result = _process_album(
                 _make_pitchfork_album(),
                 bot_user=MagicMock(),
@@ -121,7 +125,7 @@ class TestProcessAlbumDbCache:
         album_svc = MagicMock()
         album_svc.get_album_by_title_artist.return_value = None
 
-        with patch("bots.pitchfork_bot.search_albums", return_value=[]):
+        with patch("bots.pitchfork_bot.search_albums", return_value=_make_page([])):
             result = _process_album(
                 _make_pitchfork_album(),
                 bot_user=MagicMock(),

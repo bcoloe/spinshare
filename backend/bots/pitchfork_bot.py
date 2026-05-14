@@ -148,11 +148,11 @@ def _process_album(
             )
             return "error"
 
-        if not results:
+        if not results.items:
             log.info("No Spotify match: %r by %r", pitchfork_album.title, pitchfork_album.artist)
             return "no_match"
 
-        spotify = results[0]
+        spotify = results.items[0]
 
         if dry_run:
             log.info(
