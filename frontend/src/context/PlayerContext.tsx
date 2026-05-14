@@ -41,7 +41,9 @@ const STORAGE_KEY = 'spinshare_player'
 interface PersistedState {
   playingAlbumMeta: PlayingAlbumMeta
   lastTrackUri: string | null
+  lastTrackName: string | null
   lastPosition: number
+  lastDuration: number
   minimized: boolean
 }
 
@@ -83,7 +85,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       return
     }
     try {
-      const state: PersistedState = { playingAlbumMeta, lastTrackUri: player.currentTrackUri, lastPosition: 0, minimized }
+      const state: PersistedState = {
+        playingAlbumMeta,
+        lastTrackUri: player.currentTrackUri,
+        lastTrackName: player.currentTrackName,
+        lastPosition: 0,
+        lastDuration: player.duration,
+        minimized,
+      }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
     } catch {}
   }, [playingAlbumMeta, player.currentTrackUri, minimized])
@@ -105,6 +114,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [])
+
+  // When the SDK has no track (e.g. after a refresh), show persisted values
+  // so the player bar displays the correct track and progress before first play.
+  const needsRestore = !player.playingSpotifyAlbumId && !!playingAlbumMeta
+  const currentTrackUri = needsRestore ? (persistedState?.lastTrackUri ?? null) : player.currentTrackUri
+  const currentTrackName = needsRestore ? (persistedState?.lastTrackName ?? null) : player.currentTrackName
+  const position = needsRestore ? (persistedState?.lastPosition ?? 0) : player.position
+  const duration = needsRestore ? (persistedState?.lastDuration ?? 0) : player.duration
 
   const startAlbum = async (spotifyAlbumId: string, meta: PlayingAlbumMeta, trackUri?: string) => {
     setPlayingAlbumMeta(meta)
@@ -131,11 +148,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   return (
     <PlayerContext.Provider value={{
       status: player.status,
-      currentTrackUri: player.currentTrackUri,
-      currentTrackName: player.currentTrackName,
+      currentTrackUri,
+      currentTrackName,
       currentTrackNumber: player.currentTrackNumber,
-      position: player.position,
-      duration: player.duration,
+      position,
+      duration,
       playingSpotifyAlbumId: player.playingSpotifyAlbumId,
       hasSpotify,
       minimized,
