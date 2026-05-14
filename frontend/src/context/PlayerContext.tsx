@@ -111,6 +111,21 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     await player.startAlbum(spotifyAlbumId, trackUri)
   }
 
+  // If the SDK has no track yet (e.g. after a page refresh) but we have
+  // persisted state, load the saved track and position on the first play
+  // rather than toggling nothing.
+  const togglePlay = () => {
+    if (!player.playingSpotifyAlbumId && playingAlbumMeta) {
+      player.startAlbum(
+        playingAlbumMeta.spotifyAlbumId,
+        persistedState?.lastTrackUri ?? undefined,
+        persistedState?.lastPosition ?? undefined,
+      )
+      return
+    }
+    player.togglePlay()
+  }
+
   const clearPlayer = () => setPlayingAlbumMeta(null)
 
   return (
@@ -125,7 +140,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       hasSpotify,
       minimized,
       toggleMinimized,
-      togglePlay: player.togglePlay,
+      togglePlay,
       skipNext: player.skipNext,
       skipPrevious: player.skipPrevious,
       seekTo: player.seekTo,
