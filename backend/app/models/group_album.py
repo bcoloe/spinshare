@@ -12,7 +12,7 @@ class GroupAlbum(Base):
     __tablename__ = "group_albums"
 
     id = Column(Integer, primary_key=True, index=True)
-    group_id = Column(Integer, ForeignKey("groups.id"), nullable=False)
+    group_id = Column(Integer, ForeignKey("groups.id", ondelete="CASCADE"), nullable=False)
     album_id = Column(Integer, ForeignKey("albums.id"), nullable=False)
     added_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     selected_date = Column(DateTime(timezone=True), nullable=True)
@@ -25,7 +25,7 @@ class GroupAlbum(Base):
     group = relationship("Group", back_populates="albums")
     albums = relationship("Album", back_populates="group_albums")
     added_by_user = relationship("User", foreign_keys=[added_by], back_populates="added_albums")
-    guesses = relationship("NominationGuess", back_populates="group_album")
+    guesses = relationship("NominationGuess", back_populates="group_album", cascade="all, delete-orphan")
 
     __table_args__ = (
         UniqueConstraint("group_id", "album_id", "added_by", name="unique_user_album_per_group"),
