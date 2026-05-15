@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button, Group, Slider, Stack, Text, Textarea } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useSubmitReview, useUpdateReview } from '../../hooks/useDailySpin'
@@ -19,6 +19,9 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
   const [comment, setComment] = useState(existingReview?.comment ?? '')
   const submitReview = useSubmitReview(albumId)
   const updateReview = useUpdateReview(albumId)
+  const [autosavedAt, setAutosavedAt] = useState<Date | null>(null)
+  const isDirtyRef = useRef(false)
+  const autosaveCallbackRef = useRef<() => Promise<void>>(() => Promise.resolve())
 
   useEffect(() => {
     if (existingReview) {
@@ -26,6 +29,29 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
       setComment(existingReview.comment ?? '')
     }
   }, [existingReview?.id])
+
+  autosaveCallbackRef.current = async () => {
+    if (isPublished || submitReview.isPending || updateReview.isPending) return
+    try {
+      if (existingReview) {
+        await updateReview.mutateAsync({
+          reviewId: existingReview.id,
+          data: { rating: rating ?? undefined, comment: comment || undefined, is_draft: true },
+        })
+      } else {
+        await submitReview.mutateAsync({ rating: rating ?? undefined, comment: comment || undefined, is_draft: true })
+      }
+      setAutosavedAt(new Date())
+    } catch {
+      // autosave silently fails
+    }
+  }
+
+  useEffect(() => {
+    if (!isDirtyRef.current) return
+    const timer = setTimeout(() => { autosaveCallbackRef.current() }, 3000)
+    return () => clearTimeout(timer)
+  }, [rating, comment])
 
   if (isPublished && !editing) {
     return (
@@ -112,7 +138,7 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
           max={10}
           step={0.1}
           value={rating ?? 0}
-          onChange={setRating}
+          onChange={(v) => { isDirtyRef.current = true; setRating(v) }}
           marks={[0, 2, 4, 6, 8, 10].map((v) => ({ value: v, label: String(v) }))}
           mb="lg"
         />
@@ -121,24 +147,31 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
         label="Comment (optional)"
         placeholder="What did you think?"
         value={comment}
-        onChange={(e) => setComment(e.currentTarget.value)}
+        onChange={(e) => { isDirtyRef.current = true; setComment(e.currentTarget.value) }}
         maxLength={1000}
         autosize
         minRows={2}
       />
-      <Group gap="xs">
-        {!isPublished && (
-          <Button variant="default" onClick={handleSaveDraft} loading={isLoading}>
-            Save draft
+      <Group justify="space-between" align="center">
+        <Group gap="xs">
+          {!isPublished && (
+            <Button variant="default" onClick={handleSaveDraft} loading={isLoading}>
+              Save draft
+            </Button>
+          )}
+          <Button onClick={handleSubmit} loading={isLoading} disabled={rating === null}>
+            {isPublished ? 'Save' : 'Submit review'}
           </Button>
-        )}
-        <Button onClick={handleSubmit} loading={isLoading} disabled={rating === null}>
-          {isPublished ? 'Save' : 'Submit review'}
-        </Button>
-        {editing && (
-          <Button variant="subtle" color="gray" onClick={() => setEditing(false)} disabled={isLoading}>
-            Cancel
-          </Button>
+          {editing && (
+            <Button variant="subtle" color="gray" onClick={() => setEditing(false)} disabled={isLoading}>
+              Cancel
+            </Button>
+          )}
+        </Group>
+        {!isPublished && autosavedAt && (
+          <Text size="xs" c="dimmed">
+            Autosaved {autosavedAt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+          </Text>
         )}
       </Group>
     </Stack>

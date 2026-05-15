@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ActionIcon,
   Alert,
@@ -135,6 +135,9 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
   const [editRating, setEditRating] = useState(0)
   const [editComment, setEditComment] = useState('')
   const [confirmOpen, { open: openConfirm, close: closeConfirm }] = useDisclosure(false)
+  const [autosavedAt, setAutosavedAt] = useState<Date | null>(null)
+  const isDirtyRef = useRef(false)
+  const autosaveCallbackRef = useRef<() => Promise<void>>(() => Promise.resolve())
 
   // Pre-fill form state when a draft exists (data may arrive asynchronously)
   useEffect(() => {
@@ -143,6 +146,30 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
       setComment(existingReview.comment ?? '')
     }
   }, [existingReview?.id])
+
+  // Keep autosave callback up to date with latest state on every render (avoids stale closures)
+  autosaveCallbackRef.current = async () => {
+    if (hasPublishedReview || submitReview.isPending || updateReview.isPending) return
+    try {
+      if (isDraft && existingReview) {
+        await updateReview.mutateAsync({
+          reviewId: existingReview.id,
+          data: { rating: rating ?? undefined, comment: comment || undefined, is_draft: true },
+        })
+      } else {
+        await submitReview.mutateAsync({ rating: rating ?? undefined, comment: comment || undefined, is_draft: true })
+      }
+      setAutosavedAt(new Date())
+    } catch {
+      // autosave silently fails
+    }
+  }
+
+  useEffect(() => {
+    if (!isDirtyRef.current) return
+    const timer = setTimeout(() => { autosaveCallbackRef.current() }, 3000)
+    return () => clearTimeout(timer)
+  }, [rating, comment])
 
   const isPending = submitReview.isPending || checkGuess.isPending || updateReview.isPending
 
@@ -365,7 +392,7 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
             max={10}
             step={0.1}
             value={rating ?? 0}
-            onChange={setRating}
+            onChange={(v) => { isDirtyRef.current = true; setRating(v) }}
             marks={[0, 2, 4, 6, 8, 10].map((v) => ({ value: v, label: String(v) }))}
             mb="lg"
           />
@@ -374,7 +401,7 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
           label="Comment (optional)"
           placeholder="What did you think?"
           value={comment}
-          onChange={(e) => setComment(e.currentTarget.value)}
+          onChange={(e) => { isDirtyRef.current = true; setComment(e.currentTarget.value) }}
           maxLength={1000}
           autosize
           minRows={2}
@@ -387,13 +414,20 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
             <AvatarSelector groupId={groupId} groupAlbumId={groupAlbumId} selected={guessedUserId} onChange={setGuessedUserId} />
           </Stack>
         ))}
-        <Group gap="xs">
-          <Button variant="default" onClick={handleSaveDraft} loading={isPending}>
-            Save draft
-          </Button>
-          <Button onClick={handleSubmitClick} loading={isPending} disabled={rating === null}>
-            Submit review
-          </Button>
+        <Group justify="space-between" align="center">
+          <Group gap="xs">
+            <Button variant="default" onClick={handleSaveDraft} loading={isPending}>
+              Save draft
+            </Button>
+            <Button onClick={handleSubmitClick} loading={isPending} disabled={rating === null}>
+              Submit review
+            </Button>
+          </Group>
+          {autosavedAt && (
+            <Text size="xs" c="dimmed">
+              Autosaved {autosavedAt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+            </Text>
+          )}
         </Group>
       </Stack>
 

@@ -627,7 +627,7 @@ export default function AlbumPage() {
           {myReviewLoading ? (
             <Skeleton h={80} />
           ) : (
-            <ReviewForm albumId={albumId} existingReview={myReview} />
+            <ReviewForm key={albumId} albumId={albumId} existingReview={myReview} />
           )}
         </Paper>
 

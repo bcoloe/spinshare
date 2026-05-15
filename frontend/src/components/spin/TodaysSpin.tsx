@@ -486,7 +486,7 @@ export default function TodaysSpin({ groupId, group }: Props) {
     return (
       <Stack gap="md">
         {poolBadge}
-        <SpinSlide groupAlbum={albums[0]} groupId={groupId} allowGuessing={allowGuessing} />
+        <SpinSlide key={albums[0].album_id} groupAlbum={albums[0]} groupId={groupId} allowGuessing={allowGuessing} />
       </Stack>
     )
   }
