@@ -283,15 +283,21 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const appleMusicPositionRef = useRef(applePlayer.position)
   useEffect(() => { appleMusicPositionRef.current = applePlayer.position }, [applePlayer.position])
 
+  const appleMusicDurationRef = useRef(applePlayer.duration)
+  useEffect(() => { appleMusicDurationRef.current = applePlayer.duration }, [applePlayer.duration])
+
   useEffect(() => {
     const handleBeforeUnload = () => {
       try {
         const raw = localStorage.getItem(STORAGE_KEY)
         if (!raw) return
         const state = JSON.parse(raw) as PersistedState
-        state.lastPosition = state.activeService === 'apple_music'
-          ? appleMusicPositionRef.current
-          : positionRef.current
+        if (state.activeService === 'apple_music') {
+          state.lastPosition = appleMusicPositionRef.current
+          state.lastDuration = appleMusicDurationRef.current
+        } else {
+          state.lastPosition = positionRef.current
+        }
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
       } catch {}
     }
