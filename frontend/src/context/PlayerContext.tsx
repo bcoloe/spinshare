@@ -143,7 +143,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   // Track name/number from whichever service is active
   const currentTrackName = activeService === 'apple_music'
-    ? applePlayer.currentTrackName
+    ? (applePlayer.playingAppleMusicAlbumId ? applePlayer.currentTrackName : (persistedState?.lastTrackName ?? null))
     : player.currentTrackName
   const currentTrackNumber = activeService === 'apple_music'
     ? applePlayer.currentTrackNumber
@@ -261,20 +261,19 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem(STORAGE_KEY)
       return
     }
-    if (activeService !== 'spotify') return
     try {
       const state: PersistedState = {
         playingAlbumMeta,
-        lastTrackUri: player.currentTrackUri,
-        lastTrackName: player.currentTrackName,
+        lastTrackUri: activeService === 'spotify' ? player.currentTrackUri : null,
+        lastTrackName: activeService === 'apple_music' ? applePlayer.currentTrackName : player.currentTrackName,
         lastPosition: 0,
-        lastDuration: player.duration,
+        lastDuration: activeService === 'apple_music' ? applePlayer.duration : player.duration,
         minimized,
         activeService,
       }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
     } catch {}
-  }, [playingAlbumMeta, player.currentTrackUri, minimized, activeService])
+  }, [playingAlbumMeta, player.currentTrackUri, applePlayer.currentTrackName, minimized, activeService])
 
   const positionRef = useRef(player.position)
   useEffect(() => { positionRef.current = player.position }, [player.position])
@@ -296,12 +295,13 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   // ── Playback ───────────────────────────────────────────────────────────────
 
   const needsRestore = activeService === 'spotify' && !player.playingSpotifyAlbumId && !!playingAlbumMeta
+  const needsRestoreAppleMusic = activeService === 'apple_music' && !applePlayer.playingAppleMusicAlbumId && !!playingAlbumMeta
   const currentTrackUri = needsRestore ? (persistedState?.lastTrackUri ?? null) : player.currentTrackUri
   const position = activeService === 'apple_music'
-    ? applePlayer.position
+    ? (needsRestoreAppleMusic ? 0 : applePlayer.position)
     : needsRestore ? (persistedState?.lastPosition ?? 0) : player.position
   const duration = activeService === 'apple_music'
-    ? applePlayer.duration
+    ? (needsRestoreAppleMusic ? (persistedState?.lastDuration ?? 0) : applePlayer.duration)
     : needsRestore ? (persistedState?.lastDuration ?? 0) : player.duration
 
   const startAlbum = async (spotifyAlbumId: string, meta: PlayingAlbumMeta, trackUri?: string) => {
