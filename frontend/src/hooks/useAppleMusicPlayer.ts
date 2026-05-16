@@ -27,7 +27,7 @@ export interface UseAppleMusicPlayerResult {
   skipNext: () => void
   skipPrevious: () => void
   seekTo: (positionMs: number) => void
-  startAlbum: (appleMusicAlbumId: string) => Promise<void>
+  startAlbum: (appleMusicAlbumId: string, startPositionMs?: number, startTrackIndex?: number) => Promise<void>
   skipToTrackAtIndex: (index: number) => Promise<void>
   saveAlbumToLibrary: (albumId: string) => Promise<void>
 }
@@ -217,7 +217,7 @@ export function useAppleMusicPlayer(): UseAppleMusicPlayerResult {
     musicRef.current?.seekToTime(positionMs / 1000)
   }
 
-  const startAlbum = async (appleMusicAlbumId: string) => {
+  const startAlbum = async (appleMusicAlbumId: string, startPositionMs?: number, startTrackIndex?: number) => {
     const music = musicRef.current
     if (!music) return
     if (!music.isAuthorized) {
@@ -229,6 +229,12 @@ export function useAppleMusicPlayer(): UseAppleMusicPlayerResult {
     setPlayingAppleMusicAlbumId(appleMusicAlbumId)
     await music.setQueue({ album: appleMusicAlbumId })
     await music.play()
+    if (startTrackIndex && startTrackIndex > 0) {
+      try { await music.changeToMediaAtIndex(startTrackIndex) } catch {}
+    }
+    if (startPositionMs && startPositionMs > 0) {
+      await music.seekToTime(startPositionMs / 1000)
+    }
   }
 
   const skipToTrackAtIndex = async (index: number) => {

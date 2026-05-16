@@ -91,6 +91,7 @@ interface PersistedState {
   playingAlbumMeta: PlayingAlbumMeta
   lastTrackUri: string | null
   lastTrackName: string | null
+  lastTrackNumber: number | null
   lastPosition: number
   lastDuration: number
   minimized: boolean
@@ -266,6 +267,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         playingAlbumMeta,
         lastTrackUri: activeService === 'spotify' ? player.currentTrackUri : null,
         lastTrackName: activeService === 'apple_music' ? applePlayer.currentTrackName : player.currentTrackName,
+        lastTrackNumber: activeService === 'apple_music' ? applePlayer.currentTrackNumber : null,
         lastPosition: 0,
         lastDuration: activeService === 'apple_music' ? applePlayer.duration : player.duration,
         minimized,
@@ -273,10 +275,13 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
     } catch {}
-  }, [playingAlbumMeta, player.currentTrackUri, applePlayer.currentTrackName, minimized, activeService])
+  }, [playingAlbumMeta, player.currentTrackUri, applePlayer.currentTrackName, applePlayer.currentTrackNumber, minimized, activeService])
 
   const positionRef = useRef(player.position)
   useEffect(() => { positionRef.current = player.position }, [player.position])
+
+  const appleMusicPositionRef = useRef(applePlayer.position)
+  useEffect(() => { appleMusicPositionRef.current = applePlayer.position }, [applePlayer.position])
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -284,7 +289,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         const raw = localStorage.getItem(STORAGE_KEY)
         if (!raw) return
         const state = JSON.parse(raw) as PersistedState
-        state.lastPosition = positionRef.current
+        state.lastPosition = state.activeService === 'apple_music'
+          ? appleMusicPositionRef.current
+          : positionRef.current
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
       } catch {}
     }
@@ -320,7 +327,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const togglePlay = () => {
     if (activeService === 'apple_music') {
       if (!applePlayer.playingAppleMusicAlbumId && playingAlbumMeta?.appleMusicAlbumId) {
-        applePlayer.startAlbum(playingAlbumMeta.appleMusicAlbumId)
+        const lastTrackIndex = (persistedState?.lastTrackNumber ?? 1) - 1
+        applePlayer.startAlbum(
+          playingAlbumMeta.appleMusicAlbumId,
+          persistedState?.lastPosition ?? undefined,
+          lastTrackIndex > 0 ? lastTrackIndex : undefined,
+        )
         return
       }
       applePlayer.togglePlay()
