@@ -13,3 +13,8 @@ export async function getSpotifyToken(): Promise<string> {
 export async function disconnectSpotify(): Promise<void> {
   await apiFetch('/users/spotify', { method: 'DELETE' })
 }
+
+export async function getAppleMusicDeveloperToken(): Promise<string> {
+  const data = await apiFetch<{ developer_token: string }>('/users/apple-music/developer-token')
+  return data.developer_token
+}

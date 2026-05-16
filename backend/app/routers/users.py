@@ -171,6 +171,21 @@ def search_users(
     return user_service.search_users(query, limit=limit)
 
 
+@router.get("/apple-music/developer-token")
+def get_apple_music_developer_token():
+    """Return a developer token for initializing MusicKit JS.
+
+    No authentication required — developer tokens are public-facing and not user-specific.
+
+    Raises:
+        HTTPException 503: If Apple Music credentials are not configured.
+    """
+    from app.utils import apple_music_client
+
+    token = apple_music_client.generate_developer_token()
+    return {"developer_token": token}
+
+
 @router.get("/spotify/token", response_model=SpotifyTokenResponse)
 def get_spotify_token(
     current_user: User = Depends(get_current_user),

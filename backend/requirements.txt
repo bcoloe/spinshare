@@ -13,6 +13,9 @@ beautifulsoup4 ~= 4.13.0
 ytmusicapi ~= 1.10.0
 
 
+PyJWT ~= 2.9.0
+cryptography ~= 44.0.0
+
 # test-only requirements
 pytest ~= 9.0.2
 pytest-mock ~= 3.15.1

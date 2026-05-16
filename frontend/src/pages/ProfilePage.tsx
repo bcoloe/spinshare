@@ -5,6 +5,7 @@ import {
   Group,
   Modal,
   PasswordInput,
+  SegmentedControl,
   Skeleton,
   Stack,
   Switch,
@@ -16,7 +17,7 @@ import { useDisclosure } from '@mantine/hooks'
 import { useForm } from '@mantine/form'
 import { notifications } from '@mantine/notifications'
 import { useQueryClient } from '@tanstack/react-query'
-import { IconBrandSpotify } from '@tabler/icons-react'
+import { IconBrandApple, IconBrandSpotify } from '@tabler/icons-react'
 import AppShell from '../components/layout/AppShell'
 import StatsGrid from '../components/profile/StatsGrid'
 import GroupStatsList from '../components/profile/GroupStatsList'
@@ -25,6 +26,7 @@ import { useMyStats } from '../hooks/useStats'
 import { useMyGroups } from '../hooks/useGroups'
 import { apiFetch, ApiError } from '../services/apiClient'
 import { getSpotifyConnectUrl, disconnectSpotify } from '../services/streamingService'
+import { usePlayer } from '../context/PlayerContext'
 
 interface EditFormValues {
   username: string
@@ -54,8 +56,11 @@ export default function ProfilePage() {
   const { data: groups } = useMyGroups(user?.username ?? '')
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
+  const { hasAppleMusic, connectAppleMusic, disconnectAppleMusic, preferredService, setPreferredService } = usePlayer()
   const [connectingSpotify, setConnectingSpotify] = useState(false)
   const [disconnectingSpotify, setDisconnectingSpotify] = useState(false)
+  const [connectingApple, setConnectingApple] = useState(false)
+  const [disconnectingApple, setDisconnectingApple] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteOpened, { open: openDelete, close: closeDelete }] = useDisclosure(false)
 
@@ -96,6 +101,30 @@ export default function ProfilePage() {
       notifications.show({ color: 'red', message: 'Could not disconnect Spotify' })
     } finally {
       setDisconnectingSpotify(false)
+    }
+  }
+
+  const handleAppleMusicConnect = async () => {
+    setConnectingApple(true)
+    try {
+      await connectAppleMusic()
+      notifications.show({ color: 'green', message: 'Apple Music connected' })
+    } catch {
+      notifications.show({ color: 'red', message: 'Could not connect Apple Music' })
+    } finally {
+      setConnectingApple(false)
+    }
+  }
+
+  const handleAppleMusicDisconnect = async () => {
+    setDisconnectingApple(true)
+    try {
+      await disconnectAppleMusic()
+      notifications.show({ color: 'green', message: 'Apple Music disconnected' })
+    } catch {
+      notifications.show({ color: 'red', message: 'Could not disconnect Apple Music' })
+    } finally {
+      setDisconnectingApple(false)
     }
   }
 
@@ -270,39 +299,86 @@ export default function ProfilePage() {
 
         <div>
           <Title order={5} mb="md">Connected services</Title>
-          <Group justify="space-between">
-            <Group gap="sm">
-              <IconBrandSpotify size={20} color="#1DB954" />
-              <div>
-                <Text size="sm" fw={500}>Spotify</Text>
-                <Text size="xs" c="dimmed">
-                  {stats?.has_spotify ? 'Connected' : 'Not connected'}
-                </Text>
-              </div>
+          <Stack gap="sm">
+            <Group justify="space-between">
+              <Group gap="sm">
+                <IconBrandSpotify size={20} color="#1DB954" />
+                <div>
+                  <Text size="sm" fw={500}>Spotify</Text>
+                  <Text size="xs" c="dimmed">
+                    {stats?.has_spotify ? 'Connected' : 'Not connected'}
+                  </Text>
+                </div>
+              </Group>
+              {statsLoading ? (
+                <Skeleton w={80} h={28} radius="sm" />
+              ) : stats?.has_spotify ? (
+                <Button
+                  size="xs"
+                  variant="subtle"
+                  color="red"
+                  loading={disconnectingSpotify}
+                  onClick={handleSpotifyDisconnect}
+                >
+                  Disconnect
+                </Button>
+              ) : (
+                <Button
+                  size="xs"
+                  variant="light"
+                  loading={connectingSpotify}
+                  onClick={handleSpotifyConnect}
+                >
+                  Connect
+                </Button>
+              )}
             </Group>
-            {statsLoading ? (
-              <Skeleton w={80} h={28} radius="sm" />
-            ) : stats?.has_spotify ? (
-              <Button
-                size="xs"
-                variant="subtle"
-                color="red"
-                loading={disconnectingSpotify}
-                onClick={handleSpotifyDisconnect}
-              >
-                Disconnect
-              </Button>
-            ) : (
-              <Button
-                size="xs"
-                variant="light"
-                loading={connectingSpotify}
-                onClick={handleSpotifyConnect}
-              >
-                Connect
-              </Button>
+            <Group justify="space-between">
+              <Group gap="sm">
+                <IconBrandApple size={20} color="#fc3c44" />
+                <div>
+                  <Text size="sm" fw={500}>Apple Music</Text>
+                  <Text size="xs" c="dimmed">
+                    {hasAppleMusic ? 'Connected' : 'Not connected'}
+                  </Text>
+                </div>
+              </Group>
+              {hasAppleMusic ? (
+                <Button
+                  size="xs"
+                  variant="subtle"
+                  color="red"
+                  loading={disconnectingApple}
+                  onClick={handleAppleMusicDisconnect}
+                >
+                  Disconnect
+                </Button>
+              ) : (
+                <Button
+                  size="xs"
+                  variant="light"
+                  loading={connectingApple}
+                  onClick={handleAppleMusicConnect}
+                >
+                  Connect
+                </Button>
+              )}
+            </Group>
+            {stats?.has_spotify && hasAppleMusic && (
+              <div>
+                <Text size="xs" c="dimmed" mb={6}>Preferred playback service</Text>
+                <SegmentedControl
+                  size="xs"
+                  value={preferredService}
+                  onChange={(v) => setPreferredService(v as 'spotify' | 'apple_music')}
+                  data={[
+                    { label: 'Spotify', value: 'spotify' },
+                    { label: 'Apple Music', value: 'apple_music' },
+                  ]}
+                />
+              </div>
             )}
-          </Group>
+          </Stack>
         </div>
 
         <Divider />

@@ -7,6 +7,15 @@
 * **.env***: Environment files. Requires `DATABASE_URL` and `SECRET_KEY` (min 32 chars).
 * **requirements.txt**: Python dependencies.
 
+## Installing Dependencies
+
+**Always update `requirements.txt` first, then install via the venv** — never run `pip install` directly.
+
+```bash
+# After updating requirements.txt:
+.venv/bin/pip install -r requirements.txt
+```
+
 ## Running Tests
 
 **Always use the `scripts/test.sh` wrapper** — never call `pytest` directly. It ensures the correct venv Python is used. Always run as a **foreground command** (never background/async).

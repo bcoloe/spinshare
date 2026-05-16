@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import {
   ActionIcon,
@@ -20,12 +20,15 @@ import {
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import {
+  IconBrandApple,
   IconBrandSpotify,
   IconBrandYoutube,
   IconChevronDown,
   IconChevronRight,
   IconChevronUp,
   IconExternalLink,
+  IconHeart,
+  IconHeartFilled,
   IconMusic,
   IconPlaylistAdd,
   IconSelector,
@@ -41,27 +44,31 @@ import {
   YAxis,
 } from 'recharts'
 import AppShell from '../components/layout/AppShell'
-import PlaylistPickerModal from '../components/spin/PlaylistPickerModal'
+import PlaylistPickerModal, { type PickablePlaylist } from '../components/spin/PlaylistPickerModal'
 import ReviewForm from '../components/spin/ReviewForm'
 import { usePlayer } from '../context/PlayerContext'
 import { useMyReview } from '../hooks/useDailySpin'
 import { useAlbumDetails, useAlbumReviews, useAlbumStats } from '../hooks/useAlbumPage'
-import { getSpotifyToken } from '../services/streamingService'
-import { isAlbumSaved, saveAlbum, unsaveAlbum } from '../services/spotifyApiClient'
+import { getSpotifyToken, getAppleMusicDeveloperToken } from '../services/streamingService'
+import {
+  fetchUserPlaylists,
+  fetchAlbumTracks,
+  addTracksToPlaylist,
+  removeTracksFromPlaylist,
+  getPlaylistsContainingUris,
+} from '../services/spotifyApiClient'
+import {
+  fetchAppleMusicAlbumTracks,
+  fetchAppleMusicUserPlaylists,
+  addSongsToAppleMusicPlaylist,
+} from '../services/appleMusicApiClient'
+import type { UnifiedTrack } from '../context/PlayerContext'
 import type { AlbumReviewItem } from '../types/album'
 
 // ==================== TYPES ====================
 
 type SortField = 'username' | 'date' | 'rating'
 type SortDir = 'asc' | 'desc'
-
-interface AlbumTrack {
-  uri: string
-  name: string
-  trackNumber: number
-  durationMs: number
-  artists: string
-}
 
 // ==================== HELPERS ====================
 
@@ -109,98 +116,167 @@ function sortReviews(items: AlbumReviewItem[], field: SortField, dir: SortDir): 
 // ==================== ALBUM TRACKLIST ====================
 
 interface AlbumTracklistProps {
+  appAlbumId: number
   spotifyAlbumId: string
+  appleMusicAlbumId: string | null | undefined
   albumTitle: string
   albumArtist: string
   albumCoverUrl: string | null
-  appAlbumId: number
+  effectivePlayService: 'spotify' | 'apple_music'
 }
 
-function AlbumTracklist({ spotifyAlbumId, albumTitle, albumArtist, albumCoverUrl, appAlbumId }: AlbumTracklistProps) {
-  const { currentTrackUri, startAlbum } = usePlayer()
-  const [tracks, setTracks] = useState<AlbumTrack[]>([])
-  const [tracksLoading, setTracksLoading] = useState(false)
-  const [albumSaved, setAlbumSaved] = useState(false)
-  const [savingAlbum, setSavingAlbum] = useState(false)
-  const [pickerUris, setPickerUris] = useState<string[]>([])
-  const [pickerTitle, setPickerTitle] = useState('Add to playlist')
-  const [pickerOpened, { open: openPicker, close: closePicker }] = useDisclosure(false)
-  const activeTrackRef = useRef<HTMLDivElement | null>(null)
+function AlbumTracklist({
+  appAlbumId,
+  spotifyAlbumId,
+  appleMusicAlbumId,
+  albumTitle,
+  albumArtist,
+  albumCoverUrl,
+  effectivePlayService,
+}: AlbumTracklistProps) {
+  const {
+    tracks: contextTracks,
+    tracksLoading: contextTracksLoading,
+    skipToTrack,
+    albumSaved,
+    albumSavePending,
+    toggleAlbumSave,
+    canRemoveFromLibrary,
+    currentTrackUri,
+    currentTrackNumber,
+    appleMusicUserToken,
+    playingAlbumMeta,
+    startAlbum,
+    playInAppleMusic,
+  } = usePlayer()
+
+  const isAppleMusic = effectivePlayService === 'apple_music'
+  const accentColor = isAppleMusic ? '#fc3c44' : '#1DB954'
+  const isThisAlbumPlaying = playingAlbumMeta?.appAlbumId === appAlbumId
+
+  // Pre-play local tracks — fetched from the service API before any playback starts
+  const [localTracks, setLocalTracks] = useState<UnifiedTrack[]>([])
+  const [localTracksLoading, setLocalTracksLoading] = useState(false)
 
   useEffect(() => {
-    setTracks([])
-    setAlbumSaved(false)
-  }, [spotifyAlbumId])
-
-  useEffect(() => {
-    if (tracks.length > 0) return
+    if (isThisAlbumPlaying) return
     let cancelled = false
-    setTracksLoading(true)
-    async function fetchTracks() {
+    setLocalTracksLoading(true)
+    ;(async () => {
       try {
-        const token = await getSpotifyToken()
-        const resp = await fetch(
-          `https://api.spotify.com/v1/albums/${spotifyAlbumId}/tracks?limit=50`,
-          { headers: { Authorization: `Bearer ${token}` } },
-        )
-        if (!resp.ok || cancelled) return
-        const data = await resp.json()
-        setTracks(
-          data.items.map((t: { uri: string; name: string; track_number: number; duration_ms: number; artists: Array<{ name: string }> }) => ({
-            uri: t.uri,
-            name: t.name,
-            trackNumber: t.track_number,
-            durationMs: t.duration_ms,
-            artists: t.artists.map((a) => a.name).join(', '),
-          })),
-        )
-      } finally {
-        if (!cancelled) setTracksLoading(false)
+        if (isAppleMusic && appleMusicAlbumId) {
+          const devToken = await getAppleMusicDeveloperToken()
+          const t = await fetchAppleMusicAlbumTracks(devToken, appleMusicAlbumId)
+          if (!cancelled) setLocalTracks(t)
+        } else {
+          const token = await getSpotifyToken()
+          const t = await fetchAlbumTracks(token, spotifyAlbumId)
+          if (!cancelled) setLocalTracks(t.map((track) => ({
+            id: track.uri,
+            name: track.name,
+            trackNumber: track.trackNumber,
+            durationMs: track.durationMs,
+            artist: track.artists,
+          })))
+        }
+      } catch {} finally {
+        if (!cancelled) setLocalTracksLoading(false)
       }
-    }
-    fetchTracks()
+    })()
     return () => { cancelled = true }
-  }, [spotifyAlbumId, tracks.length])
+  }, [isThisAlbumPlaying, isAppleMusic, appleMusicAlbumId, spotifyAlbumId])
 
-  useEffect(() => {
-    if (tracks.length === 0) return
-    getSpotifyToken()
-      .then((token) => isAlbumSaved(token, spotifyAlbumId))
-      .then(setAlbumSaved)
-      .catch(() => {})
-  }, [tracks.length, spotifyAlbumId])
+  const displayTracks = isThisAlbumPlaying ? contextTracks : localTracks
+  const displayTracksLoading = isThisAlbumPlaying ? contextTracksLoading : localTracksLoading
 
-  useEffect(() => {
-    activeTrackRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-  }, [currentTrackUri])
+  const [pickerScope, setPickerScope] = useState<'album' | 'track'>('album')
+  const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null)
+  const [pickerOpened, { open: openPicker, close: closePicker }] = useDisclosure(false)
 
-  const albumMeta = { spotifyAlbumId, title: albumTitle, artist: albumArtist, coverUrl: albumCoverUrl, appAlbumId }
+  const openAlbumPicker = () => { setPickerScope('album'); openPicker() }
+  const openTrackPicker = (trackId: string) => { setSelectedTrackId(trackId); setPickerScope('track'); openPicker() }
 
-  const handleToggleSaveAlbum = async () => {
-    setSavingAlbum(true)
+  const pickerTrackIds = pickerScope === 'album'
+    ? displayTracks.map((t) => t.id)
+    : selectedTrackId ? [selectedTrackId] : []
+
+  const fetchPlaylists = async (): Promise<PickablePlaylist[]> => {
+    if (isAppleMusic) {
+      if (!appleMusicUserToken) throw new Error('Apple Music not authorized')
+      const devToken = await getAppleMusicDeveloperToken()
+      return fetchAppleMusicUserPlaylists(devToken, appleMusicUserToken)
+    }
+    const token = await getSpotifyToken()
+    const pls = await fetchUserPlaylists(token)
+    return pls.map((p) => ({ id: p.id, name: p.name, imageUrl: p.imageUrl ?? null }))
+  }
+
+  const checkContaining = isAppleMusic
+    ? undefined
+    : async (pls: PickablePlaylist[]) => {
+        const token = await getSpotifyToken()
+        const spotifyPls = pls.map((p) => ({ id: p.id, name: p.name, imageUrl: p.imageUrl ?? '' }))
+        return getPlaylistsContainingUris(token, spotifyPls, pickerTrackIds)
+      }
+
+  const onAdd = async (playlistId: string) => {
+    if (isAppleMusic) {
+      if (!appleMusicUserToken) throw new Error('Apple Music not authorized')
+      const devToken = await getAppleMusicDeveloperToken()
+      await addSongsToAppleMusicPlaylist(playlistId, pickerTrackIds, devToken, appleMusicUserToken)
+      return
+    }
+    const token = await getSpotifyToken()
+    await addTracksToPlaylist(token, playlistId, pickerTrackIds)
+  }
+
+  const onRemove = isAppleMusic
+    ? undefined
+    : async (playlistId: string) => {
+        const token = await getSpotifyToken()
+        await removeTracksFromPlaylist(token, playlistId, pickerTrackIds)
+      }
+
+  const handleToggleSave = async () => {
+    if (!isThisAlbumPlaying) return  // save only works when playing (context handles the album state)
     try {
-      const token = await getSpotifyToken()
-      if (albumSaved) {
-        await unsaveAlbum(token, spotifyAlbumId)
-        setAlbumSaved(false)
-        notifications.show({ message: 'Removed from Your Library' })
+      await toggleAlbumSave()
+      if (isAppleMusic) {
+        notifications.show({ color: 'green', message: 'Saved to Apple Music Library' })
       } else {
-        await saveAlbum(token, spotifyAlbumId)
-        setAlbumSaved(true)
-        notifications.show({ color: 'green', message: 'Saved to Your Library' })
+        notifications.show({
+          color: albumSaved ? undefined : 'green',
+          message: albumSaved ? 'Removed from Your Library' : 'Saved to Your Library',
+        })
       }
     } catch (err) {
       notifications.show({ color: 'red', message: err instanceof Error ? err.message : 'Could not update library' })
-    } finally {
-      setSavingAlbum(false)
     }
   }
 
-  const handleOpenPicker = (target: 'album' | string) => {
-    setPickerUris(target === 'album' ? tracks.map((t) => t.uri) : [target])
-    setPickerTitle(target === 'album' ? 'Add album to playlist' : 'Add track to playlist')
-    openPicker()
+  const handleTrackClick = (track: UnifiedTrack, index: number) => {
+    if (isThisAlbumPlaying) {
+      skipToTrack(index)
+      return
+    }
+    const meta = {
+      spotifyAlbumId,
+      appleMusicAlbumId,
+      title: albumTitle,
+      artist: albumArtist,
+      coverUrl: albumCoverUrl,
+      appAlbumId,
+    }
+    if (isAppleMusic) {
+      playInAppleMusic(meta)
+    } else {
+      startAlbum(spotifyAlbumId, meta, track.id)
+    }
   }
+
+  const saveLabel = isAppleMusic
+    ? 'Save to Library'
+    : albumSaved && canRemoveFromLibrary ? 'Remove from library' : 'Save album'
 
   return (
     <>
@@ -215,39 +291,41 @@ function AlbumTracklist({ spotifyAlbumId, albumTitle, albumArtist, albumCoverUrl
         {/* Album-level actions */}
         <Group px="sm" py="xs" gap="xs" style={(theme) => ({ borderBottom: `1px solid ${theme.colors.dark[5]}` })}>
           <Text size="xs" c="dimmed" style={{ flex: 1 }}>Tracks</Text>
-          <Tooltip label={albumSaved ? 'Remove from library' : 'Save album'} withArrow>
+          <Tooltip label={isThisAlbumPlaying ? saveLabel : 'Play to enable library save'} withArrow>
             <ActionIcon
               variant="subtle"
               size="sm"
-              color={albumSaved ? 'green' : 'gray'}
-              loading={savingAlbum}
-              onClick={handleToggleSaveAlbum}
+              color={isThisAlbumPlaying && albumSaved && canRemoveFromLibrary ? 'green' : 'gray'}
+              loading={albumSavePending}
+              disabled={!isThisAlbumPlaying}
+              onClick={handleToggleSave}
             >
-              {albumSaved
-                ? <IconMusic size={14} color="var(--mantine-color-green-5)" />
-                : <IconMusic size={14} />}
+              {isThisAlbumPlaying && albumSaved && canRemoveFromLibrary
+                ? <IconHeartFilled size={14} color="var(--mantine-color-green-5)" />
+                : <IconHeart size={14} />}
             </ActionIcon>
           </Tooltip>
           <Tooltip label="Add album to playlist" withArrow>
-            <ActionIcon variant="subtle" size="sm" onClick={() => handleOpenPicker('album')} disabled={tracks.length === 0}>
+            <ActionIcon variant="subtle" size="sm" onClick={openAlbumPicker} disabled={displayTracks.length === 0}>
               <IconPlaylistAdd size={14} />
             </ActionIcon>
           </Tooltip>
         </Group>
 
         <ScrollArea h={280} type="hover">
-          {tracksLoading
+          {displayTracksLoading
             ? Array.from({ length: 6 }).map((_, i) => (
                 <Box key={i} px="sm" py={6}>
                   <Skeleton h={14} radius="sm" />
                 </Box>
               ))
-            : tracks.map((track) => {
-                const isActive = track.uri === currentTrackUri
+            : displayTracks.map((track, index) => {
+                const isActive = isThisAlbumPlaying && (isAppleMusic
+                  ? currentTrackNumber === track.trackNumber
+                  : track.id === currentTrackUri)
                 return (
                   <Group
-                    key={track.uri}
-                    ref={isActive ? activeTrackRef : null}
+                    key={track.id}
                     px="sm"
                     py={7}
                     gap="xs"
@@ -255,18 +333,22 @@ function AlbumTracklist({ spotifyAlbumId, albumTitle, albumArtist, albumCoverUrl
                     style={(theme) => ({
                       cursor: 'pointer',
                       background: isActive ? theme.colors.dark[5] : 'transparent',
-                      borderLeft: isActive ? '2px solid #1DB954' : '2px solid transparent',
+                      borderLeft: isActive ? `2px solid ${accentColor}` : '2px solid transparent',
                     })}
-                    onClick={() => startAlbum(spotifyAlbumId, albumMeta, track.uri)}
+                    onClick={() => handleTrackClick(track, index)}
                   >
                     <Text size="xs" c="dimmed" w={20} ta="right" style={{ flexShrink: 0 }}>
-                      {isActive ? <IconBrandSpotify size={12} color="#1DB954" /> : track.trackNumber}
+                      {isActive
+                        ? (isAppleMusic
+                            ? <IconBrandApple size={12} color="#fc3c44" />
+                            : <IconBrandSpotify size={12} color="#1DB954" />)
+                        : track.trackNumber}
                     </Text>
                     <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
-                      <Text size="sm" c={isActive ? 'green.4' : undefined} fw={isActive ? 500 : 400} lineClamp={1}>
+                      <Text size="sm" c={isActive ? (isAppleMusic ? 'red.4' : 'green.4') : undefined} fw={isActive ? 500 : 400} lineClamp={1}>
                         {track.name}
                       </Text>
-                      <Text size="xs" c="dimmed" lineClamp={1}>{track.artists}</Text>
+                      <Text size="xs" c="dimmed" lineClamp={1}>{track.artist}</Text>
                     </Stack>
                     <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
                       {formatTrackDuration(track.durationMs)}
@@ -276,7 +358,7 @@ function AlbumTracklist({ spotifyAlbumId, albumTitle, albumArtist, albumCoverUrl
                         variant="subtle"
                         size="xs"
                         style={{ flexShrink: 0 }}
-                        onClick={(e) => { e.stopPropagation(); handleOpenPicker(track.uri) }}
+                        onClick={(e) => { e.stopPropagation(); openTrackPicker(track.id) }}
                       >
                         <IconPlaylistAdd size={12} />
                       </ActionIcon>
@@ -290,8 +372,11 @@ function AlbumTracklist({ spotifyAlbumId, albumTitle, albumArtist, albumCoverUrl
       <PlaylistPickerModal
         opened={pickerOpened}
         onClose={closePicker}
-        uris={pickerUris}
-        title={pickerTitle}
+        title={pickerScope === 'album' ? 'Add album to playlist' : 'Add track to playlist'}
+        fetchPlaylists={fetchPlaylists}
+        checkContaining={checkContaining}
+        onAdd={onAdd}
+        onRemove={onRemove}
       />
     </>
   )
@@ -390,8 +475,12 @@ export default function AlbumPage() {
   const {
     status: playerStatus,
     hasSpotify,
+    hasAppleMusic,
+    preferredService,
     playingSpotifyAlbumId,
+    playingAppleMusicAlbumId,
     startAlbum,
+    playInAppleMusic,
   } = usePlayer()
 
   const sortedReviews = useMemo(
@@ -460,85 +549,120 @@ export default function AlbumPage() {
         {/* ── PLAYER SECTION ── */}
         {albumLoading ? (
           <Skeleton h={48} radius="md" />
-        ) : album?.spotify_album_id ? (
-          <Stack gap="sm">
-            <Group gap="sm" wrap="wrap">
-              <Button
-                variant="filled"
-                color="green"
-                size="sm"
-                leftSection={<IconBrandSpotify size={16} />}
-                loading={hasSpotify && playerStatus === 'loading'}
-                disabled={!hasSpotify}
-                onClick={() => startAlbum(
-                  album.spotify_album_id!,
-                  {
-                    spotifyAlbumId: album.spotify_album_id!,
-                    title: album.title,
-                    artist: album.artist,
-                    coverUrl: album.cover_url ?? null,
-                    appAlbumId: album.id,
-                  },
-                )}
-              >
-                Play in Player
-              </Button>
-              <Button
-                component="a"
-                href={`spotify:album:${album.spotify_album_id}`}
-                variant="light"
-                color="green"
-                size="sm"
-                leftSection={<IconBrandSpotify size={16} />}
-              >
-                Open in Spotify
-              </Button>
-              <Button
-                component="a"
-                href={`https://open.spotify.com/album/${album.spotify_album_id}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                variant="subtle"
-                size="sm"
-                leftSection={<IconExternalLink size={16} />}
-              >
-                Web Player
-              </Button>
-              {album.youtube_music_id && (
+        ) : album?.spotify_album_id ? (() => {
+          const canPlaySpotify = hasSpotify
+          const canPlayAppleMusic = hasAppleMusic && !!album.apple_music_album_id
+          // Determine which service will handle the embedded play button
+          const effectivePlayService: 'spotify' | 'apple_music' = (() => {
+            if (preferredService === 'apple_music' && canPlayAppleMusic) return 'apple_music'
+            if (preferredService === 'spotify' && canPlaySpotify) return 'spotify'
+            if (canPlaySpotify) return 'spotify'
+            if (canPlayAppleMusic) return 'apple_music'
+            return preferredService
+          })()
+          const canPlay = effectivePlayService === 'apple_music' ? canPlayAppleMusic : canPlaySpotify
+          const playMeta = {
+            spotifyAlbumId: album.spotify_album_id!,
+            appleMusicAlbumId: album.apple_music_album_id,
+            title: album.title,
+            artist: album.artist,
+            coverUrl: album.cover_url ?? null,
+            appAlbumId: album.id,
+          }
+          const handlePlay = () => effectivePlayService === 'apple_music'
+            ? playInAppleMusic(playMeta)
+            : startAlbum(album.spotify_album_id!, playMeta)
+          return (
+            <Stack gap="sm">
+              <Group gap="sm" wrap="wrap">
+                <Button
+                  variant="filled"
+                  color={effectivePlayService === 'apple_music' ? 'red' : 'green'}
+                  size="sm"
+                  leftSection={effectivePlayService === 'apple_music'
+                    ? <IconBrandApple size={16} />
+                    : <IconBrandSpotify size={16} />}
+                  loading={playerStatus === 'loading'}
+                  disabled={!canPlay}
+                  onClick={handlePlay}
+                >
+                  Play
+                </Button>
                 <Button
                   component="a"
-                  href={`https://music.youtube.com/browse/${album.youtube_music_id}`}
+                  href={`spotify:album:${album.spotify_album_id}`}
+                  variant="light"
+                  color="green"
+                  size="sm"
+                  leftSection={<IconBrandSpotify size={16} />}
+                >
+                  Open in Spotify
+                </Button>
+                <Button
+                  component="a"
+                  href={`https://open.spotify.com/album/${album.spotify_album_id}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   variant="subtle"
                   size="sm"
-                  leftSection={<IconBrandYoutube size={16} />}
+                  leftSection={<IconExternalLink size={16} />}
                 >
-                  YouTube Music
+                  Web Player
                 </Button>
+                {album.youtube_music_id && (
+                  <Button
+                    component="a"
+                    href={`https://music.youtube.com/browse/${album.youtube_music_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    variant="subtle"
+                    size="sm"
+                    leftSection={<IconBrandYoutube size={16} />}
+                  >
+                    YouTube Music
+                  </Button>
+                )}
+                {album.apple_music_album_id && (
+                  <>
+                    <Button
+                      component="a"
+                      href={`https://music.apple.com/album/${album.apple_music_album_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      variant="light"
+                      color="red"
+                      size="sm"
+                      leftSection={<IconBrandApple size={16} />}
+                    >
+                      Open in Apple Music
+                    </Button>
+                  </>
+                )}
+                {(playingSpotifyAlbumId === album.spotify_album_id || playingAppleMusicAlbumId === album.apple_music_album_id) && (playerStatus === 'playing' || playerStatus === 'paused') && (
+                  <Badge color="green" variant="light" leftSection={<IconMusic size={10} />}>
+                    {playerStatus === 'playing' ? 'Now Playing' : 'Paused'}
+                  </Badge>
+                )}
+              </Group>
+              {!hasSpotify && !hasAppleMusic && (
+                <Text size="xs" c="dimmed">
+                  <Anchor component={Link} to="/profile" size="xs">Connect Spotify or Apple Music</Anchor> on your profile to enable the embedded player
+                </Text>
               )}
-              {playingSpotifyAlbumId === album.spotify_album_id && (playerStatus === 'playing' || playerStatus === 'paused') && (
-                <Badge color="green" variant="light" leftSection={<IconMusic size={10} />}>
-                  {playerStatus === 'playing' ? 'Now Playing' : 'Paused'}
-                </Badge>
+              {canPlay && (
+                <AlbumTracklist
+                  appAlbumId={album.id}
+                  spotifyAlbumId={album.spotify_album_id}
+                  appleMusicAlbumId={album.apple_music_album_id}
+                  albumTitle={album.title}
+                  albumArtist={album.artist}
+                  albumCoverUrl={album.cover_url ?? null}
+                  effectivePlayService={effectivePlayService}
+                />
               )}
-            </Group>
-            {!hasSpotify && (
-              <Text size="xs" c="dimmed">
-                <Anchor component={Link} to="/profile" size="xs">Connect Spotify</Anchor> on your profile to enable the embedded player
-              </Text>
-            )}
-            {hasSpotify && (playerStatus === 'ready' || playerStatus === 'playing' || playerStatus === 'paused') && (
-              <AlbumTracklist
-                spotifyAlbumId={album.spotify_album_id}
-                albumTitle={album.title}
-                albumArtist={album.artist}
-                albumCoverUrl={album.cover_url ?? null}
-                appAlbumId={album.id}
-              />
-            )}
-          </Stack>
-        ) : null}
+            </Stack>
+          )
+        })() : null}
 
         {/* ── GLOBAL RATING + HISTOGRAM ── */}
         <Paper withBorder p="md" radius="md">

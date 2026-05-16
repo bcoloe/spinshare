@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
   Alert,
-  Anchor,
   Box,
   Group,
   Image,
@@ -12,31 +11,38 @@ import {
   TextInput,
 } from '@mantine/core'
 import { IconAlertCircle, IconCheck, IconMusic, IconSearch } from '@tabler/icons-react'
-import {
-  addTracksToPlaylist,
-  fetchUserPlaylists,
-  getPlaylistsContainingUris,
-  removeTracksFromPlaylist,
-  type SpotifyPlaylist,
-} from '../../services/spotifyApiClient'
-import { getSpotifyToken } from '../../services/streamingService'
 import { notifications } from '@mantine/notifications'
+
+export interface PickablePlaylist {
+  id: string
+  name: string
+  imageUrl: string | null
+}
 
 interface Props {
   opened: boolean
   onClose: () => void
-  uris: string[]
   title?: string
+  fetchPlaylists: () => Promise<PickablePlaylist[]>
+  checkContaining?: (playlists: PickablePlaylist[]) => Promise<Set<string>>
+  onAdd: (playlistId: string) => Promise<void>
+  onRemove?: (playlistId: string) => Promise<void>
 }
 
-export default function PlaylistPickerModal({ opened, onClose, uris, title = 'Add to playlist' }: Props) {
-  const [playlists, setPlaylists] = useState<SpotifyPlaylist[]>([])
+export default function PlaylistPickerModal({
+  opened,
+  onClose,
+  title = 'Add to playlist',
+  fetchPlaylists,
+  checkContaining,
+  onAdd,
+  onRemove,
+}: Props) {
+  const [playlists, setPlaylists] = useState<PickablePlaylist[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
-  // addedIds: playlists that contain the target URIs (pre-checked + toggled this session)
   const [addedIds, setAddedIds] = useState<Set<string>>(new Set())
-  // loadingIds: playlists currently being toggled
   const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
@@ -48,12 +54,13 @@ export default function PlaylistPickerModal({ opened, onClose, uris, title = 'Ad
     setAddedIds(new Set())
     ;(async () => {
       try {
-        const token = await getSpotifyToken()
-        const data = await fetchUserPlaylists(token)
+        const data = await fetchPlaylists()
         if (cancelled) return
         setPlaylists(data)
-        const existing = await getPlaylistsContainingUris(token, data, uris)
-        if (!cancelled) setAddedIds(existing)
+        if (checkContaining) {
+          const existing = await checkContaining(data)
+          if (!cancelled) setAddedIds(existing)
+        }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load playlists.')
       } finally {
@@ -67,19 +74,19 @@ export default function PlaylistPickerModal({ opened, onClose, uris, title = 'Ad
     ? playlists.filter((p) => p.name.toLowerCase().includes(query.toLowerCase()))
     : playlists
 
-  const handleToggle = async (playlist: SpotifyPlaylist) => {
-    if (loadingIds.has(playlist.id) || uris.length === 0) return
+  const handleToggle = async (playlist: PickablePlaylist) => {
+    if (loadingIds.has(playlist.id)) return
     const isAdded = addedIds.has(playlist.id)
+    if (isAdded && !onRemove) return
 
     setLoadingIds((prev) => new Set(prev).add(playlist.id))
     try {
-      const token = await getSpotifyToken()
-      if (isAdded) {
-        await removeTracksFromPlaylist(token, playlist.id, uris)
+      if (isAdded && onRemove) {
+        await onRemove(playlist.id)
         setAddedIds((prev) => { const next = new Set(prev); next.delete(playlist.id); return next })
         notifications.show({ message: `Removed from ${playlist.name}` })
       } else {
-        await addTracksToPlaylist(token, playlist.id, uris)
+        await onAdd(playlist.id)
         setAddedIds((prev) => new Set(prev).add(playlist.id))
         notifications.show({ color: 'green', message: `Added to ${playlist.name}` })
       }
@@ -97,10 +104,7 @@ export default function PlaylistPickerModal({ opened, onClose, uris, title = 'Ad
           <Loader size="sm" />
         </Group>
       ) : error ? (
-        <Alert icon={<IconAlertCircle size={16} />} color="orange">
-          {error}{' '}
-          <Anchor href="/profile" size="sm">Reconnect Spotify</Anchor> to grant playlist access.
-        </Alert>
+        <Alert icon={<IconAlertCircle size={16} />} color="orange">{error}</Alert>
       ) : playlists.length === 0 ? (
         <Text size="sm" c="dimmed" ta="center" py="xl">No playlists found.</Text>
       ) : (
@@ -119,6 +123,7 @@ export default function PlaylistPickerModal({ opened, onClose, uris, title = 'Ad
               {filtered.map((pl) => {
                 const isAdded = addedIds.has(pl.id)
                 const isLoading = loadingIds.has(pl.id)
+                const clickable = !isAdded || !!onRemove
                 return (
                   <Group
                     key={pl.id}
@@ -128,11 +133,11 @@ export default function PlaylistPickerModal({ opened, onClose, uris, title = 'Ad
                     py={8}
                     style={(theme) => ({
                       borderRadius: theme.radius.sm,
-                      cursor: isLoading ? 'default' : 'pointer',
+                      cursor: isLoading || !clickable ? 'default' : 'pointer',
                       background: isAdded ? theme.colors.green[9] : 'transparent',
                       transition: 'background 150ms ease',
                     })}
-                    onClick={() => handleToggle(pl)}
+                    onClick={() => clickable && handleToggle(pl)}
                   >
                     {isLoading ? (
                       <Loader size={14} color={isAdded ? 'green' : 'gray'} style={{ flexShrink: 0 }} />

@@ -1,5 +1,6 @@
 # backend/app/routers/albums.py
 
+from app.database import SessionLocal
 from app.dependencies import get_album_service, get_current_user, get_review_service
 from app.models import User
 from app.schemas.album import (
@@ -19,7 +20,7 @@ from app.schemas.album import (
 from app.services.album_service import AlbumService
 from app.services.review_service import ReviewService
 from app.utils import spotify_client
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 
 albums_router = APIRouter(prefix="/albums", tags=["albums"])
 group_albums_router = APIRouter(prefix="/groups", tags=["group-albums"])
@@ -74,16 +75,43 @@ def create_album(
     return AlbumResponse.from_orm_with_genres(album)
 
 
+def _backfill_apple_music_id_bg(album_id: int, title: str, artist: str) -> None:
+    """Background task that resolves the Apple Music album ID in its own DB session."""
+    db = SessionLocal()
+    try:
+        AlbumService(db).backfill_apple_music_id(album_id, title, artist)
+    finally:
+        db.close()
+
+
 @albums_router.post(
     "/get-or-create", response_model=AlbumResponse, status_code=status.HTTP_200_OK
 )
 def get_or_create_album(
     data: AlbumCreate,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     album_service: AlbumService = Depends(get_album_service),
 ):
-    """Return an existing album by Spotify ID or create it if not yet registered."""
+    """Return an existing album by Spotify ID or create it if not yet registered.
+
+    On first creation, schedules a background task to resolve the Apple Music album ID.
+    """
+    is_new = album_service.get_album_by_spotify_id(data.spotify_album_id, raise_on_missing=False) is None
     album = album_service.get_or_create_album(data)
+    if is_new and album.apple_music_album_id is None:
+        background_tasks.add_task(_backfill_apple_music_id_bg, album.id, data.title, data.artist)
+    return AlbumResponse.from_orm_with_genres(album)
+
+
+@albums_router.get("/apple-music/{apple_music_album_id}", response_model=AlbumResponse)
+def get_album_by_apple_music_id(
+    apple_music_album_id: str,
+    current_user: User = Depends(get_current_user),
+    album_service: AlbumService = Depends(get_album_service),
+):
+    """Look up a registered album by its Apple Music album ID."""
+    album = album_service.get_album_by_apple_music_id(apple_music_album_id)
     return AlbumResponse.from_orm_with_genres(album)
 
 
