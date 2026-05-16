@@ -1,6 +1,9 @@
 """Album and group album service."""
 
+import logging
 from datetime import date, datetime, timedelta, timezone
+
+log = logging.getLogger(__name__)
 
 from app.models import Album, Group, GroupAlbum, User
 from app.models.genre import Genre
@@ -284,6 +287,41 @@ class AlbumService:
             )
             .first()
         )
+
+    def get_album_by_apple_music_id(
+        self, apple_music_album_id: str, *, raise_on_missing: bool = True
+    ) -> Album | None:
+        """Get album by Apple Music album ID.
+
+        Raises:
+            HTTPException 404: If raise_on_missing=True and album not found.
+        """
+        album = self.db.query(Album).filter(Album.apple_music_album_id == apple_music_album_id).first()
+        if not album and raise_on_missing:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Album with Apple Music ID '{apple_music_album_id}' not found",
+            )
+        return album
+
+    def backfill_apple_music_id(self, album_id: int, title: str, artist: str) -> None:
+        """Attempt to resolve and store the Apple Music album ID for an album.
+
+        No-op if the album already has an Apple Music ID or no confident match is found.
+        Errors are swallowed so this is safe to call as a background task.
+        """
+        from app.utils import apple_music_client
+
+        try:
+            album = self.get_album_by_id(album_id)
+            if album.apple_music_album_id is not None:
+                return
+            result = apple_music_client.find_apple_music_album(title, artist)
+            if result:
+                album.apple_music_album_id = result.id
+                self.db.commit()
+        except Exception:
+            log.warning("Apple Music backfill failed for album %d (%r by %r)", album_id, title, artist)
 
     def get_album_by_spotify_id(
         self, spotify_album_id: str, *, raise_on_missing: bool = True

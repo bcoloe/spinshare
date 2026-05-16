@@ -22,7 +22,7 @@ import {
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { IconBrandSpotify, IconBrandYoutube, IconCheck, IconDice5, IconExternalLink, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
+import { IconBrandApple, IconBrandSpotify, IconBrandYoutube, IconCheck, IconDice5, IconExternalLink, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
 import AlbumCard from './AlbumCard'
 import ReviewAndGuessForm from './ReviewAndGuessForm'
 import AlbumSearchModal from '../albums/AlbumSearchModal'
@@ -36,7 +36,31 @@ import type { GroupDetailResponse } from '../../types/group'
 
 function SpinSlide({ groupAlbum, groupId, allowGuessing = true }: { groupAlbum: GroupAlbumResponse; groupId: number; allowGuessing?: boolean }) {
   const spotifyId = groupAlbum.album.spotify_album_id
-  const { startAlbum, hasSpotify, status: playerStatus } = usePlayer()
+  const appleMusicId = groupAlbum.album.apple_music_album_id
+  const { startAlbum, playInAppleMusic, hasSpotify, hasAppleMusic, preferredService, status: playerStatus } = usePlayer()
+  const canPlaySpotify = hasSpotify
+  const canPlayAppleMusic = hasAppleMusic && !!appleMusicId
+  const effectivePlayService: 'spotify' | 'apple_music' = (() => {
+    if (preferredService === 'apple_music' && canPlayAppleMusic) return 'apple_music'
+    if (preferredService === 'spotify' && canPlaySpotify) return 'spotify'
+    if (canPlaySpotify) return 'spotify'
+    if (canPlayAppleMusic) return 'apple_music'
+    return preferredService
+  })()
+  const canPlay = effectivePlayService === 'apple_music' ? canPlayAppleMusic : canPlaySpotify
+  const playMeta = {
+    spotifyAlbumId: spotifyId,
+    appleMusicAlbumId: appleMusicId,
+    title: groupAlbum.album.title,
+    artist: groupAlbum.album.artist,
+    coverUrl: groupAlbum.album.cover_url ?? null,
+    appAlbumId: groupAlbum.album_id,
+    groupId,
+    groupAlbumId: groupAlbum.id,
+  }
+  const handlePlay = () => effectivePlayService === 'apple_music'
+    ? playInAppleMusic(playMeta)
+    : startAlbum(spotifyId, playMeta)
   return (
     <Paper p="lg" radius="md" withBorder>
       <Stack gap="xl">
@@ -46,25 +70,16 @@ function SpinSlide({ groupAlbum, groupId, allowGuessing = true }: { groupAlbum: 
             <Group gap="sm" wrap="wrap">
               <Button
                 variant="filled"
-                color="green"
+                color={effectivePlayService === 'apple_music' ? 'red' : 'green'}
                 size="sm"
-                leftSection={<IconBrandSpotify size={16} />}
-                loading={hasSpotify && playerStatus === 'loading'}
-                disabled={!hasSpotify}
-                onClick={() => startAlbum(
-                  spotifyId,
-                  {
-                    spotifyAlbumId: spotifyId,
-                    title: groupAlbum.album.title,
-                    artist: groupAlbum.album.artist,
-                    coverUrl: groupAlbum.album.cover_url ?? null,
-                    appAlbumId: groupAlbum.album_id,
-                    groupId,
-                    groupAlbumId: groupAlbum.id,
-                  },
-                )}
+                leftSection={effectivePlayService === 'apple_music'
+                  ? <IconBrandApple size={16} />
+                  : <IconBrandSpotify size={16} />}
+                loading={playerStatus === 'loading'}
+                disabled={!canPlay}
+                onClick={handlePlay}
               >
-                Play in Player
+                Play
               </Button>
               <Button
                 component="a"
@@ -100,10 +115,24 @@ function SpinSlide({ groupAlbum, groupId, allowGuessing = true }: { groupAlbum: 
                   YouTube Music
                 </Button>
               )}
+              {appleMusicId && (
+                <Button
+                  component="a"
+                  href={`https://music.apple.com/album/${appleMusicId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  variant="light"
+                  color="red"
+                  size="sm"
+                  leftSection={<IconBrandApple size={16} />}
+                >
+                  Open in Apple Music
+                </Button>
+              )}
             </Group>
-            {!hasSpotify && (
+            {!hasSpotify && !hasAppleMusic && (
               <Text size="xs" c="dimmed">
-                <Anchor component={Link} to="/profile" size="xs">Connect Spotify</Anchor> on your profile to enable the embedded player
+                <Anchor component={Link} to="/profile" size="xs">Connect Spotify or Apple Music</Anchor> on your profile to enable the embedded player
               </Text>
             )}
           </Stack>
@@ -124,7 +153,7 @@ function SpinSlide({ groupAlbum, groupId, allowGuessing = true }: { groupAlbum: 
 function MultiAlbumSpin({ albums, groupId, allowGuessing = true }: { albums: GroupAlbumResponse[]; groupId: number; allowGuessing?: boolean }) {
   const [searchParams] = useSearchParams()
   const [activeAlbumValue, setActiveAlbumValue] = useState<string | null>(searchParams.get('album'))
-  const { startAlbum, hasSpotify, status: playerStatus, playingSpotifyAlbumId } = usePlayer()
+  const { startAlbum, playInAppleMusic, hasSpotify, hasAppleMusic, preferredService, status: playerStatus, playingSpotifyAlbumId } = usePlayer()
 
   useEffect(() => {
     const album = searchParams.get('album')
@@ -133,6 +162,30 @@ function MultiAlbumSpin({ albums, groupId, allowGuessing = true }: { albums: Gro
   const currentValue = activeAlbumValue ?? String(albums[0].id)
   const activeAlbum = albums.find((a) => String(a.id) === currentValue) ?? albums[0]
   const spotifyId = activeAlbum.album.spotify_album_id
+  const appleMusicId = activeAlbum.album.apple_music_album_id
+  const canPlaySpotify = hasSpotify
+  const canPlayAppleMusic = hasAppleMusic && !!appleMusicId
+  const effectivePlayService: 'spotify' | 'apple_music' = (() => {
+    if (preferredService === 'apple_music' && canPlayAppleMusic) return 'apple_music'
+    if (preferredService === 'spotify' && canPlaySpotify) return 'spotify'
+    if (canPlaySpotify) return 'spotify'
+    if (canPlayAppleMusic) return 'apple_music'
+    return preferredService
+  })()
+  const canPlay = effectivePlayService === 'apple_music' ? canPlayAppleMusic : canPlaySpotify
+  const playMeta = {
+    spotifyAlbumId: spotifyId,
+    appleMusicAlbumId: appleMusicId,
+    title: activeAlbum.album.title,
+    artist: activeAlbum.album.artist,
+    coverUrl: activeAlbum.album.cover_url ?? null,
+    appAlbumId: activeAlbum.album_id,
+    groupId,
+    groupAlbumId: activeAlbum.id,
+  }
+  const handlePlay = () => effectivePlayService === 'apple_music'
+    ? playInAppleMusic(playMeta)
+    : startAlbum(spotifyId, playMeta)
 
   return (
     <Stack gap="md">
@@ -158,25 +211,16 @@ function MultiAlbumSpin({ albums, groupId, allowGuessing = true }: { albums: Gro
               <Group gap="sm" wrap="wrap">
                 <Button
                   variant="filled"
-                  color="green"
+                  color={effectivePlayService === 'apple_music' ? 'red' : 'green'}
                   size="sm"
-                  leftSection={<IconBrandSpotify size={16} />}
-                  loading={hasSpotify && playerStatus === 'loading'}
-                  disabled={!hasSpotify}
-                  onClick={() => startAlbum(
-                    spotifyId,
-                    {
-                      spotifyAlbumId: spotifyId,
-                      title: activeAlbum.album.title,
-                      artist: activeAlbum.album.artist,
-                      coverUrl: activeAlbum.album.cover_url ?? null,
-                      appAlbumId: activeAlbum.album_id,
-                      groupId,
-                      groupAlbumId: activeAlbum.id,
-                    },
-                  )}
+                  leftSection={effectivePlayService === 'apple_music'
+                    ? <IconBrandApple size={16} />
+                    : <IconBrandSpotify size={16} />}
+                  loading={playerStatus === 'loading'}
+                  disabled={!canPlay}
+                  onClick={handlePlay}
                 >
-                  Play in Player
+                  Play
                 </Button>
                 <Button
                   component="a"
@@ -212,10 +256,24 @@ function MultiAlbumSpin({ albums, groupId, allowGuessing = true }: { albums: Gro
                     YouTube Music
                   </Button>
                 )}
+                {appleMusicId && (
+                  <Button
+                    component="a"
+                    href={`https://music.apple.com/album/${appleMusicId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    variant="light"
+                    color="red"
+                    size="sm"
+                    leftSection={<IconBrandApple size={16} />}
+                  >
+                    Open in Apple Music
+                  </Button>
+                )}
               </Group>
-              {!hasSpotify && (
+              {!hasSpotify && !hasAppleMusic && (
                 <Text size="xs" c="dimmed">
-                  <Anchor component={Link} to="/profile" size="xs">Connect Spotify</Anchor> on your profile to enable the embedded player
+                  <Anchor component={Link} to="/profile" size="xs">Connect Spotify or Apple Music</Anchor> on your profile to enable the embedded player
                 </Text>
               )}
             </Stack>

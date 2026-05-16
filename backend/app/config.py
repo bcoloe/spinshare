@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     SMTP_USERNAME: str = ""
     SMTP_PASSWORD: str = ""
     SMTP_FROM: str = "noreply@spinshare.app"
+    APPLE_MUSIC_TEAM_ID: str = ""
+    APPLE_MUSIC_KEY_ID: str = ""
+    APPLE_MUSIC_PRIVATE_KEY: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="allow")
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ActionIcon,
@@ -16,6 +16,8 @@ import {
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import {
+  IconBrandApple,
+  IconBrandSpotify,
   IconChevronDown,
   IconChevronUp,
   IconDots,
@@ -30,15 +32,19 @@ import {
   IconX,
 } from '@tabler/icons-react'
 import { usePlayer } from '../../context/PlayerContext'
-import PlaylistPickerModal from '../spin/PlaylistPickerModal'
+import PlaylistPickerModal, { type PickablePlaylist } from '../spin/PlaylistPickerModal'
 import { getSpotifyToken } from '../../services/streamingService'
 import {
-  fetchAlbumTracks,
-  isAlbumSaved,
-  saveAlbum,
-  unsaveAlbum,
-  type AlbumTrack,
+  fetchUserPlaylists,
+  addTracksToPlaylist,
+  removeTracksFromPlaylist,
+  getPlaylistsContainingUris,
 } from '../../services/spotifyApiClient'
+import {
+  fetchAppleMusicUserPlaylists,
+  addSongsToAppleMusicPlaylist,
+} from '../../services/appleMusicApiClient'
+import { getAppleMusicDeveloperToken } from '../../services/streamingService'
 
 function formatDuration(ms: number): string {
   const totalSec = Math.floor(ms / 1000)
@@ -52,102 +58,106 @@ export default function PlayerBar() {
     status,
     currentTrackUri,
     currentTrackName,
+    currentTrackNumber,
     position,
     duration,
     playingAlbumMeta,
+    activeService,
     minimized,
     toggleMinimized,
     togglePlay,
     skipNext,
     skipPrevious,
     seekTo,
-    startAlbum,
     clearPlayer,
+    tracks,
+    tracksLoading,
+    skipToTrack,
+    albumSaved,
+    albumSavePending,
+    toggleAlbumSave,
+    canRemoveFromLibrary,
+    appleMusicUserToken,
+    nowPlayingSongId,
   } = usePlayer()
 
-  const [seekValue, setSeekValue] = useState<number | null>(null)
-  const [albumSaved, setAlbumSaved] = useState(false)
-  const [savingAlbum, setSavingAlbum] = useState(false)
-  const [pickerUris, setPickerUris] = useState<string[]>([])
-  const [pickerTitle, setPickerTitle] = useState('Add to playlist')
-  const [pickerOpened, { open: openPicker, close: closePicker }] = useDisclosure(false)
+  const isAppleMusic = activeService === 'apple_music'
+  const accentColor = isAppleMusic ? '#fc3c44' : '#1DB954'
 
-  const [tracks, setTracks] = useState<AlbumTrack[]>([])
-  const [tracksLoading, setTracksLoading] = useState(false)
-  const activeTrackRef = useRef<HTMLDivElement | null>(null)
+  const [seekValue, setSeekValue] = useState<number | null>(null)
+  const [pickerScope, setPickerScope] = useState<'album' | 'track'>('album')
+  const [pickerOpened, { open: openPicker, close: closePicker }] = useDisclosure(false)
 
   const isPlaying = status === 'playing'
   const displayPosition = seekValue ?? position
   const progressPercent = duration > 0 ? (displayPosition / duration) * 100 : 0
 
-  useEffect(() => {
-    if (!playingAlbumMeta) return
-    let cancelled = false
-    getSpotifyToken()
-      .then((token) => isAlbumSaved(token, playingAlbumMeta.spotifyAlbumId))
-      .then((saved) => { if (!cancelled) setAlbumSaved(saved) })
-      .catch(() => {})
-    return () => { cancelled = true }
-  }, [playingAlbumMeta?.spotifyAlbumId])
-
-  useEffect(() => {
-    if (!playingAlbumMeta?.spotifyAlbumId) {
-      setTracks([])
-      return
-    }
-    let cancelled = false
-    setTracksLoading(true)
-    getSpotifyToken()
-      .then((token) => fetchAlbumTracks(token, playingAlbumMeta.spotifyAlbumId))
-      .then((t) => { if (!cancelled) setTracks(t) })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setTracksLoading(false) })
-    return () => { cancelled = true }
-  }, [playingAlbumMeta?.spotifyAlbumId])
-
-  useEffect(() => {
-    activeTrackRef.current?.scrollIntoView({ block: 'nearest' })
-  }, [currentTrackUri])
-
-  const handleJumpToTrack = (trackUri: string) => {
-    if (!playingAlbumMeta) return
-    startAlbum(playingAlbumMeta.spotifyAlbumId, playingAlbumMeta, trackUri)
-  }
-
-  const handleToggleSaveAlbum = async () => {
-    if (!playingAlbumMeta) return
-    setSavingAlbum(true)
+  const handleToggleSave = async () => {
     try {
-      const token = await getSpotifyToken()
-      if (albumSaved) {
-        await unsaveAlbum(token, playingAlbumMeta.spotifyAlbumId)
-        setAlbumSaved(false)
-        notifications.show({ message: 'Removed from Your Library' })
+      await toggleAlbumSave()
+      if (isAppleMusic) {
+        notifications.show({ color: 'green', message: 'Saved to Apple Music Library' })
       } else {
-        await saveAlbum(token, playingAlbumMeta.spotifyAlbumId)
-        setAlbumSaved(true)
-        notifications.show({ color: 'green', message: 'Saved to Your Library' })
+        notifications.show({
+          color: albumSaved ? undefined : 'green',
+          message: albumSaved ? 'Removed from Your Library' : 'Saved to Your Library',
+        })
       }
     } catch (err) {
       notifications.show({ color: 'red', message: err instanceof Error ? err.message : 'Could not update library' })
-    } finally {
-      setSavingAlbum(false)
     }
   }
 
-  const handleOpenAlbumPicker = () => {
-    setPickerUris(playingAlbumMeta ? [`spotify:album:${playingAlbumMeta.spotifyAlbumId}`] : [])
-    setPickerTitle('Add album to playlist')
-    openPicker()
+  const openAlbumPicker = () => { setPickerScope('album'); openPicker() }
+  const openTrackPicker = () => { setPickerScope('track'); openPicker() }
+
+  // Build playlist picker callbacks based on the active service
+  const spotifyUris = pickerScope === 'album'
+    ? tracks.map((t) => t.id)
+    : nowPlayingSongId ? [nowPlayingSongId] : []
+
+  const appleMusicSongIds = pickerScope === 'album'
+    ? tracks.map((t) => t.id)
+    : nowPlayingSongId ? [nowPlayingSongId] : []
+
+  const fetchPlaylists = async (): Promise<PickablePlaylist[]> => {
+    if (isAppleMusic) {
+      if (!appleMusicUserToken) throw new Error('Apple Music not authorized')
+      const devToken = await getAppleMusicDeveloperToken()
+      return fetchAppleMusicUserPlaylists(devToken, appleMusicUserToken)
+    }
+    const token = await getSpotifyToken()
+    const pls = await fetchUserPlaylists(token)
+    return pls.map((p) => ({ id: p.id, name: p.name, imageUrl: p.imageUrl ?? null }))
   }
 
-  const handleOpenTrackPicker = () => {
-    if (!currentTrackUri) return
-    setPickerUris([currentTrackUri])
-    setPickerTitle('Add track to playlist')
-    openPicker()
+  const checkContaining = isAppleMusic
+    ? undefined
+    : async (pls: PickablePlaylist[]) => {
+        const token = await getSpotifyToken()
+        const spotifyPls = pls.map((p) => ({ id: p.id, name: p.name, imageUrl: p.imageUrl ?? '' }))
+        return getPlaylistsContainingUris(token, spotifyPls, spotifyUris)
+      }
+
+  const onAdd = async (playlistId: string) => {
+    if (isAppleMusic) {
+      if (!appleMusicUserToken) throw new Error('Apple Music not authorized')
+      const devToken = await getAppleMusicDeveloperToken()
+      await addSongsToAppleMusicPlaylist(playlistId, appleMusicSongIds, devToken, appleMusicUserToken)
+      return
+    }
+    const token = await getSpotifyToken()
+    await addTracksToPlaylist(token, playlistId, spotifyUris)
   }
 
+  const onRemove = isAppleMusic
+    ? undefined
+    : async (playlistId: string) => {
+        const token = await getSpotifyToken()
+        await removeTracksFromPlaylist(token, playlistId, spotifyUris)
+      }
+
+  const hasCurrentTrack = isAppleMusic ? !!currentTrackName : !!currentTrackUri
   const borderTop = { borderTop: '1px solid var(--mantine-color-dark-4)' }
   const separator = '1px solid var(--mantine-color-dark-4)'
 
@@ -155,38 +165,42 @@ export default function PlayerBar() {
     <>
       <Stack h="100%" gap={0} style={borderTop}>
 
-        {/* Tracklist — revealed when expanded */}
+        {/* Tracklist — same UI for both services */}
         {!minimized && (
           <ScrollArea style={{ flex: 1, minHeight: 0 }} scrollbarSize={4}>
             {tracksLoading && (
               <Text size="xs" c="dimmed" px="md" py="xs">Loading tracks…</Text>
             )}
-            {tracks.map((track) => (
-              <div key={track.uri} ref={track.uri === currentTrackUri ? activeTrackRef : undefined}>
+            {tracks.map((track, index) => {
+              const isActive = isAppleMusic
+                ? currentTrackNumber === track.trackNumber
+                : track.id === currentTrackUri
+              return (
                 <Group
+                  key={track.id}
                   px="md"
                   py={6}
                   gap="xs"
                   wrap="nowrap"
                   style={{
                     cursor: 'pointer',
-                    backgroundColor: track.uri === currentTrackUri ? 'var(--mantine-color-dark-6)' : 'transparent',
+                    backgroundColor: isActive ? 'var(--mantine-color-dark-6)' : 'transparent',
                   }}
-                  onClick={() => handleJumpToTrack(track.uri)}
+                  onClick={() => skipToTrack(index)}
                 >
-                  <Text size="xs" w={24} ta="right" style={{ flexShrink: 0 }} c={track.uri === currentTrackUri ? 'green' : 'dimmed'}>
+                  <Text size="xs" w={24} ta="right" style={{ flexShrink: 0 }} c={isActive ? accentColor : 'dimmed'}>
                     {track.trackNumber}
                   </Text>
                   <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
-                    <Text size="xs" fw={track.uri === currentTrackUri ? 600 : 400} c={track.uri === currentTrackUri ? 'green' : 'white'} lineClamp={1}>
+                    <Text size="xs" fw={isActive ? 600 : 400} c={isActive ? (isAppleMusic ? 'red.4' : 'green') : 'white'} lineClamp={1}>
                       {track.name}
                     </Text>
-                    <Text size="xs" c="dimmed" lineClamp={1}>{track.artists}</Text>
+                    <Text size="xs" c="dimmed" lineClamp={1}>{track.artist}</Text>
                   </Stack>
                   <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>{formatDuration(track.durationMs)}</Text>
                 </Group>
-              </div>
-            ))}
+              )
+            })}
           </ScrollArea>
         )}
 
@@ -213,19 +227,27 @@ export default function PlayerBar() {
           />
 
           <Stack gap={1} style={{ flex: 1, minWidth: 0 }}>
-            <Text size="xs" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {currentTrackName && <Text span fw={500} size="xs">{currentTrackName}</Text>}
-              {currentTrackName && playingAlbumMeta?.artist && <Text span c="dimmed" size="xs"> · </Text>}
-              {playingAlbumMeta?.artist && <Text span c="dimmed" size="xs">{playingAlbumMeta.artist}</Text>}
-              {playingAlbumMeta?.artist && <Text span c="dimmed" size="xs"> · </Text>}
-              {playingAlbumMeta?.appAlbumId ? (
-                <Anchor component={Link} to={`/albums/${playingAlbumMeta.appAlbumId}`} c="dimmed" size="xs" underline="hover">
-                  {playingAlbumMeta.title ?? '—'}
-                </Anchor>
-              ) : (
-                <Text span c="dimmed" size="xs">{playingAlbumMeta?.title ?? '—'}</Text>
-              )}
-            </Text>
+            <Group gap={4} wrap="nowrap" align="center">
+              <Text size="xs" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {currentTrackName && <Text span fw={500} size="xs">{currentTrackName}</Text>}
+                {currentTrackName && playingAlbumMeta?.artist && <Text span c="dimmed" size="xs"> · </Text>}
+                {playingAlbumMeta?.artist && <Text span c="dimmed" size="xs">{playingAlbumMeta.artist}</Text>}
+                {playingAlbumMeta?.artist && <Text span c="dimmed" size="xs"> · </Text>}
+                {playingAlbumMeta?.appAlbumId ? (
+                  <Anchor component={Link} to={`/albums/${playingAlbumMeta.appAlbumId}`} c="dimmed" size="xs" underline="hover">
+                    {playingAlbumMeta.title ?? '—'}
+                  </Anchor>
+                ) : (
+                  <Text span c="dimmed" size="xs">{playingAlbumMeta?.title ?? '—'}</Text>
+                )}
+              </Text>
+              <Tooltip label={isAppleMusic ? 'Playing via Apple Music' : 'Playing via Spotify'} withArrow>
+                {isAppleMusic
+                  ? <IconBrandApple size={12} color="#fc3c44" style={{ flexShrink: 0 }} />
+                  : <IconBrandSpotify size={12} color="#1DB954" style={{ flexShrink: 0 }} />
+                }
+              </Tooltip>
+            </Group>
             <Group gap={4} wrap="nowrap">
               <Text size="xs" c="dimmed" ta="right" style={{ flexShrink: 0, width: 28 }}>
                 {formatDuration(displayPosition)}
@@ -246,8 +268,8 @@ export default function PlayerBar() {
                 }}
                 styles={(theme) => ({
                   track: { background: theme.colors.dark[4] },
-                  bar: { background: '#1DB954' },
-                  thumb: { borderColor: '#1DB954', background: '#1DB954' },
+                  bar: { background: accentColor },
+                  thumb: { borderColor: accentColor, background: accentColor },
                 })}
               />
               <Text size="xs" c="dimmed" style={{ flexShrink: 0, width: 28 }}>
@@ -257,24 +279,26 @@ export default function PlayerBar() {
           </Stack>
 
           <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
-            <ActionIcon variant="subtle" size="sm" color="gray" onClick={skipPrevious} disabled={!currentTrackUri}>
+            <ActionIcon variant="subtle" size="sm" color="gray" onClick={skipPrevious}>
               <IconPlayerSkipBackFilled size={12} />
             </ActionIcon>
-            <ActionIcon variant="filled" color="green" radius="xl" size="sm" onClick={togglePlay}>
+            <ActionIcon variant="filled" color={isAppleMusic ? 'red' : 'green'} radius="xl" size="sm" onClick={togglePlay}>
               {isPlaying ? <IconPlayerPauseFilled size={12} /> : <IconPlayerPlayFilled size={12} />}
             </ActionIcon>
-            <ActionIcon variant="subtle" size="sm" color="gray" onClick={skipNext} disabled={!currentTrackUri}>
+            <ActionIcon variant="subtle" size="sm" color="gray" onClick={skipNext}>
               <IconPlayerSkipForwardFilled size={12} />
             </ActionIcon>
             <KebabMenu
               albumSaved={albumSaved}
-              savingAlbum={savingAlbum}
-              hasTrack={!!currentTrackUri}
+              savingAlbum={albumSavePending}
+              canRemove={canRemoveFromLibrary}
+              isAppleMusic={isAppleMusic}
+              hasCurrentTrack={hasCurrentTrack}
               groupId={playingAlbumMeta?.groupId}
               groupAlbumId={playingAlbumMeta?.groupAlbumId}
-              onToggleSave={handleToggleSaveAlbum}
-              onAddAlbum={handleOpenAlbumPicker}
-              onAddTrack={handleOpenTrackPicker}
+              onToggleSave={handleToggleSave}
+              onAddAlbum={openAlbumPicker}
+              onAddTrack={openTrackPicker}
             />
             <Tooltip label={minimized ? 'Show tracklist' : 'Hide tracklist'} withArrow>
               <ActionIcon variant="subtle" size="sm" color="gray" onClick={toggleMinimized} aria-label={minimized ? 'Show tracklist' : 'Hide tracklist'}>
@@ -285,7 +309,16 @@ export default function PlayerBar() {
         </Group>
 
       </Stack>
-      <PlaylistPickerModal opened={pickerOpened} onClose={closePicker} uris={pickerUris} title={pickerTitle} />
+
+      <PlaylistPickerModal
+        opened={pickerOpened}
+        onClose={closePicker}
+        title={pickerScope === 'album' ? 'Add album to playlist' : 'Add track to playlist'}
+        fetchPlaylists={fetchPlaylists}
+        checkContaining={checkContaining}
+        onAdd={onAdd}
+        onRemove={onRemove}
+      />
     </>
   )
 }
@@ -295,7 +328,9 @@ export default function PlayerBar() {
 interface KebabMenuProps {
   albumSaved: boolean
   savingAlbum: boolean
-  hasTrack: boolean
+  canRemove: boolean
+  isAppleMusic: boolean
+  hasCurrentTrack: boolean
   groupId?: number
   groupAlbumId?: number
   onToggleSave: () => void
@@ -303,7 +338,25 @@ interface KebabMenuProps {
   onAddTrack: () => void
 }
 
-function KebabMenu({ albumSaved, savingAlbum, hasTrack, groupId, groupAlbumId, onToggleSave, onAddAlbum, onAddTrack }: KebabMenuProps) {
+function KebabMenu({
+  albumSaved,
+  savingAlbum,
+  canRemove,
+  isAppleMusic,
+  hasCurrentTrack,
+  groupId,
+  groupAlbumId,
+  onToggleSave,
+  onAddAlbum,
+  onAddTrack,
+}: KebabMenuProps) {
+  const saveLabel = isAppleMusic
+    ? 'Save to Library'
+    : albumSaved && canRemove ? 'Remove from library' : 'Save album'
+  const SaveIcon = albumSaved && canRemove
+    ? <IconHeartFilled size={14} color="var(--mantine-color-green-5)" />
+    : <IconHeart size={14} />
+
   return (
     <Menu shadow="md" width={210} position="top-end" withinPortal>
       <Menu.Target>
@@ -328,18 +381,14 @@ function KebabMenu({ albumSaved, savingAlbum, hasTrack, groupId, groupAlbumId, o
             <Divider />
           </>
         )}
-        <Menu.Item
-          leftSection={albumSaved ? <IconHeartFilled size={14} color="var(--mantine-color-green-5)" /> : <IconHeart size={14} />}
-          onClick={onToggleSave}
-          disabled={savingAlbum}
-        >
-          {albumSaved ? 'Remove from library' : 'Save album'}
+        <Menu.Item leftSection={SaveIcon} onClick={onToggleSave} disabled={savingAlbum}>
+          {saveLabel}
         </Menu.Item>
         <Menu.Item leftSection={<IconPlaylistAdd size={14} />} onClick={onAddAlbum}>
           Add album to playlist
         </Menu.Item>
         <Divider />
-        <Menu.Item leftSection={<IconPlaylistAdd size={14} />} onClick={onAddTrack} disabled={!hasTrack}>
+        <Menu.Item leftSection={<IconPlaylistAdd size={14} />} onClick={onAddTrack} disabled={!hasCurrentTrack}>
           Add track to playlist
         </Menu.Item>
       </Menu.Dropdown>
