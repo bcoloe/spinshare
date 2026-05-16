@@ -189,6 +189,9 @@ export function useAppleMusicPlayer(): UseAppleMusicPlayerResult {
     await music.authorize()
     setIsAuthorized(music.isAuthorized)
     setMusicUserToken(music.musicUserToken)
+    if (!music.isAuthorized) {
+      throw new Error('Apple Music authorization was not completed')
+    }
   }
 
   const unauthorize = async () => {
