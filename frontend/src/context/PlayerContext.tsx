@@ -305,7 +305,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const needsRestoreAppleMusic = activeService === 'apple_music' && !applePlayer.playingAppleMusicAlbumId && !!playingAlbumMeta
   const currentTrackUri = needsRestore ? (persistedState?.lastTrackUri ?? null) : player.currentTrackUri
   const position = activeService === 'apple_music'
-    ? (needsRestoreAppleMusic ? 0 : applePlayer.position)
+    ? (needsRestoreAppleMusic ? (persistedState?.lastPosition ?? 0) : applePlayer.position)
     : needsRestore ? (persistedState?.lastPosition ?? 0) : player.position
   const duration = activeService === 'apple_music'
     ? (needsRestoreAppleMusic ? (persistedState?.lastDuration ?? 0) : applePlayer.duration)
