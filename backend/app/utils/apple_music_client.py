@@ -182,9 +182,11 @@ def generate_developer_token() -> str:
     now = int(time.time())
     expiry = now + _TOKEN_TTL_SECONDS
 
+    private_key = settings.APPLE_MUSIC_PRIVATE_KEY.replace("\\n", "\n")
+
     token = jwt.encode(
         {"iss": settings.APPLE_MUSIC_TEAM_ID, "iat": now, "exp": expiry},
-        settings.APPLE_MUSIC_PRIVATE_KEY,
+        private_key,
         algorithm="ES256",
         headers={"kid": settings.APPLE_MUSIC_KEY_ID},
     )
