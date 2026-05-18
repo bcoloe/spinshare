@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import {
   ActionIcon,
+  Anchor,
   Badge,
   Box,
   Button,
@@ -14,6 +15,7 @@ import {
   Tooltip,
   UnstyledButton,
 } from '@mantine/core'
+import { Link } from 'react-router-dom'
 import { useDisclosure } from '@mantine/hooks'
 import {
   IconChevronDown,
@@ -233,7 +235,9 @@ export default function MyNominations({ groupId }: Props) {
                   )}
                 </Table.Td>
                 <Table.Td>
-                  <Text size="sm" fw={500}>{ga.album.title}</Text>
+                  <Anchor component={Link} to={`/albums/${ga.album.id}`} underline="hover" c="inherit" size="sm" fw={500}>
+                    {ga.album.title}
+                  </Anchor>
                 </Table.Td>
                 <Table.Td>
                   <Text size="sm" c="dimmed">{ga.album.artist}</Text>

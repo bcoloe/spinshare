@@ -148,7 +148,7 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
         placeholder="What did you think?"
         value={comment}
         onChange={(e) => { isDirtyRef.current = true; setComment(e.currentTarget.value) }}
-        maxLength={1000}
+        maxLength={5000}
         autosize
         minRows={2}
       />

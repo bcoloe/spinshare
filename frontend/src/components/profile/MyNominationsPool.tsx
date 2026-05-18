@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import {
+  Anchor,
   Badge,
   Button,
   Checkbox,
@@ -12,6 +13,7 @@ import {
   Text,
   TextInput,
 } from '@mantine/core'
+import { Link } from 'react-router-dom'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import { useQueryClient } from '@tanstack/react-query'
@@ -149,7 +151,9 @@ export default function MyNominationsPool() {
                     )}
                   </Table.Td>
                   <Table.Td>
-                    <Text size="sm" fw={500}>{item.album.title}</Text>
+                    <Anchor component={Link} to={`/albums/${item.album.id}`} underline="hover" c="inherit" size="sm" fw={500}>
+                      {item.album.title}
+                    </Anchor>
                   </Table.Td>
                   <Table.Td>
                     <Text size="sm" c="dimmed">{item.album.artist}</Text>
