@@ -120,6 +120,19 @@ function SpinSlide({ groupAlbum, groupId, allowGuessing = true }: { groupAlbum: 
                 YouTube Music
               </Button>
             )}
+            {groupAlbum.album.artist_url && (
+              <Button
+                component="a"
+                href={groupAlbum.album.artist_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                variant="subtle"
+                size="sm"
+                leftSection={<IconExternalLink size={16} />}
+              >
+                Open URL
+              </Button>
+            )}
             <Tooltip label="Not found on Apple Music" disabled={!!appleMusicId}>
               <Button
                 component="a"
@@ -264,6 +277,19 @@ function MultiAlbumSpin({ albums, groupId, allowGuessing = true }: { albums: Gro
                   leftSection={<IconBrandYoutube size={16} />}
                 >
                   YouTube Music
+                </Button>
+              )}
+              {activeAlbum.album.artist_url && (
+                <Button
+                  component="a"
+                  href={activeAlbum.album.artist_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  variant="subtle"
+                  size="sm"
+                  leftSection={<IconExternalLink size={16} />}
+                >
+                  Open URL
                 </Button>
               )}
               <Tooltip label="Not found on Apple Music" disabled={!!appleMusicId}>

@@ -1,5 +1,7 @@
 # backend/app/routers/albums.py
 
+import difflib
+
 from app.database import SessionLocal
 from app.dependencies import get_album_service, get_current_user, get_review_service
 from app.models import User
@@ -10,6 +12,7 @@ from app.schemas.album import (
     AlbumSearchPage,
     AlbumSearchResult,
     AlbumStatsResponse,
+    AlbumUrlResolveRequest,
     GroupAlbumCreate,
     GroupAlbumResponse,
     GroupAlbumStatusUpdate,
@@ -20,17 +23,55 @@ from app.schemas.album import (
 from app.services.album_service import AlbumService
 from app.services.review_service import ReviewService
 from app.utils import apple_music_client, spotify_client
-from app.utils.album_search import merge_search_results
+from app.utils.album_search import merge_search_results, normalize_title_for_dedup
+from app.utils.url_parser import MusicService, detect_service, extract_apple_music_album_id, extract_spotify_album_id, extract_youtube_music_id, scrape_bandcamp_metadata
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 
 albums_router = APIRouter(prefix="/albums", tags=["albums"])
 group_albums_router = APIRouter(prefix="/groups", tags=["group-albums"])
+
+# Similarity thresholds for Spotify backfill matching (mirrors Apple Music client values).
+_TITLE_THRESHOLD = 0.82
+_ARTIST_THRESHOLD = 0.60
 
 
 # ==================== ALBUMS ====================
 
 
 _SEARCH_PAGE_SIZE = 10
+
+
+def _backfill_apple_music_id_bg(album_id: int, title: str, artist: str) -> None:
+    """Background task that resolves the Apple Music album ID in its own DB session."""
+    db = SessionLocal()
+    try:
+        AlbumService(db).backfill_apple_music_id(album_id, title, artist)
+    finally:
+        db.close()
+
+
+def _find_spotify_album(title: str, artist: str):
+    """Search Spotify for an album and return the best fuzzy match, or None.
+
+    Used when backfilling Spotify metadata from a non-Spotify source (e.g. Bandcamp, YTM).
+    Returns a SpotifyAlbumResult or None.
+    """
+    try:
+        page = spotify_client.search_albums(artist=artist, album=title, limit=5)
+    except HTTPException:
+        return None
+    if not page.items:
+        return None
+    q_title = normalize_title_for_dedup(title)
+    q_artist = artist.lower()
+    for result in page.items:
+        c_title = normalize_title_for_dedup(result.title)
+        c_artist = result.artist.lower()
+        title_sim = difflib.SequenceMatcher(None, q_title, c_title).ratio()
+        artist_sim = difflib.SequenceMatcher(None, q_artist, c_artist).ratio()
+        if title_sim >= _TITLE_THRESHOLD and artist_sim >= _ARTIST_THRESHOLD:
+            return result
+    return None
 
 
 @albums_router.get("/search", response_model=AlbumSearchPage)
@@ -40,8 +81,10 @@ def search_albums(
     album: str | None = Query(default=None),
     offset: int = Query(default=0, ge=0),
     current_user: User = Depends(get_current_user),
+    album_service: AlbumService = Depends(get_album_service),
 ):
-    """Search Spotify and Apple Music for albums. At least one of q, artist, or album is required.
+    """Search for albums. Results start with any matching albums already in the system,
+    then Spotify and Apple Music results deduplicated against them.
 
     On the first page (offset=0) results are merged from both services and deduplicated.
     Subsequent pages contain Spotify results only (Apple Music was fully included on page 1).
@@ -52,6 +95,28 @@ def search_albums(
             detail="At least one search parameter (q, artist, album) is required",
         )
 
+    # --- DB-first: surface already-registered albums ---
+    db_albums = album_service.search_albums_in_db(query=q or "", artist=artist, album=album)
+    db_keys: set[tuple[str, str]] = set()
+    db_results: list[AlbumSearchResult] = []
+    for a in db_albums:
+        key = (normalize_title_for_dedup(a.title), a.artist.lower())
+        if key not in db_keys:
+            db_keys.add(key)
+            db_results.append(AlbumSearchResult(
+                album_id=a.id,
+                spotify_album_id=a.spotify_album_id,
+                apple_music_album_id=a.apple_music_album_id,
+                youtube_music_id=a.youtube_music_id,
+                artist_url=a.artist_url,
+                title=a.title,
+                artist=a.artist,
+                release_date=a.release_date,
+                cover_url=a.cover_url,
+                genres=[g.name for g in a.genres],
+            ))
+
+    # --- External API search ---
     spotify_items = []
     next_offset = None
     try:
@@ -70,19 +135,24 @@ def search_albums(
         )
 
     unified = merge_search_results(spotify_items, apple_items)
+
+    # Exclude API results already represented by a DB album
+    api_results = [
+        AlbumSearchResult(
+            spotify_album_id=r.spotify_album_id,
+            apple_music_album_id=r.apple_music_album_id,
+            title=r.title,
+            artist=r.artist,
+            release_date=r.release_date,
+            cover_url=r.cover_url,
+            genres=r.genres,
+        )
+        for r in unified
+        if (normalize_title_for_dedup(r.title), r.artist.lower()) not in db_keys
+    ]
+
     return AlbumSearchPage(
-        items=[
-            AlbumSearchResult(
-                spotify_album_id=r.spotify_album_id,
-                apple_music_album_id=r.apple_music_album_id,
-                title=r.title,
-                artist=r.artist,
-                release_date=r.release_date,
-                cover_url=r.cover_url,
-                genres=r.genres,
-            )
-            for r in unified
-        ],
+        items=db_results + api_results,
         next_offset=next_offset,
     )
 
@@ -96,15 +166,6 @@ def create_album(
     """Register a new album. Returns 409 if the Spotify ID is already registered."""
     album = album_service.create_album(data)
     return AlbumResponse.from_orm_with_genres(album)
-
-
-def _backfill_apple_music_id_bg(album_id: int, title: str, artist: str) -> None:
-    """Background task that resolves the Apple Music album ID in its own DB session."""
-    db = SessionLocal()
-    try:
-        AlbumService(db).backfill_apple_music_id(album_id, title, artist)
-    finally:
-        db.close()
 
 
 @albums_router.post(
@@ -124,6 +185,188 @@ def get_or_create_album(
     album = album_service.get_or_create_album(data)
     if is_new and album.apple_music_album_id is None:
         background_tasks.add_task(_backfill_apple_music_id_bg, album.id, data.title, data.artist)
+    return AlbumResponse.from_orm_with_genres(album)
+
+
+@albums_router.post(
+    "/resolve-url", response_model=AlbumResponse, status_code=status.HTTP_200_OK
+)
+def resolve_album_url(
+    data: AlbumUrlResolveRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    album_service: AlbumService = Depends(get_album_service),
+):
+    """Resolve an album from a streaming service or artist URL.
+
+    Supported services:
+      - Spotify: https://open.spotify.com/album/{id}
+      - Apple Music: https://music.apple.com/{storefront}/album/.../{id}
+      - YouTube Music: https://music.youtube.com/browse/{browseId} or /playlist?list={id}
+      - Bandcamp: https://{artist}.bandcamp.com/album/{slug}  (requires artist + album fields)
+
+    Returns the stored album, creating it if necessary and backfilling other service IDs.
+    """
+    service = detect_service(data.url)
+    if service is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unrecognized URL — supported services: Spotify, Apple Music, YouTube Music, Bandcamp",
+        )
+
+    if service == MusicService.Spotify:
+        album_id = extract_spotify_album_id(data.url)
+        if not album_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Could not extract Spotify album ID from URL",
+            )
+        result = spotify_client.get_album_by_id(album_id)
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Album not found on Spotify",
+            )
+        album_data = AlbumCreate(
+            spotify_album_id=result.spotify_album_id,
+            title=result.title,
+            artist=result.artist,
+            release_date=result.release_date,
+            cover_url=result.cover_url,
+            genres=result.genres,
+        )
+        is_new = album_service.find_existing_album(album_data) is None
+        album = album_service.get_or_create_album(album_data)
+        if is_new and album.apple_music_album_id is None:
+            background_tasks.add_task(_backfill_apple_music_id_bg, album.id, album.title, album.artist)
+        return AlbumResponse.from_orm_with_genres(album)
+
+    if service == MusicService.AppleMusic:
+        album_id = extract_apple_music_album_id(data.url)
+        if not album_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Could not extract Apple Music album ID from URL",
+            )
+        result = apple_music_client.get_album_by_id(album_id)
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Album not found on Apple Music",
+            )
+        album_data = AlbumCreate(
+            apple_music_album_id=result.id,
+            title=result.title,
+            artist=result.artist,
+            release_date=result.release_date,
+            cover_url=result.cover_url,
+            genres=result.genres,
+        )
+        album = album_service.get_or_create_album(album_data)
+        return AlbumResponse.from_orm_with_genres(album)
+
+    if service == MusicService.YouTubeMusic:
+        from app.utils.ytmusic_client import get_album_details
+
+        ytm_id = extract_youtube_music_id(data.url)
+        if not ytm_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Could not extract YouTube Music album ID from URL",
+            )
+        details = get_album_details(ytm_id)
+        if not details:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Album not found on YouTube Music",
+            )
+        title = details["title"]
+        artist = details["artist"]
+        browse_id = details.get("browse_id") or ytm_id
+
+        # Try to backfill Spotify and Apple Music IDs
+        spotify_id = None
+        apple_id = None
+        cover_url = details.get("cover_url")
+        release_date = details.get("release_date")
+        genres: list[str] = []
+
+        spotify_result = _find_spotify_album(title, artist)
+        if spotify_result:
+            spotify_id = spotify_result.spotify_album_id
+            cover_url = cover_url or spotify_result.cover_url
+            release_date = release_date or spotify_result.release_date
+            genres = spotify_result.genres
+
+        apple_result = apple_music_client.find_apple_music_album(title, artist)
+        if apple_result:
+            apple_id = apple_result.id
+            cover_url = cover_url or apple_result.cover_url
+            genres = genres or apple_result.genres
+
+        album_data = AlbumCreate(
+            spotify_album_id=spotify_id,
+            apple_music_album_id=apple_id,
+            youtube_music_id=browse_id,
+            title=title,
+            artist=artist,
+            release_date=release_date,
+            cover_url=cover_url,
+            genres=genres,
+        )
+        album = album_service.get_or_create_album(album_data)
+        return AlbumResponse.from_orm_with_genres(album)
+
+    # Bandcamp — try auto-scraping first, then fall back to manual fields
+    scraped = scrape_bandcamp_metadata(data.url)
+    if scraped:
+        title = scraped["title"]
+        artist = scraped["artist"]
+        scraped_cover: str | None = scraped.get("cover_url")
+    elif data.artist and data.album:
+        title = data.album
+        artist = data.artist
+        scraped_cover = None
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Could not auto-detect album info from this Bandcamp URL — please provide artist and album name",
+        )
+
+    # Try to backfill Spotify and Apple Music IDs
+    spotify_id = None
+    apple_id = None
+    cover_url = None
+    release_date = None
+    genres: list[str] = []
+
+    spotify_result = _find_spotify_album(title, artist)
+    if spotify_result:
+        spotify_id = spotify_result.spotify_album_id
+        cover_url = spotify_result.cover_url
+        release_date = spotify_result.release_date
+        genres = spotify_result.genres
+
+    apple_result = apple_music_client.find_apple_music_album(title, artist)
+    if apple_result:
+        apple_id = apple_result.id
+        cover_url = cover_url or apple_result.cover_url
+        genres = genres or apple_result.genres
+
+    # Fall back to Bandcamp-scraped cover if no higher-quality source resolved one
+    cover_url = cover_url or scraped_cover
+
+    album_data = AlbumCreate(
+        spotify_album_id=spotify_id,
+        apple_music_album_id=apple_id,
+        artist_url=data.url,
+        title=title,
+        artist=artist,
+        release_date=release_date,
+        cover_url=cover_url,
+        genres=genres,
+    )
+    album = album_service.get_or_create_album(album_data)
     return AlbumResponse.from_orm_with_genres(album)
 
 

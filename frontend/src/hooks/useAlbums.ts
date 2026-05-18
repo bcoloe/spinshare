@@ -37,8 +37,9 @@ export function useNominateAlbum(groupId: number) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (result: AlbumSearchResult) => {
-      const album = await albumSearchService.getOrCreate(result)
-      return albumSearchService.nominateToGroup(groupId, album.id)
+      // If album_id is set the album is already in the DB — skip get-or-create
+      const albumId = result.album_id ?? (await albumSearchService.getOrCreate(result)).id
+      return albumSearchService.nominateToGroup(groupId, albumId)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['groups', groupId, 'albums'] })

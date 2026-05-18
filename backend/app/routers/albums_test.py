@@ -29,6 +29,7 @@ def make_mock_album(
     cover_url="https://example.com/cover.jpg",
     youtube_music_id=None,
     apple_music_album_id=None,
+    artist_url=None,
     added_at=None,
     genres=None,
 ):
@@ -41,6 +42,7 @@ def make_mock_album(
     album.cover_url = cover_url
     album.youtube_music_id = youtube_music_id
     album.apple_music_album_id = apple_music_album_id
+    album.artist_url = artist_url
     album.added_at = added_at or _NOW
     album.genres = genres if genres is not None else []
     return album
@@ -663,6 +665,188 @@ class TestAlbumSearch:
         ):
             resp = client.get("/albums/search?q=radiohead")
         assert resp.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+
+class TestSearchDBFirst:
+    """Verify that DB albums appear first in search results and dedup against API results."""
+
+    def _make_page(self, items, total=None):
+        from app.utils.spotify_client import SpotifySearchPage
+        return SpotifySearchPage(items=items, total=total if total is not None else len(items))
+
+    @pytest.fixture(autouse=True)
+    def mock_externals(self, mock_album_service):
+        """Return no external API results and no DB albums by default."""
+        mock_album_service.search_albums_in_db.return_value = []
+        with patch("app.routers.albums.spotify_client.search_albums", return_value=self._make_page([])):
+            with patch("app.routers.albums.apple_music_client.search_albums_catalog", return_value=[]):
+                yield
+
+    def test_db_album_appears_first(self, client, mock_album_service):
+        db_album = make_mock_album(id=7, title="OK Computer", artist="Radiohead")
+        mock_album_service.search_albums_in_db.return_value = [db_album]
+
+        from app.utils.spotify_client import SpotifyAlbumResult, SpotifySearchPage
+        api_result = SpotifyAlbumResult(
+            spotify_album_id="api_id",
+            title="Kid A",
+            artist="Radiohead",
+            release_date=None,
+            cover_url=None,
+            genres=[],
+        )
+        with patch("app.routers.albums.spotify_client.search_albums", return_value=SpotifySearchPage(items=[api_result], total=1)):
+            resp = client.get("/albums/search?q=radiohead")
+
+        assert resp.status_code == 200
+        items = resp.json()["items"]
+        assert items[0]["album_id"] == 7
+        assert items[0]["title"] == "OK Computer"
+        assert items[1]["title"] == "Kid A"
+
+    def test_db_album_deduplicates_api_result(self, client, mock_album_service):
+        db_album = make_mock_album(id=5, title="OK Computer", artist="Radiohead")
+        mock_album_service.search_albums_in_db.return_value = [db_album]
+
+        from app.utils.spotify_client import SpotifyAlbumResult, SpotifySearchPage
+        # Same album from API (same normalized title+artist)
+        api_result = SpotifyAlbumResult(
+            spotify_album_id="s1",
+            title="OK Computer",
+            artist="Radiohead",
+            release_date=None,
+            cover_url=None,
+            genres=[],
+        )
+        with patch("app.routers.albums.spotify_client.search_albums", return_value=SpotifySearchPage(items=[api_result], total=1)):
+            resp = client.get("/albums/search?q=radiohead")
+
+        assert resp.status_code == 200
+        items = resp.json()["items"]
+        assert len(items) == 1
+        assert items[0]["album_id"] == 5  # DB version wins
+
+    def test_db_album_includes_all_fields(self, client, mock_album_service):
+        db_album = make_mock_album(
+            id=3,
+            title="Kid A",
+            artist="Radiohead",
+            youtube_music_id="MPREb_abc",
+            artist_url="https://radiohead.bandcamp.com/album/kid-a",
+        )
+        mock_album_service.search_albums_in_db.return_value = [db_album]
+
+        resp = client.get("/albums/search?q=kid+a")
+
+        assert resp.status_code == 200
+        item = resp.json()["items"][0]
+        assert item["album_id"] == 3
+        assert item["youtube_music_id"] == "MPREb_abc"
+        assert item["artist_url"] == "https://radiohead.bandcamp.com/album/kid-a"
+
+
+class TestResolveAlbumUrl:
+    @pytest.fixture(autouse=True)
+    def setup(self, mock_album_service):
+        mock_album_service.find_existing_album.return_value = None
+        mock_album_service.get_or_create_album.return_value = make_mock_album()
+
+    def test_spotify_url_success(self, client, mock_album_service):
+        from app.utils.spotify_client import SpotifyAlbumResult
+        result = SpotifyAlbumResult(
+            spotify_album_id="4aawyAB9vmqN3uQ7FjRGTy",
+            title="OK Computer",
+            artist="Radiohead",
+            release_date="1997-05",
+            cover_url=None,
+            genres=[],
+        )
+        with patch("app.routers.albums.spotify_client.get_album_by_id", return_value=result):
+            resp = client.post("/albums/resolve-url", json={"url": "https://open.spotify.com/album/4aawyAB9vmqN3uQ7FjRGTy"})
+
+        assert resp.status_code == 200
+        assert resp.json()["title"] == "OK Computer"
+        mock_album_service.get_or_create_album.assert_called_once()
+
+    def test_spotify_url_not_found(self, client):
+        with patch("app.routers.albums.spotify_client.get_album_by_id", return_value=None):
+            resp = client.post("/albums/resolve-url", json={"url": "https://open.spotify.com/album/notarealid"})
+        assert resp.status_code == 404
+
+    def test_apple_music_url_success(self, client, mock_album_service):
+        from app.utils.apple_music_client import AppleMusicAlbumResult
+        result = AppleMusicAlbumResult(
+            id="1097862703",
+            title="OK Computer",
+            artist="Radiohead",
+            release_date="1997-05-21",
+            cover_url=None,
+        )
+        with patch("app.routers.albums.apple_music_client.get_album_by_id", return_value=result):
+            resp = client.post("/albums/resolve-url", json={"url": "https://music.apple.com/us/album/ok-computer/1097862703"})
+
+        assert resp.status_code == 200
+        mock_album_service.get_or_create_album.assert_called_once()
+
+    def test_apple_music_url_not_found(self, client):
+        with patch("app.routers.albums.apple_music_client.get_album_by_id", return_value=None):
+            resp = client.post("/albums/resolve-url", json={"url": "https://music.apple.com/us/album/nonexistent/9999999999"})
+        assert resp.status_code == 404
+
+    def test_unrecognized_url_returns_400(self, client):
+        resp = client.post("/albums/resolve-url", json={"url": "https://soundcloud.com/artist/album"})
+        assert resp.status_code == 400
+
+    def test_bandcamp_url_scrape_fails_and_no_manual_info_returns_422(self, client):
+        # When auto-scrape returns nothing and no artist/album provided, 422 is expected
+        with patch("app.routers.albums.scrape_bandcamp_metadata", return_value=None):
+            resp = client.post("/albums/resolve-url", json={"url": "https://radiohead.bandcamp.com/album/kid-a"})
+        assert resp.status_code == 422
+
+    def test_bandcamp_url_auto_scraped_success(self, client, mock_album_service):
+        # Auto-scrape provides title/artist so no manual input is needed
+        with patch("app.routers.albums.scrape_bandcamp_metadata", return_value={"title": "Kid A", "artist": "Radiohead"}), \
+             patch("app.routers.albums.spotify_client.search_albums") as mock_spotify, \
+             patch("app.routers.albums.apple_music_client.find_apple_music_album", return_value=None):
+            from app.utils.spotify_client import SpotifySearchPage
+            mock_spotify.return_value = SpotifySearchPage(items=[], total=0)
+            resp = client.post(
+                "/albums/resolve-url",
+                json={"url": "https://radiohead.bandcamp.com/album/kid-a"},
+            )
+
+        assert resp.status_code == 200
+        mock_album_service.get_or_create_album.assert_called_once()
+        call_data = mock_album_service.get_or_create_album.call_args[0][0]
+        assert call_data.artist_url == "https://radiohead.bandcamp.com/album/kid-a"
+        assert call_data.title == "Kid A"
+        assert call_data.artist == "Radiohead"
+
+    def test_bandcamp_url_with_artist_album_success(self, client, mock_album_service):
+        with patch("app.routers.albums.scrape_bandcamp_metadata", return_value=None), \
+             patch("app.routers.albums.spotify_client.search_albums") as mock_spotify, \
+             patch("app.routers.albums.apple_music_client.find_apple_music_album", return_value=None):
+            from app.utils.spotify_client import SpotifySearchPage
+            mock_spotify.return_value = SpotifySearchPage(items=[], total=0)
+            resp = client.post(
+                "/albums/resolve-url",
+                json={
+                    "url": "https://radiohead.bandcamp.com/album/kid-a",
+                    "artist": "Radiohead",
+                    "album": "Kid A",
+                },
+            )
+
+        assert resp.status_code == 200
+        mock_album_service.get_or_create_album.assert_called_once()
+        call_data = mock_album_service.get_or_create_album.call_args[0][0]
+        assert call_data.artist_url == "https://radiohead.bandcamp.com/album/kid-a"
+        assert call_data.title == "Kid A"
+        assert call_data.artist == "Radiohead"
+
+    def test_requires_auth(self, unauthed_client):
+        resp = unauthed_client.post("/albums/resolve-url", json={"url": "https://open.spotify.com/album/abc"})
+        assert resp.status_code == 401
 
 
 class TestAlbumStats:

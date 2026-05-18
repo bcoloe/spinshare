@@ -1,12 +1,13 @@
 export interface AlbumResponse {
   id: number
   spotify_album_id: string | null
+  apple_music_album_id: string | null
+  youtube_music_id: string | null
+  artist_url: string | null
   title: string
   artist: string
   release_date: string | null
   cover_url: string | null
-  youtube_music_id: string | null
-  apple_music_album_id: string | null
   added_at: string
   genres: string[]
 }
