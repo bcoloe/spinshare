@@ -14,11 +14,14 @@ import {
   TextInput,
 } from '@mantine/core'
 import { useDebouncedValue } from '@mantine/hooks'
+import { useMutation } from '@tanstack/react-query'
 import { notifications } from '@mantine/notifications'
 import { useAlbumSearch, useMyNominations, useNominateAlbum, useNominateFromPool } from '../../hooks/useAlbums'
 import { useMyGroups } from '../../hooks/useGroups'
 import { useAuth } from '../../hooks/useAuth'
 import { ApiError } from '../../services/apiClient'
+import { albumSearchService } from '../../services/albumSearchService'
+import type { AlbumResponse } from '../../types/album'
 
 interface Props {
   groupId?: number  // when omitted, a group picker is shown at the top
@@ -38,9 +41,18 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
   const [nominated, setNominated] = useState<Set<string | null>>(new Set())
   const [nominatedFromPool, setNominatedFromPool] = useState<Set<number>>(new Set())
 
+  // URL tab state
+  const [urlInput, setUrlInput] = useState('')
+  const [manualArtist, setManualArtist] = useState('')
+  const [manualAlbum, setManualAlbum] = useState('')
+  const [showManualFields, setShowManualFields] = useState(false)
+  const [resolvedAlbum, setResolvedAlbum] = useState<AlbumResponse | null>(null)
+  const [nominatedByUrl, setNominatedByUrl] = useState<Set<number>>(new Set())
+
   const [debouncedQuery] = useDebouncedValue(query, 300)
   const [debouncedArtist] = useDebouncedValue(artistFilter, 300)
   const [debouncedAlbum] = useDebouncedValue(albumFilter, 300)
+  const [debouncedUrl] = useDebouncedValue(urlInput, 600)
 
   const ROLE_RANK: Record<string, number> = { owner: 0, admin: 1, member: 2 }
   const nominatableGroups = groups.filter((g) => {
@@ -109,7 +121,8 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
     return item.album.title.toLowerCase().includes(q) || item.album.artist.toLowerCase().includes(q)
   })
 
-  const albumKey = (r: (typeof allResults)[number]) => r.spotify_album_id ?? r.apple_music_album_id
+  const albumKey = (r: (typeof allResults)[number]) =>
+    r.spotify_album_id ?? r.apple_music_album_id ?? r.youtube_music_id ?? String(r.album_id)
 
   const handleNominate = async (result: (typeof allResults)[number]) => {
     if (!result || !effectiveGroupId) return
@@ -135,6 +148,63 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
     }
   }
 
+  // ── URL tab ──────────────────────────────────────────────────────────────
+
+  const resolveUrlMutation = useMutation({
+    mutationFn: ({ url, artist, album }: { url: string; artist?: string; album?: string }) =>
+      albumSearchService.resolveUrl(url, artist, album),
+    onSuccess: (album) => {
+      setResolvedAlbum(album)
+      setShowManualFields(false)
+    },
+    onError: (err) => {
+      if (
+        err instanceof ApiError &&
+        err.status === 422 &&
+        err.message.toLowerCase().includes('artist')
+      ) {
+        setShowManualFields(true)
+      }
+    },
+  })
+
+  useEffect(() => {
+    if (!debouncedUrl.startsWith('http')) return
+    setResolvedAlbum(null)
+    setShowManualFields(false)
+    resolveUrlMutation.mutate({ url: debouncedUrl })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedUrl])
+
+  const handleManualResolve = () => {
+    if (!debouncedUrl || !manualArtist || !manualAlbum) return
+    setResolvedAlbum(null)
+    resolveUrlMutation.mutate({ url: debouncedUrl, artist: manualArtist, album: manualAlbum })
+  }
+
+  const handleNominateResolved = async () => {
+    if (!resolvedAlbum || !effectiveGroupId) return
+    try {
+      await nominateFromPool.mutateAsync(resolvedAlbum.id)
+      setNominatedByUrl((prev) => new Set(prev).add(resolvedAlbum.id))
+      notifications.show({ color: 'green', message: `"${resolvedAlbum.title}" nominated` })
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Could not nominate album'
+      notifications.show({ color: 'red', message })
+    }
+  }
+
+  const urlResolved = !!resolvedAlbum
+  const urlNominated = resolvedAlbum ? nominatedByUrl.has(resolvedAlbum.id) : false
+  const urlError =
+    resolveUrlMutation.isError && !showManualFields
+      ? resolveUrlMutation.error instanceof ApiError
+        ? resolveUrlMutation.error.message
+        : 'Could not resolve this URL'
+      : null
+
+  // ────────────────────────────────────────────────────────────────────────
+
   const handleClose = () => {
     setPickedGroupId(null)
     setQuery('')
@@ -143,6 +213,12 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
     setPoolFilter('')
     setNominated(new Set())
     setNominatedFromPool(new Set())
+    setUrlInput('')
+    setManualArtist('')
+    setManualAlbum('')
+    setShowManualFields(false)
+    setResolvedAlbum(null)
+    setNominatedByUrl(new Set())
     onClose()
   }
 
@@ -162,6 +238,7 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
         <Tabs defaultValue="spotify">
           <Tabs.List mb="md">
             <Tabs.Tab value="spotify">Search</Tabs.Tab>
+            <Tabs.Tab value="url">Paste URL</Tabs.Tab>
             <Tabs.Tab value="pool">My nominations</Tabs.Tab>
           </Tabs.List>
 
@@ -240,6 +317,93 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
             </Stack>
           </Tabs.Panel>
 
+          <Tabs.Panel value="url">
+            <Stack gap="md">
+              <TextInput
+                placeholder="Paste a link from Spotify, Apple Music, YouTube Music, or Bandcamp…"
+                value={urlInput}
+                onChange={(e) => {
+                  setUrlInput(e.currentTarget.value)
+                  setResolvedAlbum(null)
+                  setShowManualFields(false)
+                }}
+                rightSection={resolveUrlMutation.isPending ? <Loader size="xs" /> : null}
+                autoFocus
+              />
+
+              {showManualFields && (
+                <Stack gap="xs">
+                  <Text size="xs" c="dimmed">
+                    Couldn't auto-detect album info — please enter it manually:
+                  </Text>
+                  <SimpleGrid cols={2} spacing="sm">
+                    <TextInput
+                      placeholder="Artist name"
+                      value={manualArtist}
+                      onChange={(e) => setManualArtist(e.currentTarget.value)}
+                      size="sm"
+                    />
+                    <TextInput
+                      placeholder="Album title"
+                      value={manualAlbum}
+                      onChange={(e) => setManualAlbum(e.currentTarget.value)}
+                      size="sm"
+                    />
+                  </SimpleGrid>
+                  <Button
+                    size="xs"
+                    variant="light"
+                    color="violet"
+                    disabled={!manualArtist || !manualAlbum}
+                    loading={resolveUrlMutation.isPending}
+                    onClick={handleManualResolve}
+                  >
+                    Look up album
+                  </Button>
+                </Stack>
+              )}
+
+              {urlError && (
+                <Text size="sm" c="red.4">{urlError}</Text>
+              )}
+
+              {urlResolved && resolvedAlbum && (
+                <Group justify="space-between" wrap="nowrap">
+                  <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
+                    <Image
+                      src={resolvedAlbum.cover_url ?? undefined}
+                      w={44}
+                      h={44}
+                      radius="sm"
+                      fallbackSrc="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Crect width='44' height='44' fill='%23373A40'/%3E%3C/svg%3E"
+                    />
+                    <div style={{ minWidth: 0 }}>
+                      <Text size="sm" fw={500} lineClamp={1}>{resolvedAlbum.title}</Text>
+                      <Text size="xs" c="dimmed" lineClamp={1}>{resolvedAlbum.artist}</Text>
+                    </div>
+                  </Group>
+                  <Button
+                    size="xs"
+                    variant={urlNominated ? 'filled' : 'light'}
+                    color={urlNominated ? 'green' : 'violet'}
+                    disabled={urlNominated || !effectiveGroupId}
+                    loading={nominateFromPool.isPending}
+                    onClick={handleNominateResolved}
+                    style={{ flexShrink: 0 }}
+                  >
+                    {urlNominated ? 'Nominated' : 'Nominate'}
+                  </Button>
+                </Group>
+              )}
+
+              {!urlInput && (
+                <Text size="xs" c="dimmed">
+                  Supported: Spotify, Apple Music, YouTube Music, Bandcamp
+                </Text>
+              )}
+            </Stack>
+          </Tabs.Panel>
+
           <Tabs.Panel value="pool">
             <Stack gap="md">
               <TextInput
@@ -270,7 +434,7 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
                           w={44}
                           h={44}
                           radius="sm"
-                          fallbackSrc="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Crect width='44' height='44' fill='%23373A40'/%3E%3C/svg%3E"
+                          fallbackSrc="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2020/svg' width='44' height='44'%3E%3Crect width='44' height='44' fill='%23373A40'/%3E%3C/svg%3E"
                         />
                         <div style={{ minWidth: 0 }}>
                           <Text size="sm" fw={500} lineClamp={1}>{item.album.title}</Text>

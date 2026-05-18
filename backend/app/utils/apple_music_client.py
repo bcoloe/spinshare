@@ -270,6 +270,52 @@ def search_albums_catalog(
     return results
 
 
+def get_album_by_id(
+    album_id: str, storefront: str = "us"
+) -> AppleMusicAlbumResult | None:
+    """Fetch a single Apple Music album by its catalog ID.
+
+    Returns None on any error or if the album is not found.
+    """
+    try:
+        token = generate_developer_token()
+    except HTTPException:
+        return None
+
+    try:
+        resp = httpx.get(
+            f"https://api.music.apple.com/v1/catalog/{storefront}/albums/{album_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+    except Exception:
+        log.warning("Apple Music album fetch failed for ID %r", album_id)
+        return None
+
+    if not resp.is_success:
+        log.warning("Apple Music album fetch returned %d for ID %r", resp.status_code, album_id)
+        return None
+
+    data = resp.json().get("data", [])
+    if not data:
+        return None
+
+    album = data[0]
+    attrs = album.get("attributes", {})
+    artwork = attrs.get("artwork", {})
+    cover_url = None
+    if artwork.get("url"):
+        cover_url = artwork["url"].replace("{w}", "300").replace("{h}", "300")
+    return AppleMusicAlbumResult(
+        id=album["id"],
+        title=attrs.get("name", ""),
+        artist=attrs.get("artistName", ""),
+        release_date=attrs.get("releaseDate"),
+        cover_url=cover_url,
+        genres=attrs.get("genreNames", []),
+    )
+
+
 def find_apple_music_album(
     title: str, artist: str, storefront: str = "us"
 ) -> AppleMusicAlbumResult | None:

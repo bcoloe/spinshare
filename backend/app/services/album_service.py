@@ -11,7 +11,7 @@ from app.schemas.album import AlbumCreate, GroupAlbumStatus, GroupAlbumStatusUpd
 from app.services import group_service as gs
 from app.utils.ytmusic_client import search_album_browse_id
 from fastapi import HTTPException, status
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -39,7 +39,10 @@ class AlbumService:
         return self._persist_album(data)
 
     def find_existing_album(self, data: AlbumCreate) -> Album | None:
-        """Look up an album by Spotify ID then Apple Music ID. Returns None if not found."""
+        """Look up an album by any available identifier. Returns None if not found.
+
+        Search order: Spotify ID → Apple Music ID → YouTube Music ID → artist_url → title+artist.
+        """
         if data.spotify_album_id:
             existing = self.get_album_by_spotify_id(data.spotify_album_id, raise_on_missing=False)
             if existing:
@@ -48,14 +51,26 @@ class AlbumService:
             existing = self.get_album_by_apple_music_id(data.apple_music_album_id, raise_on_missing=False)
             if existing:
                 return existing
+        if data.youtube_music_id:
+            existing = self.get_album_by_youtube_music_id(data.youtube_music_id, raise_on_missing=False)
+            if existing:
+                return existing
+        if data.artist_url:
+            existing = self.get_album_by_artist_url(data.artist_url, raise_on_missing=False)
+            if existing:
+                return existing
+        if data.title and data.artist:
+            existing = self.get_album_by_title_artist(data.title, data.artist)
+            if existing:
+                return existing
         return None
 
     def get_or_create_album(self, data: AlbumCreate) -> Album:
-        """Return existing album by Spotify ID or Apple Music ID, or create a new one.
+        """Return existing album by any available identifier, or create a new one.
 
-        If the album already exists but is missing a service ID that the caller now provides,
-        it is backfilled opportunistically.  Genres and YouTube Music ID are also healed
-        if missing.
+        If the album already exists but is missing a service ID or artist_url that the
+        caller now provides, it is backfilled opportunistically. Genres and YouTube Music
+        ID are also healed if missing.
         """
         existing = self.find_existing_album(data)
         if existing:
@@ -66,15 +81,22 @@ class AlbumService:
             if existing.apple_music_album_id is None and data.apple_music_album_id:
                 existing.apple_music_album_id = data.apple_music_album_id
                 dirty = True
+            if existing.artist_url is None and data.artist_url:
+                existing.artist_url = data.artist_url
+                dirty = True
+            if existing.youtube_music_id is None:
+                ytm_id = data.youtube_music_id
+                if ytm_id is None:
+                    try:
+                        ytm_id = search_album_browse_id(existing.title, existing.artist)
+                    except Exception:
+                        pass
+                if ytm_id:
+                    existing.youtube_music_id = ytm_id
+                    dirty = True
             if not existing.genres and data.genres:
                 existing.genres = self._get_or_create_genres(data.genres)
                 dirty = True
-            if existing.youtube_music_id is None:
-                try:
-                    existing.youtube_music_id = search_album_browse_id(existing.title, existing.artist)
-                    dirty = True
-                except Exception:
-                    pass
             if dirty:
                 self.db.commit()
                 self.db.refresh(existing)
@@ -83,11 +105,12 @@ class AlbumService:
 
     def _persist_album(self, data: AlbumCreate) -> Album:
         genres = self._get_or_create_genres(data.genres)
-        ytm_id = None
-        try:
-            ytm_id = search_album_browse_id(data.title, data.artist)
-        except Exception:
-            pass
+        ytm_id = data.youtube_music_id
+        if ytm_id is None:
+            try:
+                ytm_id = search_album_browse_id(data.title, data.artist)
+            except Exception:
+                pass
         album = Album(
             spotify_album_id=data.spotify_album_id,
             apple_music_album_id=data.apple_music_album_id,
@@ -96,6 +119,7 @@ class AlbumService:
             release_date=data.release_date,
             cover_url=data.cover_url,
             youtube_music_id=ytm_id,
+            artist_url=data.artist_url,
             genres=genres,
         )
         try:
@@ -320,6 +344,89 @@ class AlbumService:
             )
         return album
 
+    def get_album_by_spotify_id(
+        self, spotify_album_id: str, *, raise_on_missing: bool = True
+    ) -> Album | None:
+        """Get album by Spotify album ID.
+
+        Raises:
+            HTTPException 404: If raise_on_missing=True and album not found.
+        """
+        album = self.db.query(Album).filter(Album.spotify_album_id == spotify_album_id).first()
+        if not album and raise_on_missing:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Album with Spotify ID '{spotify_album_id}' not found",
+            )
+        return album
+
+    def get_album_by_youtube_music_id(
+        self, youtube_music_id: str, *, raise_on_missing: bool = True
+    ) -> Album | None:
+        """Get album by YouTube Music browse ID.
+
+        Raises:
+            HTTPException 404: If raise_on_missing=True and album not found.
+        """
+        album = self.db.query(Album).filter(Album.youtube_music_id == youtube_music_id).first()
+        if not album and raise_on_missing:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Album with YouTube Music ID '{youtube_music_id}' not found",
+            )
+        return album
+
+    def get_album_by_artist_url(
+        self, artist_url: str, *, raise_on_missing: bool = True
+    ) -> Album | None:
+        """Get album by artist_url.
+
+        Raises:
+            HTTPException 404: If raise_on_missing=True and album not found.
+        """
+        album = self.db.query(Album).filter(Album.artist_url == artist_url).first()
+        if not album and raise_on_missing:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Album with artist URL '{artist_url}' not found",
+            )
+        return album
+
+    def search_albums_in_db(
+        self,
+        query: str = "",
+        artist: str | None = None,
+        album: str | None = None,
+        limit: int = 5,
+    ) -> list[Album]:
+        """Search existing albums by title/artist using case-insensitive substring matching.
+
+        When artist and album are both provided they are ANDed. A free-text query searches
+        both title and artist with OR. Returns up to `limit` results.
+        """
+        q = self.db.query(Album).options(selectinload(Album.genres))
+
+        if artist and album:
+            q = q.filter(
+                Album.artist.ilike(f"%{artist}%"),
+                Album.title.ilike(f"%{album}%"),
+            )
+        elif artist:
+            q = q.filter(Album.artist.ilike(f"%{artist}%"))
+        elif album:
+            q = q.filter(Album.title.ilike(f"%{album}%"))
+        elif query:
+            q = q.filter(
+                or_(
+                    Album.title.ilike(f"%{query}%"),
+                    Album.artist.ilike(f"%{query}%"),
+                )
+            )
+        else:
+            return []
+
+        return q.limit(limit).all()
+
     def backfill_apple_music_id(self, album_id: int, title: str, artist: str) -> None:
         """Attempt to resolve and store the Apple Music album ID for an album.
 
@@ -338,22 +445,6 @@ class AlbumService:
                 self.db.commit()
         except Exception:
             log.warning("Apple Music backfill failed for album %d (%r by %r)", album_id, title, artist)
-
-    def get_album_by_spotify_id(
-        self, spotify_album_id: str, *, raise_on_missing: bool = True
-    ) -> Album | None:
-        """Get album by Spotify album ID.
-
-        Raises:
-            HTTPException 404: If raise_on_missing=True and album not found.
-        """
-        album = self.db.query(Album).filter(Album.spotify_album_id == spotify_album_id).first()
-        if not album and raise_on_missing:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Album with Spotify ID '{spotify_album_id}' not found",
-            )
-        return album
 
     def get_todays_albums(self, group_id: int) -> list[GroupAlbum]:
         """Return albums selected for today in this group."""

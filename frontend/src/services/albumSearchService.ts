@@ -2,8 +2,11 @@ import { apiFetch } from './apiClient'
 import type { AlbumResponse, GroupAlbumResponse, UserNominationResponse } from '../types/album'
 
 export interface AlbumSearchResult {
+  album_id: number | null
   spotify_album_id: string | null
   apple_music_album_id: string | null
+  youtube_music_id: string | null
+  artist_url: string | null
   title: string
   artist: string
   release_date: string | null
@@ -62,6 +65,13 @@ export const albumSearchService = {
 
   getMyNominations(): Promise<UserNominationResponse[]> {
     return apiFetch('/users/me/nominations')
+  },
+
+  resolveUrl(url: string, artist?: string, album?: string): Promise<AlbumResponse> {
+    return apiFetch('/albums/resolve-url', {
+      method: 'POST',
+      body: JSON.stringify({ url, artist: artist ?? null, album: album ?? null }),
+    })
   },
 
   removeGroupAlbum(groupId: number, groupAlbumId: number): Promise<void> {

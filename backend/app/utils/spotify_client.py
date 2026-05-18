@@ -283,6 +283,52 @@ def search_albums(
     return SpotifySearchPage(items=results, total=total)
 
 
+def get_album_by_id(album_id: str) -> SpotifyAlbumResult | None:
+    """Fetch a single Spotify album by its ID using the individual album endpoint.
+
+    Returns None if not found. Raises HTTPException on auth/service errors.
+    Retries once with a fresh token on 401 to handle cached-token expiry.
+    """
+    global _cc_token_expires_at
+
+    def _fetch(token: str) -> httpx.Response:
+        return httpx.get(
+            f"https://api.spotify.com/v1/albums/{album_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+
+    token = _get_client_token()
+    resp = _fetch(token)
+
+    if resp.status_code == 401:
+        _cc_token_expires_at = 0.0  # force token refresh
+        token = _get_client_token()
+        resp = _fetch(token)
+
+    if resp.status_code == 404:
+        return None
+    if not resp.is_success:
+        log.error("Spotify single-album fetch returned %d for ID %r", resp.status_code, album_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Spotify album fetch failed",
+        )
+
+    item = resp.json()
+    images = item.get("images", [])
+    cover = images[0]["url"] if images else None
+    artists = ", ".join(a["name"] for a in item.get("artists", []))
+    return SpotifyAlbumResult(
+        spotify_album_id=item["id"],
+        title=item["name"],
+        artist=artists,
+        release_date=item.get("release_date"),
+        cover_url=cover,
+        genres=item.get("genres", []),
+    )
+
+
 def get_albums_batch(ids: list[str]) -> list[SpotifyAlbumResult]:
     """Fetch album details for multiple Spotify album IDs using the batch endpoint.
 

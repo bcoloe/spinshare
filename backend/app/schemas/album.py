@@ -2,13 +2,20 @@
 
 from datetime import datetime
 from enum import StrEnum
+from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+# Domains currently whitelisted for artist_url.
+_ALLOWED_ARTIST_URL_DOMAINS = {"bandcamp.com"}
 
 
 class AlbumSearchResult(BaseModel):
+    album_id: int | None = None
     spotify_album_id: str | None = None
     apple_music_album_id: str | None = None
+    youtube_music_id: str | None = None
+    artist_url: str | None = None
     title: str
     artist: str
     release_date: str | None = None
@@ -32,6 +39,7 @@ class GroupAlbumStatus(StrEnum):
 class AlbumBase(BaseModel):
     spotify_album_id: str | None = None
     apple_music_album_id: str | None = None
+    artist_url: str | None = None
     title: str
     artist: str
     release_date: str | None = None
@@ -40,11 +48,38 @@ class AlbumBase(BaseModel):
 
 class AlbumCreate(AlbumBase):
     genres: list[str] = []
+    youtube_music_id: str | None = None
+
+    @field_validator("artist_url")
+    @classmethod
+    def validate_artist_url(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        try:
+            parsed = urlparse(v)
+        except Exception:
+            raise ValueError("artist_url must be a valid URL")
+        netloc = parsed.netloc.lower()
+        domain_ok = any(netloc.endswith("." + d) for d in _ALLOWED_ARTIST_URL_DOMAINS)
+        if not domain_ok:
+            allowed = ", ".join(sorted(_ALLOWED_ARTIST_URL_DOMAINS))
+            raise ValueError(f"artist_url must be from a supported domain: {allowed}")
+        if not parsed.path.lower().startswith("/album/"):
+            raise ValueError("artist_url must point to an album page (path must start with /album/)")
+        return v
 
     @model_validator(mode="after")
     def at_least_one_service_id(self) -> "AlbumCreate":
-        if not self.spotify_album_id and not self.apple_music_album_id:
-            raise ValueError("At least one of spotify_album_id or apple_music_album_id is required")
+        if not any([
+            self.spotify_album_id,
+            self.apple_music_album_id,
+            self.youtube_music_id,
+            self.artist_url,
+        ]):
+            raise ValueError(
+                "At least one of spotify_album_id, apple_music_album_id, "
+                "youtube_music_id, or artist_url is required"
+            )
         return self
 
 
@@ -62,6 +97,7 @@ class AlbumResponse(AlbumBase):
             id=album.id,
             spotify_album_id=album.spotify_album_id,
             apple_music_album_id=album.apple_music_album_id,
+            artist_url=album.artist_url,
             title=album.title,
             artist=album.artist,
             release_date=album.release_date,
@@ -115,6 +151,15 @@ class GroupAlbumResponse(BaseModel):
             avg_rating=getattr(ga, "avg_rating", None),
             review_count=getattr(ga, "review_count", 0),
         )
+
+
+# ==================== URL RESOLVE ====================
+
+
+class AlbumUrlResolveRequest(BaseModel):
+    url: str
+    artist: str | None = None
+    album: str | None = None
 
 
 # ==================== USER NOMINATION POOL ====================

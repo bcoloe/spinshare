@@ -367,3 +367,158 @@ class TestGetOrCreateMultiServiceId:
         with pytest.raises(HTTPException) as exc_info:
             album_service.create_album(data)
         assert exc_info.value.status_code == status.HTTP_409_CONFLICT
+
+
+class TestAlbumCreateValidator:
+    def test_youtube_music_id_only_valid(self):
+        data = AlbumCreate(youtube_music_id="MPREb_abc", title="Kid A", artist="Radiohead")
+        assert data.youtube_music_id == "MPREb_abc"
+        assert data.spotify_album_id is None
+        assert data.apple_music_album_id is None
+
+    def test_artist_url_only_valid(self):
+        data = AlbumCreate(
+            artist_url="https://radiohead.bandcamp.com/album/kid-a",
+            title="Kid A",
+            artist="Radiohead",
+        )
+        assert data.artist_url == "https://radiohead.bandcamp.com/album/kid-a"
+
+    def test_artist_url_invalid_domain_raises(self):
+        with pytest.raises(ValueError, match="supported domain"):
+            AlbumCreate(
+                artist_url="https://soundcloud.com/artist/album",
+                title="X",
+                artist="Y",
+            )
+
+    def test_artist_url_bandcamp_without_album_path_raises(self):
+        with pytest.raises(ValueError, match="/album/"):
+            AlbumCreate(
+                artist_url="https://radiohead.bandcamp.com/music",
+                title="X",
+                artist="Y",
+            )
+
+    def test_artist_url_bandcamp_root_domain_raises(self):
+        with pytest.raises(ValueError, match="supported domain"):
+            AlbumCreate(
+                artist_url="https://bandcamp.com/album/some-album",
+                title="X",
+                artist="Y",
+            )
+
+    def test_no_identifier_raises(self):
+        with pytest.raises(ValueError):
+            AlbumCreate(title="No ID Album", artist="Some Artist")
+
+
+class TestAlbumServiceSearchInDB:
+    def test_search_by_query_title_match(self, album_service, sample_album):
+        results = album_service.search_albums_in_db(query="OK Computer")
+        assert any(a.id == sample_album.id for a in results)
+
+    def test_search_by_query_artist_match(self, album_service, sample_album):
+        results = album_service.search_albums_in_db(query="Radiohead")
+        assert any(a.id == sample_album.id for a in results)
+
+    def test_search_by_artist_and_album(self, album_service, sample_album):
+        results = album_service.search_albums_in_db(artist="Radiohead", album="OK Computer")
+        assert any(a.id == sample_album.id for a in results)
+
+    def test_search_no_params_returns_empty(self, album_service, sample_album):
+        results = album_service.search_albums_in_db()
+        assert results == []
+
+    def test_search_no_match_returns_empty(self, album_service, sample_album):
+        results = album_service.search_albums_in_db(query="zzznomatch999")
+        assert results == []
+
+    def test_search_case_insensitive(self, album_service, sample_album):
+        results = album_service.search_albums_in_db(query="radiohead")
+        assert any(a.id == sample_album.id for a in results)
+
+    def test_search_partial_title_match(self, album_service, sample_album):
+        results = album_service.search_albums_in_db(album="Computer")
+        assert any(a.id == sample_album.id for a in results)
+
+
+class TestFindExistingAlbumExtended:
+    def test_find_by_youtube_music_id(self, album_service, db_session):
+        from app.models import Album
+        album = Album(
+            youtube_music_id="MPREb_ytm123",
+            title="In Rainbows",
+            artist="Radiohead",
+        )
+        db_session.add(album)
+        db_session.commit()
+        db_session.refresh(album)
+
+        data = AlbumCreate(youtube_music_id="MPREb_ytm123", title="In Rainbows", artist="Radiohead")
+        result = album_service.find_existing_album(data)
+        assert result is not None
+        assert result.id == album.id
+
+    def test_find_by_artist_url(self, album_service, db_session):
+        from app.models import Album
+        album = Album(
+            artist_url="https://radiohead.bandcamp.com/album/in-rainbows",
+            title="In Rainbows",
+            artist="Radiohead",
+        )
+        db_session.add(album)
+        db_session.commit()
+        db_session.refresh(album)
+
+        data = AlbumCreate(
+            artist_url="https://radiohead.bandcamp.com/album/in-rainbows",
+            title="In Rainbows",
+            artist="Radiohead",
+        )
+        result = album_service.find_existing_album(data)
+        assert result is not None
+        assert result.id == album.id
+
+    def test_find_by_title_artist_fallback(self, album_service, db_session):
+        from app.models import Album
+        album = Album(
+            youtube_music_id="MPREb_unique999",
+            title="The Bends",
+            artist="Radiohead",
+        )
+        db_session.add(album)
+        db_session.commit()
+        db_session.refresh(album)
+
+        data = AlbumCreate(
+            artist_url="https://radiohead.bandcamp.com/album/the-bends",
+            title="The Bends",
+            artist="Radiohead",
+        )
+        result = album_service.find_existing_album(data)
+        assert result is not None
+        assert result.id == album.id
+
+    def test_get_or_create_backfills_artist_url(self, album_service, sample_album):
+        data = AlbumCreate(
+            spotify_album_id=sample_album.spotify_album_id,
+            artist_url="https://radiohead.bandcamp.com/album/ok-computer",
+            title=sample_album.title,
+            artist=sample_album.artist,
+        )
+        result = album_service.get_or_create_album(data)
+        assert result.id == sample_album.id
+        assert result.artist_url == "https://radiohead.bandcamp.com/album/ok-computer"
+
+    def test_get_or_create_ytm_only_album(self, album_service):
+        data = AlbumCreate(
+            youtube_music_id="MPREb_new_ytm",
+            title="Pablo Honey",
+            artist="Radiohead",
+        )
+        album = album_service.get_or_create_album(data)
+        assert album.id is not None
+        assert album.youtube_music_id == "MPREb_new_ytm"
+        assert album.spotify_album_id is None
+        assert album.apple_music_album_id is None

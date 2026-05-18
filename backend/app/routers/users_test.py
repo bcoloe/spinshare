@@ -210,6 +210,7 @@ def _make_mock_album_obj(id: int = 1):
     a.cover_url = None
     a.youtube_music_id = None
     a.apple_music_album_id = None
+    a.artist_url = None
     a.added_at = _NOW
     a.genres = []
     return a
