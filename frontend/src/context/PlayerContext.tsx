@@ -13,7 +13,7 @@ import {
 } from '../services/spotifyApiClient'
 
 export interface PlayingAlbumMeta {
-  spotifyAlbumId: string
+  spotifyAlbumId: string | null
   appleMusicAlbumId?: string | null
   title: string
   artist: string
@@ -157,14 +157,15 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   // Fetch Spotify tracks when Spotify album starts
   useEffect(() => {
-    if (activeService !== 'spotify' || !playingAlbumMeta) {
+    if (activeService !== 'spotify' || !playingAlbumMeta || !playingAlbumMeta.spotifyAlbumId) {
       if (activeService !== 'apple_music') setTracks([])
       return
     }
+    const spotifyAlbumId = playingAlbumMeta.spotifyAlbumId
     let cancelled = false
     setTracksLoading(true)
     getSpotifyToken()
-      .then((token) => fetchAlbumTracks(token, playingAlbumMeta.spotifyAlbumId))
+      .then((token) => fetchAlbumTracks(token, spotifyAlbumId))
       .then((t) => {
         if (!cancelled) setTracks(t.map((track) => ({
           id: track.uri,
@@ -197,7 +198,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       return
     }
     const track = tracks[index]
-    if (!track || !playingAlbumMeta) return
+    if (!track || !playingAlbumMeta || !playingAlbumMeta.spotifyAlbumId) return
     player.startAlbum(playingAlbumMeta.spotifyAlbumId, track.id)
   }
 
@@ -207,13 +208,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [albumSavePending, setAlbumSavePending] = useState(false)
 
   useEffect(() => {
-    if (activeService !== 'spotify' || !playingAlbumMeta) {
+    if (activeService !== 'spotify' || !playingAlbumMeta || !playingAlbumMeta.spotifyAlbumId) {
       setAlbumSaved(false)
       return
     }
+    const spotifyAlbumId = playingAlbumMeta.spotifyAlbumId
     let cancelled = false
     getSpotifyToken()
-      .then((token) => isAlbumSaved(token, playingAlbumMeta.spotifyAlbumId))
+      .then((token) => isAlbumSaved(token, spotifyAlbumId))
       .then((saved) => { if (!cancelled) setAlbumSaved(saved) })
       .catch(() => {})
     return () => { cancelled = true }
@@ -228,6 +230,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         if (albumId) await applePlayer.saveAlbumToLibrary(albumId)
         return
       }
+      if (!playingAlbumMeta.spotifyAlbumId) return
       const token = await getSpotifyToken()
       if (albumSaved) {
         await unsaveAlbum(token, playingAlbumMeta.spotifyAlbumId)
@@ -344,7 +347,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       applePlayer.togglePlay()
       return
     }
-    if (!player.playingSpotifyAlbumId && playingAlbumMeta) {
+    if (!player.playingSpotifyAlbumId && playingAlbumMeta?.spotifyAlbumId) {
       player.startAlbum(
         playingAlbumMeta.spotifyAlbumId,
         persistedState?.lastTrackUri ?? undefined,

@@ -1,6 +1,6 @@
 export interface AlbumResponse {
   id: number
-  spotify_album_id: string
+  spotify_album_id: string | null
   title: string
   artist: string
   release_date: string | null

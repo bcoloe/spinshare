@@ -491,6 +491,12 @@ class TestAlbumSearch:
         from app.utils.spotify_client import SpotifySearchPage
         return SpotifySearchPage(items=items, total=total if total is not None else len(items))
 
+    @pytest.fixture(autouse=True)
+    def mock_apple_search(self):
+        """Prevent real Apple Music API calls in router tests."""
+        with patch("app.routers.albums.apple_music_client.search_albums_catalog", return_value=[]):
+            yield
+
     def test_search_returns_results(self, client):
         from app.utils.spotify_client import SpotifyAlbumResult
 
@@ -539,12 +545,15 @@ class TestAlbumSearch:
         assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     def test_search_spotify_unavailable(self, client):
+        """When Spotify is unavailable (503), fall back to Apple Music results rather than failing."""
         with patch(
             "app.routers.albums.spotify_client.search_albums",
             side_effect=HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="not configured"),
         ):
             resp = client.get("/albums/search?q=radiohead")
-        assert resp.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["items"] == []
+        assert resp.json()["next_offset"] is None
 
     def test_search_no_params_returns_400(self, client):
         resp = client.get("/albums/search")
@@ -597,6 +606,63 @@ class TestAlbumSearch:
 
         assert resp.status_code == status.HTTP_200_OK
         mock_search.assert_called_once_with("radiohead", limit=10, offset=10, artist=None, album=None)
+
+    def test_search_apple_only_result_returned_when_spotify_empty(self, client):
+        from app.utils.apple_music_client import AppleMusicAlbumResult
+        apple_result = AppleMusicAlbumResult(
+            id="apple_999",
+            title="Apple-Only Album",
+            artist="Solo Artist",
+            release_date="2023-01-01",
+            cover_url="https://apple-cover.jpg",
+            genres=["Indie"],
+        )
+        with patch("app.routers.albums.spotify_client.search_albums", return_value=self._make_page([])):
+            with patch("app.routers.albums.apple_music_client.search_albums_catalog", return_value=[apple_result]):
+                resp = client.get("/albums/search?q=solo+artist")
+
+        assert resp.status_code == status.HTTP_200_OK
+        items = resp.json()["items"]
+        assert len(items) == 1
+        assert items[0]["apple_music_album_id"] == "apple_999"
+        assert items[0]["spotify_album_id"] is None
+
+    def test_search_merged_result_has_both_ids(self, client):
+        from app.utils.spotify_client import SpotifyAlbumResult
+        from app.utils.apple_music_client import AppleMusicAlbumResult
+        spotify_result = SpotifyAlbumResult(
+            spotify_album_id="s1", title="OK Computer", artist="Radiohead",
+            release_date="1997-05-21", cover_url="https://spotify.jpg", genres=["art rock"],
+        )
+        apple_result = AppleMusicAlbumResult(
+            id="a1", title="OK Computer", artist="Radiohead",
+            release_date="1997-05-21", cover_url="https://apple.jpg", genres=["Alternative"],
+        )
+        with patch("app.routers.albums.spotify_client.search_albums", return_value=self._make_page([spotify_result])):
+            with patch("app.routers.albums.apple_music_client.search_albums_catalog", return_value=[apple_result]):
+                resp = client.get("/albums/search?q=radiohead")
+
+        items = resp.json()["items"]
+        assert len(items) == 1
+        assert items[0]["spotify_album_id"] == "s1"
+        assert items[0]["apple_music_album_id"] == "a1"
+        assert items[0]["cover_url"] == "https://spotify.jpg"  # Spotify cover is primary
+
+    def test_search_apple_not_called_on_subsequent_pages(self, client):
+        with patch("app.routers.albums.spotify_client.search_albums", return_value=self._make_page([])):
+            with patch("app.routers.albums.apple_music_client.search_albums_catalog") as mock_apple:
+                resp = client.get("/albums/search?q=radiohead&offset=10")
+
+        assert resp.status_code == status.HTTP_200_OK
+        mock_apple.assert_not_called()
+
+    def test_search_429_still_raises(self, client):
+        with patch(
+            "app.routers.albums.spotify_client.search_albums",
+            side_effect=HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limited"),
+        ):
+            resp = client.get("/albums/search?q=radiohead")
+        assert resp.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
 
 class TestAlbumStats:

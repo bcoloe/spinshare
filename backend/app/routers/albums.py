@@ -19,7 +19,8 @@ from app.schemas.album import (
 )
 from app.services.album_service import AlbumService
 from app.services.review_service import ReviewService
-from app.utils import spotify_client
+from app.utils import apple_music_client, spotify_client
+from app.utils.album_search import merge_search_results
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 
 albums_router = APIRouter(prefix="/albums", tags=["albums"])
@@ -40,25 +41,47 @@ def search_albums(
     offset: int = Query(default=0, ge=0),
     current_user: User = Depends(get_current_user),
 ):
-    """Search for albums via Spotify. At least one of q, artist, or album is required."""
+    """Search Spotify and Apple Music for albums. At least one of q, artist, or album is required.
+
+    On the first page (offset=0) results are merged from both services and deduplicated.
+    Subsequent pages contain Spotify results only (Apple Music was fully included on page 1).
+    """
     if not any([q, artist, album]):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="At least one search parameter (q, artist, album) is required",
         )
-    page = spotify_client.search_albums(q or "", limit=_SEARCH_PAGE_SIZE, offset=offset, artist=artist, album=album)
-    next_offset = offset + _SEARCH_PAGE_SIZE if offset + _SEARCH_PAGE_SIZE < page.total else None
+
+    spotify_items = []
+    next_offset = None
+    try:
+        page = spotify_client.search_albums(q or "", limit=_SEARCH_PAGE_SIZE, offset=offset, artist=artist, album=album)
+        spotify_items = page.items
+        next_offset = offset + _SEARCH_PAGE_SIZE if offset + _SEARCH_PAGE_SIZE < page.total else None
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+            raise
+        # Spotify unavailable — continue with Apple Music results only
+
+    apple_items = []
+    if offset == 0:
+        apple_items = apple_music_client.search_albums_catalog(
+            query=q or "", artist=artist, album=album
+        )
+
+    unified = merge_search_results(spotify_items, apple_items)
     return AlbumSearchPage(
         items=[
             AlbumSearchResult(
                 spotify_album_id=r.spotify_album_id,
+                apple_music_album_id=r.apple_music_album_id,
                 title=r.title,
                 artist=r.artist,
                 release_date=r.release_date,
                 cover_url=r.cover_url,
                 genres=r.genres,
             )
-            for r in page.items
+            for r in unified
         ],
         next_offset=next_offset,
     )
@@ -97,7 +120,7 @@ def get_or_create_album(
 
     On first creation, schedules a background task to resolve the Apple Music album ID.
     """
-    is_new = album_service.get_album_by_spotify_id(data.spotify_album_id, raise_on_missing=False) is None
+    is_new = album_service.find_existing_album(data) is None
     album = album_service.get_or_create_album(data)
     if is_new and album.apple_music_album_id is None:
         background_tasks.add_task(_backfill_apple_music_id_bg, album.id, data.title, data.artist)

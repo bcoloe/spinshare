@@ -198,6 +198,78 @@ def generate_developer_token() -> str:
 
 # ── Search ──────────────────────────────────────────────────────────────────────
 
+
+def search_albums_catalog(
+    query: str = "",
+    artist: str | None = None,
+    album: str | None = None,
+    storefront: str = "us",
+    limit: int = 25,
+) -> list[AppleMusicAlbumResult]:
+    """Search the Apple Music catalog and return up to `limit` deduplicated results.
+
+    Builds a search term from the query/artist/album fields (mirrors Spotify's field-filter
+    approach).  Returns an empty list on any error so it never breaks the search flow.
+    """
+    try:
+        token = generate_developer_token()
+    except HTTPException:
+        return []
+
+    parts: list[str] = []
+    if artist:
+        parts.append(artist)
+    if album:
+        parts.append(album)
+    if query:
+        parts.append(query)
+    if not parts:
+        return []
+    search_term = " ".join(parts)
+
+    try:
+        resp = httpx.get(
+            f"https://api.music.apple.com/v1/catalog/{storefront}/search",
+            params={"types": "albums", "term": search_term, "limit": limit},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+    except Exception:
+        log.warning("Apple Music catalog search request failed for %r", search_term)
+        return []
+
+    if not resp.is_success:
+        log.warning("Apple Music catalog search returned %d for %r", resp.status_code, search_term)
+        return []
+
+    raw_albums = resp.json().get("results", {}).get("albums", {}).get("data", [])
+    seen: set[tuple[str, str]] = set()
+    results: list[AppleMusicAlbumResult] = []
+    for album_data in raw_albums:
+        attrs = album_data.get("attributes", {})
+        title = attrs.get("name", "")
+        artist_name = attrs.get("artistName", "")
+        key = (_normalized_title(title), _normalize_text(artist_name))
+        if key in seen:
+            continue
+        seen.add(key)
+        artwork = attrs.get("artwork", {})
+        cover_url = None
+        if artwork.get("url"):
+            cover_url = artwork["url"].replace("{w}", "300").replace("{h}", "300")
+        results.append(
+            AppleMusicAlbumResult(
+                id=album_data["id"],
+                title=title,
+                artist=artist_name,
+                release_date=attrs.get("releaseDate"),
+                cover_url=cover_url,
+                genres=attrs.get("genreNames", []),
+            )
+        )
+    return results
+
+
 def find_apple_music_album(
     title: str, artist: str, storefront: str = "us"
 ) -> AppleMusicAlbumResult | None:

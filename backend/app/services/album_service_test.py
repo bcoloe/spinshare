@@ -304,3 +304,66 @@ class TestAlbumServiceGetMyNominations:
         other = user_factory(email="other@test.com", username="other_user")
         result = album_service.get_my_nominations(other.id)
         assert result == []
+
+
+class TestGetOrCreateMultiServiceId:
+    def test_apple_only_album_created_and_returned(self, album_service):
+        data = AlbumCreate(
+            apple_music_album_id="apple_xyz",
+            title="Fetch the Bolt Cutters",
+            artist="Fiona Apple",
+        )
+        album = album_service.get_or_create_album(data)
+        assert album.id is not None
+        assert album.apple_music_album_id == "apple_xyz"
+        assert album.spotify_album_id is None
+
+    def test_apple_only_found_by_apple_id(self, album_service, db_session):
+        from app.models import Album
+        existing = Album(apple_music_album_id="apple_abc", title="Some Album", artist="Some Artist")
+        db_session.add(existing)
+        db_session.commit()
+        db_session.refresh(existing)
+
+        data = AlbumCreate(apple_music_album_id="apple_abc", title="Some Album", artist="Some Artist")
+        result = album_service.get_or_create_album(data)
+        assert result.id == existing.id
+
+    def test_get_or_create_backfills_missing_apple_id(self, album_service, sample_album):
+        data = AlbumCreate(
+            spotify_album_id=sample_album.spotify_album_id,
+            apple_music_album_id="apple_new",
+            title=sample_album.title,
+            artist=sample_album.artist,
+        )
+        result = album_service.get_or_create_album(data)
+        assert result.id == sample_album.id
+        assert result.apple_music_album_id == "apple_new"
+
+    def test_get_or_create_backfills_missing_spotify_id(self, album_service, db_session):
+        from app.models import Album
+        existing = Album(apple_music_album_id="apple_only_999", title="Lost Album", artist="Ghost Artist")
+        db_session.add(existing)
+        db_session.commit()
+        db_session.refresh(existing)
+
+        data = AlbumCreate(
+            apple_music_album_id="apple_only_999",
+            spotify_album_id="spotify_now_found",
+            title="Lost Album",
+            artist="Ghost Artist",
+        )
+        result = album_service.get_or_create_album(data)
+        assert result.id == existing.id
+        assert result.spotify_album_id == "spotify_now_found"
+
+    def test_create_album_raises_409_on_duplicate_apple_id(self, album_service, db_session):
+        from app.models import Album
+        existing = Album(apple_music_album_id="apple_dup", title="Existing", artist="Artist")
+        db_session.add(existing)
+        db_session.commit()
+
+        data = AlbumCreate(apple_music_album_id="apple_dup", title="Different", artist="Artist")
+        with pytest.raises(HTTPException) as exc_info:
+            album_service.create_album(data)
+        assert exc_info.value.status_code == status.HTTP_409_CONFLICT
