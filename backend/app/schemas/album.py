@@ -7,7 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class AlbumSearchResult(BaseModel):
-    spotify_album_id: str
+    spotify_album_id: str | None = None
+    apple_music_album_id: str | None = None
     title: str
     artist: str
     release_date: str | None = None
@@ -29,7 +30,8 @@ class GroupAlbumStatus(StrEnum):
 
 
 class AlbumBase(BaseModel):
-    spotify_album_id: str
+    spotify_album_id: str | None = None
+    apple_music_album_id: str | None = None
     title: str
     artist: str
     release_date: str | None = None
@@ -39,11 +41,16 @@ class AlbumBase(BaseModel):
 class AlbumCreate(AlbumBase):
     genres: list[str] = []
 
+    @model_validator(mode="after")
+    def at_least_one_service_id(self) -> "AlbumCreate":
+        if not self.spotify_album_id and not self.apple_music_album_id:
+            raise ValueError("At least one of spotify_album_id or apple_music_album_id is required")
+        return self
+
 
 class AlbumResponse(AlbumBase):
     id: int
     youtube_music_id: str | None = None
-    apple_music_album_id: str | None = None
     added_at: datetime
     genres: list[str] = []
 
@@ -54,12 +61,12 @@ class AlbumResponse(AlbumBase):
         return cls(
             id=album.id,
             spotify_album_id=album.spotify_album_id,
+            apple_music_album_id=album.apple_music_album_id,
             title=album.title,
             artist=album.artist,
             release_date=album.release_date,
             cover_url=album.cover_url,
             youtube_music_id=album.youtube_music_id,
-            apple_music_album_id=album.apple_music_album_id,
             added_at=album.added_at,
             genres=[g.name for g in album.genres],
         )

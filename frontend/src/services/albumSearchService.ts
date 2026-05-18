@@ -2,7 +2,8 @@ import { apiFetch } from './apiClient'
 import type { AlbumResponse, GroupAlbumResponse, UserNominationResponse } from '../types/album'
 
 export interface AlbumSearchResult {
-  spotify_album_id: string
+  spotify_album_id: string | null
+  apple_music_album_id: string | null
   title: string
   artist: string
   release_date: string | null
@@ -37,6 +38,7 @@ export const albumSearchService = {
       method: 'POST',
       body: JSON.stringify({
         spotify_album_id: data.spotify_album_id,
+        apple_music_album_id: data.apple_music_album_id,
         title: data.title,
         artist: data.artist,
         release_date: data.release_date,

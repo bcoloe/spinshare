@@ -35,7 +35,7 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
   const [artistFilter, setArtistFilter] = useState('')
   const [albumFilter, setAlbumFilter] = useState('')
   const [poolFilter, setPoolFilter] = useState('')
-  const [nominated, setNominated] = useState<Set<string>>(new Set())
+  const [nominated, setNominated] = useState<Set<string | null>>(new Set())
   const [nominatedFromPool, setNominatedFromPool] = useState<Set<number>>(new Set())
 
   const [debouncedQuery] = useDebouncedValue(query, 300)
@@ -109,12 +109,14 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
     return item.album.title.toLowerCase().includes(q) || item.album.artist.toLowerCase().includes(q)
   })
 
-  const handleNominate = async (spotifyId: string, title: string, result: (typeof allResults)[number]) => {
+  const albumKey = (r: (typeof allResults)[number]) => r.spotify_album_id ?? r.apple_music_album_id
+
+  const handleNominate = async (result: (typeof allResults)[number]) => {
     if (!result || !effectiveGroupId) return
     try {
       await nominate.mutateAsync(result)
-      setNominated((prev) => new Set(prev).add(spotifyId))
-      notifications.show({ color: 'green', message: `"${title}" nominated` })
+      setNominated((prev) => new Set(prev).add(albumKey(result)))
+      notifications.show({ color: 'green', message: `"${result.title}" nominated` })
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Could not nominate album'
       notifications.show({ color: 'red', message })
@@ -159,7 +161,7 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
 
         <Tabs defaultValue="spotify">
           <Tabs.List mb="md">
-            <Tabs.Tab value="spotify">Spotify search</Tabs.Tab>
+            <Tabs.Tab value="spotify">Search</Tabs.Tab>
             <Tabs.Tab value="pool">My nominations</Tabs.Tab>
           </Tabs.List>
 
@@ -188,34 +190,38 @@ export default function AlbumSearchModal({ groupId, opened, onClose }: Props) {
               </SimpleGrid>
               <div ref={scrollContainerRef} style={{ maxHeight: 340, overflowY: 'auto' }}>
                 <Stack gap="md">
-                  {allResults.map((r) => (
-                    <Group key={r.spotify_album_id} justify="space-between" wrap="nowrap">
-                      <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
-                        <Image
-                          src={r.cover_url ?? undefined}
-                          w={44}
-                          h={44}
-                          radius="sm"
-                          fallbackSrc="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Crect width='44' height='44' fill='%23373A40'/%3E%3C/svg%3E"
-                        />
-                        <div style={{ minWidth: 0 }}>
-                          <Text size="sm" fw={500} lineClamp={1}>{r.title}</Text>
-                          <Text size="xs" c="dimmed" lineClamp={1}>{r.artist}</Text>
-                        </div>
+                  {allResults.map((r) => {
+                    const key = albumKey(r)
+                    const isNominated = nominated.has(key)
+                    return (
+                      <Group key={key} justify="space-between" wrap="nowrap">
+                        <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
+                          <Image
+                            src={r.cover_url ?? undefined}
+                            w={44}
+                            h={44}
+                            radius="sm"
+                            fallbackSrc="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Crect width='44' height='44' fill='%23373A40'/%3E%3C/svg%3E"
+                          />
+                          <div style={{ minWidth: 0 }}>
+                            <Text size="sm" fw={500} lineClamp={1}>{r.title}</Text>
+                            <Text size="xs" c="dimmed" lineClamp={1}>{r.artist}</Text>
+                          </div>
+                        </Group>
+                        <Button
+                          size="xs"
+                          variant={isNominated ? 'filled' : 'light'}
+                          color={isNominated ? 'green' : 'violet'}
+                          disabled={isNominated || !effectiveGroupId}
+                          loading={nominate.isPending}
+                          onClick={() => handleNominate(r)}
+                          style={{ flexShrink: 0 }}
+                        >
+                          {isNominated ? 'Nominated' : 'Nominate'}
+                        </Button>
                       </Group>
-                      <Button
-                        size="xs"
-                        variant={nominated.has(r.spotify_album_id) ? 'filled' : 'light'}
-                        color={nominated.has(r.spotify_album_id) ? 'green' : 'violet'}
-                        disabled={nominated.has(r.spotify_album_id) || !effectiveGroupId}
-                        loading={nominate.isPending}
-                        onClick={() => handleNominate(r.spotify_album_id, r.title, r)}
-                        style={{ flexShrink: 0 }}
-                      >
-                        {nominated.has(r.spotify_album_id) ? 'Nominated' : 'Nominate'}
-                      </Button>
-                    </Group>
-                  ))}
+                    )
+                  })}
                   {hasNextPage && <div ref={sentinelRef} style={{ height: 1 }} />}
                   {isFetchingNextPage && <Loader size="xs" mx="auto" display="block" />}
                 </Stack>

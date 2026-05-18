@@ -25,32 +25,47 @@ class AlbumService:
     # ==================== CREATE ====================
 
     def create_album(self, data: AlbumCreate) -> Album:
-        """Register a new album. Idempotent on spotify_album_id.
+        """Register a new album. Raises 409 if a matching service ID is already registered.
 
         Raises:
-            HTTPException 409: If spotify_album_id already registered.
+            HTTPException 409: If spotify_album_id or apple_music_album_id already registered.
         """
-        existing = self.get_album_by_spotify_id(data.spotify_album_id, raise_on_missing=False)
+        existing = self.find_existing_album(data)
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Album with Spotify ID '{data.spotify_album_id}' already registered",
+                detail="Album with this Spotify or Apple Music ID is already registered",
             )
         return self._persist_album(data)
 
+    def find_existing_album(self, data: AlbumCreate) -> Album | None:
+        """Look up an album by Spotify ID then Apple Music ID. Returns None if not found."""
+        if data.spotify_album_id:
+            existing = self.get_album_by_spotify_id(data.spotify_album_id, raise_on_missing=False)
+            if existing:
+                return existing
+        if data.apple_music_album_id:
+            existing = self.get_album_by_apple_music_id(data.apple_music_album_id, raise_on_missing=False)
+            if existing:
+                return existing
+        return None
+
     def get_or_create_album(self, data: AlbumCreate) -> Album:
-        """Return existing album by Spotify ID or create a new one.
+        """Return existing album by Spotify ID or Apple Music ID, or create a new one.
 
-        If the album already exists but has no genres and the caller provides some,
-        the genres are backfilled so albums registered before the artist-genre fix
-        are healed on their next nomination.
-
-        If the album exists but has no youtube_music_id, resolution is attempted
-        opportunistically so existing albums are healed over time.
+        If the album already exists but is missing a service ID that the caller now provides,
+        it is backfilled opportunistically.  Genres and YouTube Music ID are also healed
+        if missing.
         """
-        existing = self.get_album_by_spotify_id(data.spotify_album_id, raise_on_missing=False)
+        existing = self.find_existing_album(data)
         if existing:
             dirty = False
+            if existing.spotify_album_id is None and data.spotify_album_id:
+                existing.spotify_album_id = data.spotify_album_id
+                dirty = True
+            if existing.apple_music_album_id is None and data.apple_music_album_id:
+                existing.apple_music_album_id = data.apple_music_album_id
+                dirty = True
             if not existing.genres and data.genres:
                 existing.genres = self._get_or_create_genres(data.genres)
                 dirty = True
@@ -75,6 +90,7 @@ class AlbumService:
             pass
         album = Album(
             spotify_album_id=data.spotify_album_id,
+            apple_music_album_id=data.apple_music_album_id,
             title=data.title,
             artist=data.artist,
             release_date=data.release_date,

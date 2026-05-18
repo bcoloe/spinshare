@@ -12,7 +12,7 @@ class Album(Base):
     __tablename__ = "albums"
 
     id = Column(Integer, primary_key=True, index=True)
-    spotify_album_id = Column(String, unique=True, nullable=False, index=True)
+    spotify_album_id = Column(String, unique=True, nullable=True, index=True)
     title = Column(String, nullable=False)
     artist = Column(String, nullable=False)
     release_date = Column(String)

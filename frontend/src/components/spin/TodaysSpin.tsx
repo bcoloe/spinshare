@@ -38,7 +38,7 @@ function SpinSlide({ groupAlbum, groupId, allowGuessing = true }: { groupAlbum: 
   const spotifyId = groupAlbum.album.spotify_album_id
   const appleMusicId = groupAlbum.album.apple_music_album_id
   const { startAlbum, playInAppleMusic, hasSpotify, hasAppleMusic, preferredService, status: playerStatus } = usePlayer()
-  const canPlaySpotify = hasSpotify
+  const canPlaySpotify = hasSpotify && !!spotifyId
   const canPlayAppleMusic = hasAppleMusic && !!appleMusicId
   const effectivePlayService: 'spotify' | 'apple_music' = (() => {
     if (preferredService === 'apple_music' && canPlayAppleMusic) return 'apple_music'
@@ -60,83 +60,88 @@ function SpinSlide({ groupAlbum, groupId, allowGuessing = true }: { groupAlbum: 
   }
   const handlePlay = () => effectivePlayService === 'apple_music'
     ? playInAppleMusic(playMeta)
-    : startAlbum(spotifyId, playMeta)
+    : startAlbum(spotifyId!, playMeta)
   return (
     <Paper p="lg" radius="md" withBorder>
       <Stack gap="xl">
         <AlbumCard album={groupAlbum.album} />
-        {spotifyId && (
-          <Stack gap={4}>
-            <Group gap="sm" wrap="wrap">
-              <Button
-                variant="filled"
-                color={effectivePlayService === 'apple_music' ? 'red' : 'green'}
-                size="sm"
-                leftSection={effectivePlayService === 'apple_music'
-                  ? <IconBrandApple size={16} />
-                  : <IconBrandSpotify size={16} />}
-                loading={playerStatus === 'loading'}
-                disabled={!canPlay}
-                onClick={handlePlay}
-              >
-                Play
-              </Button>
+        <Stack gap={4}>
+          <Group gap="sm" wrap="wrap">
+            <Button
+              variant="filled"
+              color={effectivePlayService === 'apple_music' ? 'red' : 'green'}
+              size="sm"
+              leftSection={effectivePlayService === 'apple_music'
+                ? <IconBrandApple size={16} />
+                : <IconBrandSpotify size={16} />}
+              loading={playerStatus === 'loading'}
+              disabled={!canPlay}
+              onClick={handlePlay}
+            >
+              Play
+            </Button>
+            <Tooltip label="Not found on Spotify" disabled={!!spotifyId}>
               <Button
                 component="a"
-                href={`spotify:album:${spotifyId}`}
+                href={spotifyId ? `spotify:album:${spotifyId}` : undefined}
                 variant="light"
                 color="green"
                 size="sm"
                 leftSection={<IconBrandSpotify size={16} />}
+                disabled={!spotifyId}
               >
                 Open in Spotify
               </Button>
+            </Tooltip>
+            <Tooltip label="Not found on Spotify" disabled={!!spotifyId}>
               <Button
                 component="a"
-                href={`https://open.spotify.com/album/${spotifyId}`}
+                href={spotifyId ? `https://open.spotify.com/album/${spotifyId}` : undefined}
                 target="_blank"
                 rel="noopener noreferrer"
                 variant="subtle"
                 size="sm"
                 leftSection={<IconExternalLink size={16} />}
+                disabled={!spotifyId}
               >
                 Web Player
               </Button>
-              {groupAlbum.album.youtube_music_id && (
-                <Button
-                  component="a"
-                  href={`https://music.youtube.com/browse/${groupAlbum.album.youtube_music_id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  variant="subtle"
-                  size="sm"
-                  leftSection={<IconBrandYoutube size={16} />}
-                >
-                  YouTube Music
-                </Button>
-              )}
-              {appleMusicId && (
-                <Button
-                  component="a"
-                  href={`https://music.apple.com/album/${appleMusicId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  variant="light"
-                  color="red"
-                  size="sm"
-                  leftSection={<IconBrandApple size={16} />}
-                >
-                  Open in Apple Music
-                </Button>
-              )}
-            </Group>
-            {!hasSpotify && !hasAppleMusic && (
-              <Text size="xs" c="dimmed">
-                <Anchor component={Link} to="/profile" size="xs">Connect Spotify or Apple Music</Anchor> on your profile to enable the embedded player
-              </Text>
+            </Tooltip>
+            {groupAlbum.album.youtube_music_id && (
+              <Button
+                component="a"
+                href={`https://music.youtube.com/browse/${groupAlbum.album.youtube_music_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                variant="subtle"
+                size="sm"
+                leftSection={<IconBrandYoutube size={16} />}
+              >
+                YouTube Music
+              </Button>
             )}
-          </Stack>
-        )}
+            <Tooltip label="Not found on Apple Music" disabled={!!appleMusicId}>
+              <Button
+                component="a"
+                href={appleMusicId ? `https://music.apple.com/album/${appleMusicId}` : undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                variant="light"
+                color="red"
+                size="sm"
+                leftSection={<IconBrandApple size={16} />}
+                disabled={!appleMusicId}
+              >
+                Open in Apple Music
+              </Button>
+            </Tooltip>
+          </Group>
+          {!hasSpotify && !hasAppleMusic && (
+            <Text size="xs" c="dimmed">
+              <Anchor component={Link} to="/profile" size="xs">Connect Spotify or Apple Music</Anchor> on your profile to enable the embedded player
+            </Text>
+          )}
+        </Stack>
         <Divider />
         <ReviewAndGuessForm
           albumId={groupAlbum.album_id}
@@ -163,7 +168,7 @@ function MultiAlbumSpin({ albums, groupId, allowGuessing = true }: { albums: Gro
   const activeAlbum = albums.find((a) => String(a.id) === currentValue) ?? albums[0]
   const spotifyId = activeAlbum.album.spotify_album_id
   const appleMusicId = activeAlbum.album.apple_music_album_id
-  const canPlaySpotify = hasSpotify
+  const canPlaySpotify = hasSpotify && !!spotifyId
   const canPlayAppleMusic = hasAppleMusic && !!appleMusicId
   const effectivePlayService: 'spotify' | 'apple_music' = (() => {
     if (preferredService === 'apple_music' && canPlayAppleMusic) return 'apple_music'
@@ -185,7 +190,7 @@ function MultiAlbumSpin({ albums, groupId, allowGuessing = true }: { albums: Gro
   }
   const handlePlay = () => effectivePlayService === 'apple_music'
     ? playInAppleMusic(playMeta)
-    : startAlbum(spotifyId, playMeta)
+    : startAlbum(spotifyId!, playMeta)
 
   return (
     <Stack gap="md">
@@ -206,78 +211,83 @@ function MultiAlbumSpin({ albums, groupId, allowGuessing = true }: { albums: Gro
       <Paper p="lg" radius="md" withBorder>
         <Stack gap="xl">
           <AlbumCard album={activeAlbum.album} />
-          {spotifyId && (
-            <Stack gap={4}>
-              <Group gap="sm" wrap="wrap">
-                <Button
-                  variant="filled"
-                  color={effectivePlayService === 'apple_music' ? 'red' : 'green'}
-                  size="sm"
-                  leftSection={effectivePlayService === 'apple_music'
-                    ? <IconBrandApple size={16} />
-                    : <IconBrandSpotify size={16} />}
-                  loading={playerStatus === 'loading'}
-                  disabled={!canPlay}
-                  onClick={handlePlay}
-                >
-                  Play
-                </Button>
+          <Stack gap={4}>
+            <Group gap="sm" wrap="wrap">
+              <Button
+                variant="filled"
+                color={effectivePlayService === 'apple_music' ? 'red' : 'green'}
+                size="sm"
+                leftSection={effectivePlayService === 'apple_music'
+                  ? <IconBrandApple size={16} />
+                  : <IconBrandSpotify size={16} />}
+                loading={playerStatus === 'loading'}
+                disabled={!canPlay}
+                onClick={handlePlay}
+              >
+                Play
+              </Button>
+              <Tooltip label="Not found on Spotify" disabled={!!spotifyId}>
                 <Button
                   component="a"
-                  href={`spotify:album:${spotifyId}`}
+                  href={spotifyId ? `spotify:album:${spotifyId}` : undefined}
                   variant="light"
                   color="green"
                   size="sm"
                   leftSection={<IconBrandSpotify size={16} />}
+                  disabled={!spotifyId}
                 >
                   Open in Spotify
                 </Button>
+              </Tooltip>
+              <Tooltip label="Not found on Spotify" disabled={!!spotifyId}>
                 <Button
                   component="a"
-                  href={`https://open.spotify.com/album/${spotifyId}`}
+                  href={spotifyId ? `https://open.spotify.com/album/${spotifyId}` : undefined}
                   target="_blank"
                   rel="noopener noreferrer"
                   variant="subtle"
                   size="sm"
                   leftSection={<IconExternalLink size={16} />}
+                  disabled={!spotifyId}
                 >
                   Web Player
                 </Button>
-                {activeAlbum.album.youtube_music_id && (
-                  <Button
-                    component="a"
-                    href={`https://music.youtube.com/browse/${activeAlbum.album.youtube_music_id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    variant="subtle"
-                    size="sm"
-                    leftSection={<IconBrandYoutube size={16} />}
-                  >
-                    YouTube Music
-                  </Button>
-                )}
-                {appleMusicId && (
-                  <Button
-                    component="a"
-                    href={`https://music.apple.com/album/${appleMusicId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    variant="light"
-                    color="red"
-                    size="sm"
-                    leftSection={<IconBrandApple size={16} />}
-                  >
-                    Open in Apple Music
-                  </Button>
-                )}
-              </Group>
-              {!hasSpotify && !hasAppleMusic && (
-                <Text size="xs" c="dimmed">
-                  <Anchor component={Link} to="/profile" size="xs">Connect Spotify or Apple Music</Anchor> on your profile to enable the embedded player
-                </Text>
+              </Tooltip>
+              {activeAlbum.album.youtube_music_id && (
+                <Button
+                  component="a"
+                  href={`https://music.youtube.com/browse/${activeAlbum.album.youtube_music_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  variant="subtle"
+                  size="sm"
+                  leftSection={<IconBrandYoutube size={16} />}
+                >
+                  YouTube Music
+                </Button>
               )}
-            </Stack>
-          )}
+              <Tooltip label="Not found on Apple Music" disabled={!!appleMusicId}>
+                <Button
+                  component="a"
+                  href={appleMusicId ? `https://music.apple.com/album/${appleMusicId}` : undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  variant="light"
+                  color="red"
+                  size="sm"
+                  leftSection={<IconBrandApple size={16} />}
+                  disabled={!appleMusicId}
+                >
+                  Open in Apple Music
+                </Button>
+              </Tooltip>
+            </Group>
+            {!hasSpotify && !hasAppleMusic && (
+              <Text size="xs" c="dimmed">
+                <Anchor component={Link} to="/profile" size="xs">Connect Spotify or Apple Music</Anchor> on your profile to enable the embedded player
+              </Text>
+            )}
+          </Stack>
           <Divider />
           <ReviewAndGuessForm
             key={activeAlbum.id}
