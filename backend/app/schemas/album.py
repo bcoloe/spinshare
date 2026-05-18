@@ -175,7 +175,7 @@ class UserNominationResponse(BaseModel):
 
 class ReviewCreate(BaseModel):
     rating: float | None = Field(None, ge=0, le=10)
-    comment: str | None = None
+    comment: str | None = Field(None, max_length=5000)
     is_draft: bool = False
 
     @model_validator(mode="after")
@@ -187,7 +187,7 @@ class ReviewCreate(BaseModel):
 
 class ReviewUpdate(BaseModel):
     rating: float | None = Field(None, ge=0, le=10)
-    comment: str | None = None
+    comment: str | None = Field(None, max_length=5000)
     is_draft: bool | None = None
 
 

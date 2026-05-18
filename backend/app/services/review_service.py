@@ -82,7 +82,9 @@ class ReviewService:
     def _notify_co_reviewers(self, album_id: int, reviewer_id: int) -> None:
         """Notify group members who already reviewed this album that a new review was posted.
 
-        Only fires for non-global groups; one notification per (member, group) pair.
+        Only fires for non-global groups where the reviewer is also a member.
+        Each co-reviewer receives at most one notification, scoped to the first
+        group they share with the reviewer, so they can navigate directly to the review.
         """
         album = self.db.get(Album, album_id)
         reviewer = self.db.get(User, reviewer_id)
@@ -98,12 +100,15 @@ class ReviewService:
         )
 
         ns = NotificationService(self.db)
+        already_notified: set[int] = set()
         for ga in groups_with_album:
             member_ids = list(
                 self.db.scalars(
                     select(group_members.c.user_id).where(group_members.c.group_id == ga.group_id)
                 ).all()
             )
+            if reviewer_id not in member_ids:
+                continue
             co_reviewer_ids = list(
                 self.db.scalars(
                     select(Review.user_id).where(
@@ -115,12 +120,14 @@ class ReviewService:
                 ).all()
             )
             for uid in co_reviewer_ids:
-                ns.create(
-                    user_id=uid,
-                    type=NotificationType.member_reviewed_album,
-                    message=f"{reviewer.username} also reviewed {album.title}",
-                    group_id=ga.group_id,
-                )
+                if uid not in already_notified:
+                    ns.create(
+                        user_id=uid,
+                        type=NotificationType.member_reviewed_album,
+                        message=f"{reviewer.username} also reviewed {album.title}",
+                        group_id=ga.group_id,
+                    )
+                    already_notified.add(uid)
 
     # ==================== GET ====================
 

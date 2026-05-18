@@ -302,6 +302,46 @@ class TestReviewNotifications:
         ns = NotificationService(db_session)
         assert ns.get_unread(sample_user) == []
 
+    def test_no_duplicate_notification_when_album_in_multiple_shared_groups(
+        self, db_session, review_service, sample_album, sample_user, sample_group, group_factory, user_factory
+    ):
+        """Co-reviewer gets exactly one notification even when both users share multiple groups."""
+        other = user_factory(email="other@test.com", username="other_reviewer")
+        second_group = group_factory(name="Second Group")
+        second_group.members.append(other)
+        db_session.commit()
+        self._link_album_to_group(db_session, sample_group.id, sample_album.id, sample_user.id)
+        self._link_album_to_group(db_session, second_group.id, sample_album.id, sample_user.id)
+
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=7.0))
+        review_service.create_review(sample_album.id, other.id, ReviewCreate(rating=8.0))
+
+        ns = NotificationService(db_session)
+        unread = ns.get_unread(sample_user)
+        assert len(unread) == 1
+        assert unread[0].type == NotificationType.member_reviewed_album
+
+    def test_notification_scoped_to_reviewers_shared_group(
+        self, db_session, review_service, sample_album, sample_user, sample_group, group_factory, user_factory
+    ):
+        """Notification group_id is the group where the new reviewer is a member, not others."""
+        other = user_factory(email="other@test.com", username="other_reviewer")
+        # other is only in sample_group, not second_group
+        sample_group.members.append(other)
+        second_group = group_factory(name="Second Group")
+        db_session.commit()
+        self._link_album_to_group(db_session, sample_group.id, sample_album.id, sample_user.id)
+        self._link_album_to_group(db_session, second_group.id, sample_album.id, sample_user.id)
+
+        # sample_user reviews first (is in both groups), then other reviews (only in sample_group)
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=7.0))
+        review_service.create_review(sample_album.id, other.id, ReviewCreate(rating=8.0))
+
+        ns = NotificationService(db_session)
+        unread = ns.get_unread(sample_user)
+        assert len(unread) == 1
+        assert unread[0].group_id == sample_group.id
+
 
 def _selected_ga(db_session, group_id, album_id, added_by) -> GroupAlbum:
     """Insert a GroupAlbum with selected_date so status-filter queries include it."""
