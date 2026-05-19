@@ -233,7 +233,7 @@ def resolve_album_url(
             artist=result.artist,
             release_date=result.release_date,
             cover_url=result.cover_url,
-            genres=result.genres,
+            genres=[],
         )
         is_new = album_service.find_existing_album(album_data) is None
         album = album_service.get_or_create_album(album_data)

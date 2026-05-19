@@ -67,7 +67,7 @@ def main() -> None:
     try:
         # Albums with no rows in the album_genres join table
         albums_with_genres_subq = (
-            _db.query(album_genres.c.album_id).distinct().subquery()
+            _db.query(album_genres.c.album_id).distinct().scalar_subquery()
         )
         albums = (
             _db.query(Album)

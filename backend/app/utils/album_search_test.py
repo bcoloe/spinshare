@@ -7,14 +7,13 @@ from app.utils.apple_music_client import AppleMusicAlbumResult
 from app.utils.spotify_client import SpotifyAlbumResult
 
 
-def _spotify(spotify_id, title, artist, cover_url=None, genres=None):
+def _spotify(spotify_id, title, artist, cover_url=None):
     return SpotifyAlbumResult(
         spotify_album_id=spotify_id,
         title=title,
         artist=artist,
         release_date="2024-01-01",
         cover_url=cover_url,
-        genres=genres or [],
     )
 
 
@@ -122,14 +121,13 @@ class TestMergeSearchResults:
         assert result[1].spotify_album_id is None
         assert result[1].apple_music_album_id == "a1"
 
-    def test_apple_genre_used_when_spotify_has_none(self):
-        spotify = [_spotify("s1", "OK Computer", "Radiohead", genres=[])]
+    def test_apple_genres_used_for_matched_pair(self):
+        spotify = [_spotify("s1", "OK Computer", "Radiohead")]
         apple = [_apple("a1", "OK Computer", "Radiohead", genres=["Alternative"])]
         result = merge_search_results(spotify, apple)
         assert result[0].genres == ["Alternative"]
 
-    def test_spotify_genre_preferred_when_both_have_genres(self):
-        spotify = [_spotify("s1", "OK Computer", "Radiohead", genres=["art rock"])]
-        apple = [_apple("a1", "OK Computer", "Radiohead", genres=["Alternative"])]
-        result = merge_search_results(spotify, apple)
-        assert result[0].genres == ["art rock"]
+    def test_spotify_only_result_has_empty_genres(self):
+        spotify = [_spotify("s1", "OK Computer", "Radiohead")]
+        result = merge_search_results(spotify, [])
+        assert result[0].genres == []
