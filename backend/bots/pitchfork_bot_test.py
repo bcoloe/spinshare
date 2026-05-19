@@ -27,7 +27,6 @@ def _make_spotify_result(artist="Radiohead", title="Kid A", spotify_id="spotify_
         artist=artist,
         release_date="2000-10-02",
         cover_url="https://example.com/cover.jpg",
-        genres=["electronic"],
     )
 
 

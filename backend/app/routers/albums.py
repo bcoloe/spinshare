@@ -233,7 +233,7 @@ def resolve_album_url(
             artist=result.artist,
             release_date=result.release_date,
             cover_url=result.cover_url,
-            genres=result.genres,
+            genres=[],
         )
         is_new = album_service.find_existing_album(album_data) is None
         album = album_service.get_or_create_album(album_data)
@@ -296,13 +296,12 @@ def resolve_album_url(
             spotify_id = spotify_result.spotify_album_id
             cover_url = cover_url or spotify_result.cover_url
             release_date = release_date or spotify_result.release_date
-            genres = spotify_result.genres
 
         apple_result = apple_music_client.find_apple_music_album(title, artist)
         if apple_result:
             apple_id = apple_result.id
             cover_url = cover_url or apple_result.cover_url
-            genres = genres or apple_result.genres
+            genres = apple_result.genres
 
         album_data = AlbumCreate(
             spotify_album_id=spotify_id,
@@ -345,13 +344,12 @@ def resolve_album_url(
         spotify_id = spotify_result.spotify_album_id
         cover_url = spotify_result.cover_url
         release_date = spotify_result.release_date
-        genres = spotify_result.genres
 
     apple_result = apple_music_client.find_apple_music_album(title, artist)
     if apple_result:
         apple_id = apple_result.id
         cover_url = cover_url or apple_result.cover_url
-        genres = genres or apple_result.genres
+        genres = apple_result.genres
 
     # Fall back to Bandcamp-scraped cover if no higher-quality source resolved one
     cover_url = cover_url or scraped_cover

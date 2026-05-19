@@ -5,6 +5,9 @@ from datetime import date, datetime, timedelta, timezone
 
 log = logging.getLogger(__name__)
 
+# Generic top-level categories returned by streaming services that carry no meaningful info.
+_IGNORED_GENRES: frozenset[str] = frozenset({"music", "music videos", "musica"})
+
 from app.models import Album, Group, GroupAlbum, User
 from app.models.genre import Genre
 from app.schemas.album import AlbumCreate, GroupAlbumStatus, GroupAlbumStatusUpdate
@@ -137,13 +140,35 @@ class AlbumService:
     def _get_or_create_genres(self, names: list[str]) -> list[Genre]:
         genres = []
         for name in names:
-            genre = self.db.query(Genre).filter(Genre.name == name.lower()).first()
+            normalized = name.lower()
+            if normalized in _IGNORED_GENRES:
+                continue
+            genre = self.db.query(Genre).filter(Genre.name == normalized).first()
             if not genre:
-                genre = Genre(name=name.lower())
+                genre = Genre(name=normalized)
                 self.db.add(genre)
                 self.db.flush()
             genres.append(genre)
         return genres
+
+    def backfill_genres(self, album_id: int, title: str, artist: str) -> None:
+        """Attempt to resolve and store genres for an album using Apple Music.
+
+        No-op if the album already has genres or no confident match is found.
+        Errors are swallowed so this is safe to call as a background task.
+        """
+        from app.utils import apple_music_client
+
+        try:
+            album = self.get_album_by_id(album_id)
+            if album.genres:
+                return
+            result = apple_music_client.find_apple_music_album(title, artist)
+            if result and result.genres:
+                album.genres = self._get_or_create_genres(result.genres)
+                self.db.commit()
+        except Exception:
+            log.warning("Genre backfill failed for album %d (%r by %r)", album_id, title, artist)
 
     # ==================== NOMINATE ====================
 

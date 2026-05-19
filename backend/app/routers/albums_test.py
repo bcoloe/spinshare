@@ -508,7 +508,6 @@ class TestAlbumSearch:
             artist="Radiohead",
             release_date="1997-05-21",
             cover_url="https://example.com/cover.jpg",
-            genres=["art rock"],
         )
         with patch("app.routers.albums.spotify_client.search_albums", return_value=self._make_page([mock_result])):
             resp = client.get("/albums/search?q=radiohead")
@@ -530,7 +529,6 @@ class TestAlbumSearch:
             artist="Radiohead",
             release_date="1997-05-21",
             cover_url=None,
-            genres=[],
         )
         with patch("app.routers.albums.spotify_client.search_albums", return_value=self._make_page([mock_result], total=25)):
             resp = client.get("/albums/search?q=radiohead")
@@ -570,7 +568,6 @@ class TestAlbumSearch:
             artist="Radiohead",
             release_date="1997-05-21",
             cover_url=None,
-            genres=[],
         )
         with patch("app.routers.albums.spotify_client.search_albums", return_value=self._make_page([mock_result])) as mock_search:
             resp = client.get("/albums/search?artist=Radiohead")
@@ -587,7 +584,6 @@ class TestAlbumSearch:
             artist="Radiohead",
             release_date="1997-05-21",
             cover_url=None,
-            genres=[],
         )
         with patch("app.routers.albums.spotify_client.search_albums", return_value=self._make_page([mock_result])) as mock_search:
             resp = client.get("/albums/search?album=OK+Computer")
@@ -634,7 +630,7 @@ class TestAlbumSearch:
         from app.utils.apple_music_client import AppleMusicAlbumResult
         spotify_result = SpotifyAlbumResult(
             spotify_album_id="s1", title="OK Computer", artist="Radiohead",
-            release_date="1997-05-21", cover_url="https://spotify.jpg", genres=["art rock"],
+            release_date="1997-05-21", cover_url="https://spotify.jpg",
         )
         apple_result = AppleMusicAlbumResult(
             id="a1", title="OK Computer", artist="Radiohead",
@@ -693,7 +689,6 @@ class TestSearchDBFirst:
             artist="Radiohead",
             release_date=None,
             cover_url=None,
-            genres=[],
         )
         with patch("app.routers.albums.spotify_client.search_albums", return_value=SpotifySearchPage(items=[api_result], total=1)):
             resp = client.get("/albums/search?q=radiohead")
@@ -716,7 +711,6 @@ class TestSearchDBFirst:
             artist="Radiohead",
             release_date=None,
             cover_url=None,
-            genres=[],
         )
         with patch("app.routers.albums.spotify_client.search_albums", return_value=SpotifySearchPage(items=[api_result], total=1)):
             resp = client.get("/albums/search?q=radiohead")
@@ -759,7 +753,6 @@ class TestResolveAlbumUrl:
             artist="Radiohead",
             release_date="1997-05",
             cover_url=None,
-            genres=[],
         )
         with patch("app.routers.albums.spotify_client.get_album_by_id", return_value=result):
             resp = client.post("/albums/resolve-url", json={"url": "https://open.spotify.com/album/4aawyAB9vmqN3uQ7FjRGTy"})

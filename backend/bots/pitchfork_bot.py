@@ -170,7 +170,7 @@ def _process_album(
                 artist=spotify.artist,
                 release_date=spotify.release_date,
                 cover_url=spotify.cover_url,
-                genres=spotify.genres,
+                genres=[],
             )
         )
     elif dry_run:
