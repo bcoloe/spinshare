@@ -638,6 +638,19 @@ export default function AlbumPage() {
                     </Button>
                   </>
                 )}
+                {album.artist_url && (
+                  <Button
+                    component="a"
+                    href={album.artist_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    variant="subtle"
+                    size="sm"
+                    leftSection={<IconExternalLink size={16} />}
+                  >
+                    Open URL
+                  </Button>
+                )}
                 {(playingSpotifyAlbumId === album.spotify_album_id || playingAppleMusicAlbumId === album.apple_music_album_id) && (playerStatus === 'playing' || playerStatus === 'paused') && (
                   <Badge color="green" variant="light" leftSection={<IconMusic size={10} />}>
                     {playerStatus === 'playing' ? 'Now Playing' : 'Paused'}
@@ -662,7 +675,21 @@ export default function AlbumPage() {
               )}
             </Stack>
           )
-        })() : null}
+        })() : album?.artist_url ? (
+          <Group gap="sm" wrap="wrap">
+            <Button
+              component="a"
+              href={album.artist_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              variant="filled"
+              size="sm"
+              leftSection={<IconExternalLink size={16} />}
+            >
+              Open URL
+            </Button>
+          </Group>
+        ) : null}
 
         {/* ── GLOBAL RATING + HISTOGRAM ── */}
         <Paper withBorder p="md" radius="md">

@@ -45,7 +45,6 @@ class SpotifyAlbumResult:
     artist: str
     release_date: str | None
     cover_url: str | None
-    genres: list[str]
 
 
 @dataclass
@@ -277,7 +276,6 @@ def search_albums(
                 artist=artists,
                 release_date=item.get("release_date"),
                 cover_url=cover,
-                genres=item.get("genres", []),
             )
         )
     return SpotifySearchPage(items=results, total=total)
@@ -325,7 +323,6 @@ def get_album_by_id(album_id: str) -> SpotifyAlbumResult | None:
         artist=artists,
         release_date=item.get("release_date"),
         cover_url=cover,
-        genres=item.get("genres", []),
     )
 
 
@@ -397,7 +394,6 @@ def get_albums_batch(ids: list[str]) -> list[SpotifyAlbumResult]:
                     artist=artists,
                     release_date=item.get("release_date"),
                     cover_url=cover,
-                    genres=item.get("genres", []),
                 )
             )
     return results

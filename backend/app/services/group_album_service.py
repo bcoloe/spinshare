@@ -87,7 +87,9 @@ class GroupAlbumService:
 
         group = self.db.query(Group).filter(Group.id == group_id).first()
         if group and group.is_global:
-            return self._select_global_daily_albums(group_id, n)
+            selected = self._select_global_daily_albums(group_id, n)
+            self._heal_genres(selected)
+            return selected
 
         settings = self.db.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
         chaos_mode = settings.chaos_mode if settings else False
@@ -106,8 +108,11 @@ class GroupAlbumService:
             )
 
         if not chaos_mode:
-            return self._select_normal_albums(group_id, group, available_album_ids, n)
-        return self._select_with_chaos(group_id, group, available_album_ids, n)
+            selected = self._select_normal_albums(group_id, group, available_album_ids, n)
+        else:
+            selected = self._select_with_chaos(group_id, group, available_album_ids, n)
+        self._heal_genres(selected)
+        return selected
 
     def _select_normal_albums(
         self, group_id: int, group: Group | None, available_album_ids: list[int], n: int
@@ -280,6 +285,21 @@ class GroupAlbumService:
             self.db.refresh(ga)
         return result
 
+    def _heal_genres(self, group_albums: list[GroupAlbum]) -> None:
+        """Attempt to backfill genres for any selected album that has none.
+
+        Runs synchronously during selection so albums surfaced to users already have
+        genres populated. Errors are swallowed per album so a single failure does not
+        block the selection.
+        """
+        from app.services.album_service import AlbumService
+
+        album_svc = AlbumService(self.db)
+        for ga in group_albums:
+            album = ga.albums
+            if album and not album.genres:
+                album_svc.backfill_genres(album.id, album.title, album.artist)
+
     def trigger_daily_selection(
         self, group_id: int, user: User, force_chaos: bool = False
     ) -> list[GroupAlbum]:
@@ -332,6 +352,7 @@ class GroupAlbumService:
                 if ga.album_id not in seen:
                     seen.add(ga.album_id)
                     canonical.append(ga)
+            self._heal_genres(canonical)
             return canonical
 
         n = settings.daily_album_count
@@ -343,7 +364,9 @@ class GroupAlbumService:
                     detail="Chaos mode is not enabled for this group",
                 )
             group = self.db.query(Group).filter(Group.id == group_id).first()
-            return self._select_full_chaos(group_id, group, n)
+            selected = self._select_full_chaos(group_id, group, n)
+            self._heal_genres(selected)
+            return selected
 
         if settings.chaos_mode:
             pool_empty = not (

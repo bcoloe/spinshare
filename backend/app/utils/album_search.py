@@ -96,7 +96,7 @@ def merge_search_results(
                     artist=s.artist,
                     release_date=s.release_date,
                     cover_url=s.cover_url,
-                    genres=s.genres or apple_match.genres,
+                    genres=apple_match.genres,
                 )
             )
         else:
@@ -108,7 +108,7 @@ def merge_search_results(
                     artist=s.artist,
                     release_date=s.release_date,
                     cover_url=s.cover_url,
-                    genres=s.genres,
+                    genres=[],
                 )
             )
 
