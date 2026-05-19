@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   ActionIcon,
+  Anchor,
   Avatar,
   Button,
   Collapse,
@@ -432,17 +433,29 @@ function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allow
               </ActionIcon>
             </Tooltip>
           ) : guessResult && canGuess ? (
-            <Group gap={4} wrap="nowrap">
-              <Text size="sm" c="dimmed">
-                {guessResult.is_chaos_selection ? 'Random' : guessResult.nominator_usernames.join(', ')}
-              </Text>
+            <Group gap={4} wrap="nowrap" onClick={(e) => e.stopPropagation()}>
+              {guessResult.is_chaos_selection ? (
+                <Text size="sm" c="dimmed">Random</Text>
+              ) : (
+                guessResult.nominator_usernames.map((u, i) => (
+                  <Text key={u} size="sm" c="dimmed">
+                    <Anchor component={Link} to={`/users/${u}`} c="dimmed" size="sm">{u}</Anchor>
+                    {i < guessResult.nominator_usernames.length - 1 ? ', ' : ''}
+                  </Text>
+                ))
+              )}
               {guessResult.correct
                 ? <IconCheck size={13} color="var(--mantine-color-green-6)" />
                 : <IconX size={13} color="var(--mantine-color-red-6)" />
               }
             </Group>
           ) : (
-            <Text size="sm" c="dimmed">{getNominator(ga, members)}</Text>
+            (() => {
+              const nominator = members.find((m) => m.user_id === ga.added_by)
+              return nominator
+                ? <Anchor component={Link} to={`/users/${nominator.username}`} c="dimmed" size="sm" onClick={(e) => e.stopPropagation()}>{nominator.username}</Anchor>
+                : <Text size="sm" c="dimmed">—</Text>
+            })()
           )}
         </Table.Td>
         <Table.Td>

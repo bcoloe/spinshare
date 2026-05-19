@@ -47,52 +47,66 @@ function AvatarSelector({ groupId, groupAlbumId, selected, onChange }: AvatarSel
   const eligible = optionsData?.options.filter((o) => o.user_id !== user?.id) ?? []
   const hasChaosOption = optionsData?.has_chaos_option ?? false
 
+  const selectedLabel = (() => {
+    if (selected === 'chaos') return 'Outside the group — random pick'
+    if (selected === null) return null
+    const o = eligible.find((m) => m.user_id === selected)
+    if (!o) return null
+    const name = [o.first_name, o.last_name].filter(Boolean).join(' ')
+    return name ? `${name} (${o.username})` : o.username
+  })()
+
   return (
-    <Group gap="xs">
-      {eligible.map((o) => {
-        const isSelected = selected === o.user_id
-        return (
-          <Tooltip
-            key={o.user_id}
-            label={(() => { const n = [o.first_name, o.last_name].filter(Boolean).join(' '); return n ? `${n} (${o.username})` : o.username })()}
-            withArrow
-          >
+    <Stack gap={4}>
+      <Group gap="xs">
+        {eligible.map((o) => {
+          const isSelected = selected === o.user_id
+          return (
+            <Tooltip
+              key={o.user_id}
+              label={(() => { const n = [o.first_name, o.last_name].filter(Boolean).join(' '); return n ? `${n} (${o.username})` : o.username })()}
+              withArrow
+            >
+              <Avatar
+                size="md"
+                radius="xl"
+                color="violet"
+                variant={isSelected ? 'filled' : 'light'}
+                style={{
+                  cursor: 'pointer',
+                  outline: isSelected ? '2px solid var(--mantine-color-violet-5)' : 'none',
+                  outlineOffset: 2,
+                }}
+                onClick={() => onChange(isSelected ? null : o.user_id)}
+              >
+                {o.username[0].toUpperCase()}
+              </Avatar>
+            </Tooltip>
+          )
+        })}
+        {hasChaosOption && (
+          <Tooltip label="Outside the group — random pick" withArrow>
             <Avatar
               size="md"
               radius="xl"
-              color="violet"
-              variant={isSelected ? 'filled' : 'light'}
+              color="gray"
+              variant={selected === 'chaos' ? 'filled' : 'light'}
               style={{
                 cursor: 'pointer',
-                outline: isSelected ? '2px solid var(--mantine-color-violet-5)' : 'none',
+                outline: selected === 'chaos' ? '2px solid var(--mantine-color-gray-5)' : 'none',
                 outlineOffset: 2,
               }}
-              onClick={() => onChange(isSelected ? null : o.user_id)}
+              onClick={() => onChange(selected === 'chaos' ? null : 'chaos')}
             >
-              {o.username[0].toUpperCase()}
+              ?
             </Avatar>
           </Tooltip>
-        )
-      })}
-      {hasChaosOption && (
-        <Tooltip label="Outside the group — random pick" withArrow>
-          <Avatar
-            size="md"
-            radius="xl"
-            color="gray"
-            variant={selected === 'chaos' ? 'filled' : 'light'}
-            style={{
-              cursor: 'pointer',
-              outline: selected === 'chaos' ? '2px solid var(--mantine-color-gray-5)' : 'none',
-              outlineOffset: 2,
-            }}
-            onClick={() => onChange(selected === 'chaos' ? null : 'chaos')}
-          >
-            ?
-          </Avatar>
-        </Tooltip>
+        )}
+      </Group>
+      {selectedLabel && (
+        <Text size="xs" c="dimmed">{selectedLabel}</Text>
       )}
-    </Group>
+    </Stack>
   )
 }
 

@@ -1,21 +1,27 @@
-import { Alert, Stack, Text } from '@mantine/core'
+import { Alert, Anchor, Stack, Text } from '@mantine/core'
 import { IconCheck, IconX } from '@tabler/icons-react'
+import { Link } from 'react-router-dom'
 import type { CheckGuessResponse } from '../../types/album'
 
 interface Props {
   result: CheckGuessResponse
 }
 
-function formatNominators(usernames: string[]): string {
-  if (usernames.length === 1) return usernames[0]
-  if (usernames.length === 2) return `${usernames[0]} and ${usernames[1]}`
-  return `${usernames.slice(0, -1).join(', ')}, and ${usernames[usernames.length - 1]}`
+function NominatorLinks({ usernames }: { usernames: string[] }) {
+  const links = usernames.map((u) => (
+    <Anchor key={u} component={Link} to={`/users/${u}`} fw={600} size="sm">
+      {u}
+    </Anchor>
+  ))
+  if (links.length === 1) return <>{links[0]}</>
+  if (links.length === 2) return <>{links[0]} and {links[1]}</>
+  return <>{links.slice(0, -1).reduce<React.ReactNode[]>((acc, l, i) => [...acc, l, <span key={`sep-${i}`}>, </span>], [])}, and {links[links.length - 1]}</>
 }
 
 export default function GuessResult({ result }: Props) {
   const revealText = result.is_chaos_selection
     ? 'This album was randomly added from outside the group.'
-    : <>This album was nominated by <Text span fw={600}>{formatNominators(result.nominator_usernames)}</Text>.</>
+    : <>This album was nominated by <NominatorLinks usernames={result.nominator_usernames} />.</>
 
   return (
     <Stack gap="xs">
