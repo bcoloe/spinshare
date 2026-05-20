@@ -19,6 +19,7 @@ class User(Base):
     name_is_public = Column(Boolean, nullable=False, default=False, server_default="false")
     password_hash = Column(String, nullable=False)
     is_bot = Column(Boolean, nullable=False, default=False, server_default="false")
+    is_admin = Column(Boolean, nullable=False, default=False, server_default="false")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships

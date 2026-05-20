@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
+  Badge,
   Button,
   Divider,
   Group,
@@ -217,7 +218,12 @@ export default function ProfilePage() {
     <AppShell>
       <Stack gap="xl" maw={560}>
         <div>
-          <Title order={3} mb="xs">Profile</Title>
+          <Group gap="xs" align="center" mb="xs">
+            <Title order={3}>Profile</Title>
+            {user?.is_admin && (
+              <Badge color="orange" variant="light" size="sm">Admin</Badge>
+            )}
+          </Group>
           <Text size="sm" c="dimmed">Member since {joinedDate}</Text>
         </div>
 

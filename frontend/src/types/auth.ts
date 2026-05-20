@@ -5,6 +5,7 @@ export interface UserResponse {
   first_name?: string | null
   last_name?: string | null
   name_is_public: boolean
+  is_admin: boolean
   created_at: string
 }
 
@@ -47,10 +48,12 @@ export interface UserUpdate {
 }
 
 export interface PublicProfileResponse {
+  id: number
   username: string
   first_name?: string | null
   last_name?: string | null
   email: string
+  is_admin: boolean
   member_since: string
   total_reviews: number
   total_groups: number

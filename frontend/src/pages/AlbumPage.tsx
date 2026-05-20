@@ -7,18 +7,22 @@ import {
   Box,
   Button,
   Group,
+  Modal,
   Paper,
   ScrollArea,
   Skeleton,
   Stack,
   Table,
   Text,
+  TextInput,
   Title,
   Tooltip,
   UnstyledButton,
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
+import { useForm } from '@mantine/form'
 import { notifications } from '@mantine/notifications'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   IconBrandApple,
   IconBrandSpotify,
@@ -30,6 +34,7 @@ import {
   IconHeart,
   IconHeartFilled,
   IconMusic,
+  IconPencil,
   IconPlaylistAdd,
   IconSelector,
 } from '@tabler/icons-react'
@@ -47,8 +52,10 @@ import AppShell from '../components/layout/AppShell'
 import PlaylistPickerModal, { type PickablePlaylist } from '../components/spin/PlaylistPickerModal'
 import ReviewForm from '../components/spin/ReviewForm'
 import { usePlayer } from '../context/PlayerContext'
+import { useAuth } from '../hooks/useAuth'
 import { useMyReview } from '../hooks/useDailySpin'
 import { useAlbumDetails, useAlbumReviews, useAlbumStats } from '../hooks/useAlbumPage'
+import { albumService } from '../services/albumService'
 import { getSpotifyToken, getAppleMusicDeveloperToken } from '../services/streamingService'
 import {
   fetchUserPlaylists,
@@ -462,10 +469,14 @@ function ReviewRow({ item, isExpanded, onToggle }: ReviewRowProps) {
 export default function AlbumPage() {
   const { albumId: albumIdStr } = useParams<{ albumId: string }>()
   const albumId = Number(albumIdStr)
+  const { user } = useAuth()
+  const qc = useQueryClient()
 
   const [sortField, setSortField] = useState<SortField>('date')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [editLinksOpened, { open: openEditLinks, close: closeEditLinks }] = useDisclosure(false)
+  const [savingLinks, setSavingLinks] = useState(false)
 
   const { data: album, isLoading: albumLoading } = useAlbumDetails(albumId)
   const { data: reviews = [], isLoading: reviewsLoading } = useAlbumReviews(albumId)
@@ -483,6 +494,44 @@ export default function AlbumPage() {
     playInAppleMusic,
   } = usePlayer()
 
+  const linksForm = useForm({
+    initialValues: {
+      spotify_album_id: album?.spotify_album_id ?? '',
+      apple_music_album_id: album?.apple_music_album_id ?? '',
+      youtube_music_id: album?.youtube_music_id ?? '',
+      artist_url: album?.artist_url ?? '',
+    },
+  })
+
+  const handleOpenEditLinks = () => {
+    linksForm.setValues({
+      spotify_album_id: album?.spotify_album_id ?? '',
+      apple_music_album_id: album?.apple_music_album_id ?? '',
+      youtube_music_id: album?.youtube_music_id ?? '',
+      artist_url: album?.artist_url ?? '',
+    })
+    openEditLinks()
+  }
+
+  const handleSaveLinks = async (values: typeof linksForm.values) => {
+    setSavingLinks(true)
+    try {
+      await albumService.updateLinks(albumId, {
+        spotify_album_id: values.spotify_album_id || null,
+        apple_music_album_id: values.apple_music_album_id || null,
+        youtube_music_id: values.youtube_music_id || null,
+        artist_url: values.artist_url || null,
+      })
+      await qc.invalidateQueries({ queryKey: ['albums', albumId] })
+      closeEditLinks()
+      notifications.show({ color: 'green', message: 'Album links updated' })
+    } catch {
+      notifications.show({ color: 'red', message: 'Could not update album links' })
+    } finally {
+      setSavingLinks(false)
+    }
+  }
+
   const sortedReviews = useMemo(
     () => sortReviews(reviews, sortField, sortDir),
     [reviews, sortField, sortDir],
@@ -497,6 +546,38 @@ export default function AlbumPage() {
 
   return (
     <AppShell>
+      {/* ── ADMIN: EDIT LINKS MODAL ── */}
+      <Modal opened={editLinksOpened} onClose={closeEditLinks} title="Edit Album Links" size="md">
+        <form onSubmit={linksForm.onSubmit(handleSaveLinks)}>
+          <Stack gap="sm">
+            <TextInput
+              label="Spotify Album ID"
+              placeholder="e.g. 6dVIqScmqYXHveNbQGpGet"
+              {...linksForm.getInputProps('spotify_album_id')}
+            />
+            <TextInput
+              label="Apple Music Album ID"
+              placeholder="e.g. 1234567890"
+              {...linksForm.getInputProps('apple_music_album_id')}
+            />
+            <TextInput
+              label="YouTube Music Browse ID"
+              placeholder="e.g. MPREb_abc123"
+              {...linksForm.getInputProps('youtube_music_id')}
+            />
+            <TextInput
+              label="Artist URL"
+              placeholder="e.g. https://artist.bandcamp.com/album/name"
+              {...linksForm.getInputProps('artist_url')}
+            />
+            <Group justify="flex-end" mt="xs">
+              <Button variant="subtle" onClick={closeEditLinks}>Cancel</Button>
+              <Button type="submit" loading={savingLinks}>Save</Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
+
       <Stack gap="lg">
 
         {/* ── ALBUM HEADER ── */}
@@ -541,6 +622,18 @@ export default function AlbumPage() {
                     <Badge key={g} size="xs" variant="light" color="violet">{g}</Badge>
                   ))}
                 </Group>
+                {user?.is_admin && (
+                  <Button
+                    variant="subtle"
+                    color="orange"
+                    size="xs"
+                    leftSection={<IconPencil size={13} />}
+                    onClick={handleOpenEditLinks}
+                    mt={4}
+                  >
+                    Edit Links
+                  </Button>
+                )}
               </>
             )}
           </Stack>

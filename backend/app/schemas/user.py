@@ -71,6 +71,7 @@ class UserResponse(UserBase):
     first_name: str | None = None
     last_name: str | None = None
     name_is_public: bool = False
+    is_admin: bool = False
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -84,6 +85,12 @@ class UserWithStats(UserResponse):
     total_reviews: int
     albums_added: int
     has_spotify: bool
+
+
+class AdminStatusUpdate(BaseModel):
+    """Schema for granting or revoking admin status"""
+
+    is_admin: bool
 
 
 class LoginRequest(BaseModel):
@@ -127,10 +134,12 @@ class SpotifyTokenResponse(BaseModel):
 
 
 class PublicProfileResponse(BaseModel):
+    id: int
     username: str
     first_name: str | None
     last_name: str | None
     email: str
+    is_admin: bool
     member_since: datetime
     total_reviews: int
     total_groups: int

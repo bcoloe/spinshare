@@ -10,7 +10,7 @@ _IGNORED_GENRES: frozenset[str] = frozenset({"music", "music videos", "musica"})
 
 from app.models import Album, Group, GroupAlbum, User
 from app.models.genre import Genre
-from app.schemas.album import AlbumCreate, GroupAlbumStatus, GroupAlbumStatusUpdate
+from app.schemas.album import AlbumCreate, AlbumLinksUpdate, GroupAlbumStatus, GroupAlbumStatusUpdate
 from app.services import group_service as gs
 from app.utils.ytmusic_client import search_album_browse_id
 from fastapi import HTTPException, status
@@ -169,6 +169,67 @@ class AlbumService:
                 self.db.commit()
         except Exception:
             log.warning("Genre backfill failed for album %d (%r by %r)", album_id, title, artist)
+
+    # ==================== UPDATE ====================
+
+    def update_album_links(self, album_id: int, data: AlbumLinksUpdate) -> Album:
+        """Update streaming service identifiers on an existing album.
+
+        Any field left as None is left unchanged. Raises 409 if the new ID
+        is already assigned to a different album.
+
+        Raises:
+            HTTPException 404: If album not found
+            HTTPException 409: If a provided ID conflicts with another album
+        """
+        album = self.get_album_by_id(album_id)
+
+        if data.spotify_album_id is not None:
+            conflict = self.get_album_by_spotify_id(data.spotify_album_id, raise_on_missing=False)
+            if conflict and conflict.id != album_id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="spotify_album_id is already assigned to another album",
+                )
+            album.spotify_album_id = data.spotify_album_id
+
+        if data.apple_music_album_id is not None:
+            conflict = self.get_album_by_apple_music_id(data.apple_music_album_id, raise_on_missing=False)
+            if conflict and conflict.id != album_id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="apple_music_album_id is already assigned to another album",
+                )
+            album.apple_music_album_id = data.apple_music_album_id
+
+        if data.youtube_music_id is not None:
+            conflict = self.get_album_by_youtube_music_id(data.youtube_music_id, raise_on_missing=False)
+            if conflict and conflict.id != album_id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="youtube_music_id is already assigned to another album",
+                )
+            album.youtube_music_id = data.youtube_music_id
+
+        if data.artist_url is not None:
+            conflict = self.get_album_by_artist_url(data.artist_url, raise_on_missing=False)
+            if conflict and conflict.id != album_id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="artist_url is already assigned to another album",
+                )
+            album.artist_url = data.artist_url
+
+        try:
+            self.db.commit()
+            self.db.refresh(album)
+        except IntegrityError:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Album update failed due to constraint violation",
+            ) from None
+        return album
 
     # ==================== NOMINATE ====================
 

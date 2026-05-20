@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import patch
 from app.models import Album, GroupAlbum
 from app.models.group import GroupRole
-from app.schemas.album import AlbumCreate, GroupAlbumStatus, GroupAlbumStatusUpdate
+from app.schemas.album import AlbumCreate, AlbumLinksUpdate, GroupAlbumStatus, GroupAlbumStatusUpdate
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -522,3 +522,53 @@ class TestFindExistingAlbumExtended:
         assert album.youtube_music_id == "MPREb_new_ytm"
         assert album.spotify_album_id is None
         assert album.apple_music_album_id is None
+
+
+class TestAlbumServiceUpdateLinks:
+    """Tests for admin-only album link correction."""
+
+    def test_update_spotify_id(self, album_service, sample_album):
+        data = AlbumLinksUpdate(spotify_album_id="new_spotify_id")
+        result = album_service.update_album_links(sample_album.id, data)
+        assert result.spotify_album_id == "new_spotify_id"
+
+    def test_update_apple_music_id(self, album_service, sample_album):
+        data = AlbumLinksUpdate(apple_music_album_id="1234567890")
+        result = album_service.update_album_links(sample_album.id, data)
+        assert result.apple_music_album_id == "1234567890"
+
+    def test_update_youtube_music_id(self, album_service, sample_album):
+        data = AlbumLinksUpdate(youtube_music_id="MPREb_abc")
+        result = album_service.update_album_links(sample_album.id, data)
+        assert result.youtube_music_id == "MPREb_abc"
+
+    def test_update_artist_url(self, album_service, sample_album):
+        data = AlbumLinksUpdate(artist_url="https://radiohead.bandcamp.com/album/ok-computer")
+        result = album_service.update_album_links(sample_album.id, data)
+        assert result.artist_url == "https://radiohead.bandcamp.com/album/ok-computer"
+
+    def test_none_fields_are_ignored(self, album_service, sample_album):
+        original_spotify_id = sample_album.spotify_album_id
+        data = AlbumLinksUpdate(apple_music_album_id="999")
+        result = album_service.update_album_links(sample_album.id, data)
+        assert result.spotify_album_id == original_spotify_id
+
+    def test_conflict_spotify_id(self, album_service, sample_album, db_session):
+        other = Album(
+            spotify_album_id="taken_spotify_id",
+            title="Kid A",
+            artist="Radiohead",
+        )
+        db_session.add(other)
+        db_session.commit()
+
+        data = AlbumLinksUpdate(spotify_album_id="taken_spotify_id")
+        with pytest.raises(HTTPException) as exc_info:
+            album_service.update_album_links(sample_album.id, data)
+        assert exc_info.value.status_code == status.HTTP_409_CONFLICT
+
+    def test_album_not_found(self, album_service):
+        data = AlbumLinksUpdate(spotify_album_id="xyz")
+        with pytest.raises(HTTPException) as exc_info:
+            album_service.update_album_links(99999, data)
+        assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND

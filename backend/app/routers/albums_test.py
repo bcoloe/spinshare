@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
-from app.dependencies import get_album_service, get_review_service
+from app.dependencies import get_album_service, get_current_admin_user, get_review_service
 from app.main import app
 from app.routers.conftest import make_mock_user
 from app.services.album_service import AlbumService
@@ -882,4 +882,57 @@ class TestAlbumStats:
 
     def test_get_stats_unauthenticated(self, unauthed_client):
         resp = unauthed_client.get("/albums/1/stats")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+# ==================== ADMIN: UPDATE ALBUM LINKS ====================
+
+
+class TestUpdateAlbumLinks:
+    @pytest.fixture
+    def admin_client(self, mock_user, mock_album_service, mock_review_service):
+        app.dependency_overrides[get_current_admin_user] = lambda: mock_user
+        app.dependency_overrides[get_album_service] = lambda: mock_album_service
+        app.dependency_overrides[get_review_service] = lambda: mock_review_service
+        with TestClient(app) as c:
+            yield c
+        app.dependency_overrides.clear()
+
+    def test_update_links_success(self, admin_client, mock_album_service):
+        updated = make_mock_album(spotify_album_id="new_spotify_id")
+        mock_album_service.update_album_links.return_value = updated
+
+        resp = admin_client.patch("/albums/1", json={"spotify_album_id": "new_spotify_id"})
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["spotify_album_id"] == "new_spotify_id"
+        mock_album_service.update_album_links.assert_called_once()
+
+    def test_update_links_not_found(self, admin_client, mock_album_service):
+        mock_album_service.update_album_links.side_effect = HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Album not found"
+        )
+        resp = admin_client.patch("/albums/999", json={"spotify_album_id": "x"})
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_update_links_conflict(self, admin_client, mock_album_service):
+        mock_album_service.update_album_links.side_effect = HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="spotify_album_id is already assigned to another album",
+        )
+        resp = admin_client.patch("/albums/1", json={"spotify_album_id": "taken"})
+        assert resp.status_code == status.HTTP_409_CONFLICT
+
+    def test_update_links_requires_admin(self, mock_user, mock_album_service, mock_review_service):
+        mock_user.is_admin = False
+        app.dependency_overrides[get_current_user] = lambda: mock_user
+        app.dependency_overrides[get_album_service] = lambda: mock_album_service
+        app.dependency_overrides[get_review_service] = lambda: mock_review_service
+        with TestClient(app) as c:
+            resp = c.patch("/albums/1", json={"spotify_album_id": "x"})
+        app.dependency_overrides.clear()
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_update_links_unauthenticated(self, unauthed_client):
+        resp = unauthed_client.patch("/albums/1", json={"spotify_album_id": "x"})
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
