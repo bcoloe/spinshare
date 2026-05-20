@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
+  Badge,
   Box,
   Button,
   Divider,
@@ -23,6 +24,8 @@ import {
   IconChevronRight,
   IconChevronUp,
   IconSelector,
+  IconShield,
+  IconShieldOff,
   IconUserPlus,
 } from '@tabler/icons-react'
 import {
@@ -35,6 +38,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import { notifications } from '@mantine/notifications'
+import { useQueryClient } from '@tanstack/react-query'
 import AppShell from '../components/layout/AppShell'
 import AlbumCoverGrid from '../components/profile/AlbumCoverGrid'
 import ChartCarousel from '../components/profile/ChartCarousel'
@@ -42,6 +47,7 @@ import GroupsTable from '../components/profile/GroupsTable'
 import InviteToGroupModal from '../components/users/InviteToGroupModal'
 import { useUserGroups, useUserNominationBreakdown, useUserProfile, useUserReviewStats, useUserReviews } from '../hooks/useUserProfile'
 import { useAuth } from '../hooks/useAuth'
+import { userService } from '../services/userService'
 import type { UserReviewItem } from '../types/auth'
 
 // ==================== TYPES ====================
@@ -236,8 +242,10 @@ export default function UserProfilePage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const { user: currentUser } = useAuth()
+  const qc = useQueryClient()
   const [tab, setTab] = useState<Tab>((searchParams.get('tab') as Tab) ?? 'stats')
   const [inviteOpened, { open: openInvite, close: closeInvite }] = useDisclosure()
+  const [adminToggling, setAdminToggling] = useState(false)
 
   useEffect(() => {
     const paramTab = searchParams.get('tab') as Tab | null
@@ -292,6 +300,24 @@ export default function UserProfilePage() {
     else { setSortField(field); setSortDir('asc') }
   }
 
+  const handleAdminToggle = async () => {
+    if (!profile) return
+    const newStatus = !profile.is_admin
+    setAdminToggling(true)
+    try {
+      await userService.setAdminStatus(profile.id, newStatus)
+      await qc.invalidateQueries({ queryKey: ['users', username, 'profile'] })
+      notifications.show({
+        color: 'green',
+        message: newStatus ? `${profile.username} is now an admin` : `Admin removed from ${profile.username}`,
+      })
+    } catch {
+      notifications.show({ color: 'red', message: 'Could not update admin status' })
+    } finally {
+      setAdminToggling(false)
+    }
+  }
+
   return (
     <AppShell>
       <Stack gap="lg">
@@ -300,7 +326,14 @@ export default function UserProfilePage() {
         ) : (
           <Group justify="space-between" align="flex-start">
             <div>
-              <Title order={3}>{[profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || profile?.username}</Title>
+              <Group gap="xs" align="center" mb={2}>
+                <Title order={3}>
+                  {[profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || profile?.username}
+                </Title>
+                {profile?.is_admin && (
+                  <Badge color="orange" variant="light" size="sm">Admin</Badge>
+                )}
+              </Group>
               {(profile?.first_name || profile?.last_name) && (
                 <Text size="sm" c="dimmed">@{profile?.username}</Text>
               )}
@@ -314,15 +347,31 @@ export default function UserProfilePage() {
                   : '—'}
               </Text>
             </div>
-            {!isOwnProfile && profile?.email && (
-              <Button
-                variant="light"
-                size="xs"
-                leftSection={<IconUserPlus size={14} />}
-                onClick={openInvite}
-              >
-                Invite to group
-              </Button>
+            {!isOwnProfile && (
+              <Group gap="xs">
+                {currentUser?.is_admin && profile && (
+                  <Button
+                    variant="light"
+                    color={profile.is_admin ? 'red' : 'orange'}
+                    size="xs"
+                    leftSection={profile.is_admin ? <IconShieldOff size={14} /> : <IconShield size={14} />}
+                    loading={adminToggling}
+                    onClick={handleAdminToggle}
+                  >
+                    {profile.is_admin ? 'Revoke Admin' : 'Grant Admin'}
+                  </Button>
+                )}
+                {profile?.email && (
+                  <Button
+                    variant="light"
+                    size="xs"
+                    leftSection={<IconUserPlus size={14} />}
+                    onClick={openInvite}
+                  >
+                    Invite to group
+                  </Button>
+                )}
+              </Group>
             )}
           </Group>
         )}

@@ -32,4 +32,11 @@ export const userService = {
   getGroups(username: string): Promise<UserGroupItem[]> {
     return apiFetch(`/users/${encodeURIComponent(username)}/groups`)
   },
+
+  setAdminStatus(userId: number, isAdmin: boolean): Promise<UserResponse> {
+    return apiFetch(`/users/${userId}/admin`, {
+      method: 'PUT',
+      body: JSON.stringify({ is_admin: isAdmin }),
+    })
+  },
 }

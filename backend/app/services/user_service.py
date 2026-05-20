@@ -125,10 +125,12 @@ class UserService:
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         return {
+            "id": user.id,
             "username": user.username,
             "first_name": user.first_name if user.name_is_public else None,
             "last_name": user.last_name if user.name_is_public else None,
             "email": user.email,
+            "is_admin": user.is_admin,
             "member_since": user.created_at,
             "total_reviews": sum(1 for r in user.reviews if not r.is_draft),
             "total_groups": len(user.groups),
@@ -362,6 +364,33 @@ class UserService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Update failed due to constraint violation",
             ) from None
+
+    # ==================== ADMIN ====================
+
+    def set_admin_status(self, granting_user_id: int, target_user_id: int, is_admin: bool) -> User:
+        """Grant or revoke admin status for a user.
+
+        Raises:
+            HTTPException 403: If the granting user is not an admin
+            HTTPException 404: If target user not found
+            HTTPException 400: If attempting to modify own admin status
+        """
+        granting_user = self.get_user_by_id(granting_user_id)
+        if not granting_user.is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin privileges required",
+            )
+        if granting_user_id == target_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot modify your own admin status",
+            )
+        target_user = self.get_user_by_id(target_user_id)
+        target_user.is_admin = is_admin
+        self.db.commit()
+        self.db.refresh(target_user)
+        return target_user
 
     # ==================== DELETE ====================
 

@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from jose import jwt
 
 from app.config import get_settings
-from app.dependencies import get_album_service, get_current_user, get_user_service
+from app.dependencies import get_album_service, get_current_admin_user, get_current_user, get_user_service
 from app.main import app
 from app.routers.conftest import make_mock_user
 from app.services.album_service import AlbumService
@@ -245,3 +245,64 @@ class TestGetMyNominations:
     def test_requires_auth(self, unauthed_client):
         resp = unauthed_client.get("/users/me/nominations")
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+# ==================== ADMIN: SET USER ADMIN STATUS ====================
+
+
+class TestSetUserAdminStatus:
+    @pytest.fixture
+    def admin_client(self, mock_user, mock_user_service):
+        app.dependency_overrides[get_current_admin_user] = lambda: mock_user
+        app.dependency_overrides[get_user_service] = lambda: mock_user_service
+        with TestClient(app, follow_redirects=False) as c:
+            yield c
+        app.dependency_overrides.clear()
+
+    def _mock_target(self, is_admin=True):
+        target = make_mock_user(id=2, email="target@test.com", username="target")
+        target.is_admin = is_admin
+        target.first_name = None
+        target.last_name = None
+        target.name_is_public = False
+        target.created_at = datetime(2026, 1, 1, tzinfo=UTC)
+        return target
+
+    def test_grant_admin_success(self, admin_client, mock_user_service):
+        target = self._mock_target(is_admin=True)
+        mock_user_service.set_admin_status.return_value = target
+
+        resp = admin_client.put("/users/2/admin", json={"is_admin": True})
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["is_admin"] is True
+        mock_user_service.set_admin_status.assert_called_once()
+
+    def test_revoke_admin_success(self, admin_client, mock_user_service):
+        target = self._mock_target(is_admin=False)
+        mock_user_service.set_admin_status.return_value = target
+
+        resp = admin_client.put("/users/2/admin", json={"is_admin": False})
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["is_admin"] is False
+
+    def test_requires_admin(self, mock_user, mock_user_service):
+        mock_user.is_admin = False
+        app.dependency_overrides[get_current_user] = lambda: mock_user
+        app.dependency_overrides[get_user_service] = lambda: mock_user_service
+        with TestClient(app, follow_redirects=False) as c:
+            resp = c.put("/users/2/admin", json={"is_admin": True})
+        app.dependency_overrides.clear()
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_requires_auth(self, unauthed_client):
+        resp = unauthed_client.put("/users/2/admin", json={"is_admin": True})
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_target_not_found(self, admin_client, mock_user_service):
+        mock_user_service.set_admin_status.side_effect = HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+        resp = admin_client.put("/users/999/admin", json={"is_admin": True})
+        assert resp.status_code == status.HTTP_404_NOT_FOUND

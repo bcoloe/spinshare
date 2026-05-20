@@ -3,10 +3,11 @@
 import difflib
 
 from app.database import SessionLocal
-from app.dependencies import get_album_service, get_current_user, get_review_service
+from app.dependencies import get_album_service, get_current_admin_user, get_current_user, get_review_service
 from app.models import User
 from app.schemas.album import (
     AlbumCreate,
+    AlbumLinksUpdate,
     AlbumResponse,
     AlbumReviewItem,
     AlbumSearchPage,
@@ -398,6 +399,18 @@ def get_album(
 ):
     """Get a registered album by its internal ID."""
     album = album_service.get_album_by_id(album_id)
+    return AlbumResponse.from_orm_with_genres(album)
+
+
+@albums_router.patch("/{album_id}", response_model=AlbumResponse)
+def update_album_links(
+    album_id: int,
+    data: AlbumLinksUpdate,
+    _admin: User = Depends(get_current_admin_user),
+    album_service: AlbumService = Depends(get_album_service),
+):
+    """Correct streaming service identifiers on an album. Requires admin privileges."""
+    album = album_service.update_album_links(album_id, data)
     return AlbumResponse.from_orm_with_genres(album)
 
 

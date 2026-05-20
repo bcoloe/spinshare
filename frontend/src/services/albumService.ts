@@ -96,4 +96,19 @@ export const albumService = {
   getGuessOptions(groupId: number, groupAlbumId: number): Promise<GuessOptionsResponse> {
     return apiFetch(`/groups/${groupId}/albums/${groupAlbumId}/guess/options`)
   },
+
+  updateLinks(
+    albumId: number,
+    data: {
+      spotify_album_id?: string | null
+      apple_music_album_id?: string | null
+      youtube_music_id?: string | null
+      artist_url?: string | null
+    },
+  ): Promise<AlbumResponse> {
+    return apiFetch(`/albums/${albumId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    })
+  },
 }

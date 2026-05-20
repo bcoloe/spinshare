@@ -436,3 +436,53 @@ class TestUserServiceAuthentication:
             sample_user_service.login(request)
         assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
         assert exc_info.value.detail == "Incorrect password"
+
+
+class TestUserServiceAdmin:
+    """Tests for admin status management in UserService."""
+
+    def _make_admin(self, db_session, user: User) -> User:
+        user.is_admin = True
+        db_session.commit()
+        db_session.refresh(user)
+        return user
+
+    def test_grant_admin_success(self, db_session, sample_user_service, user_factory):
+        admin = self._make_admin(db_session, user_factory(email="admin@test.com", username="admin"))
+        target = user_factory(email="target@test.com", username="target")
+
+        result = sample_user_service.set_admin_status(admin.id, target.id, True)
+
+        assert result.is_admin is True
+
+    def test_revoke_admin_success(self, db_session, sample_user_service, user_factory):
+        admin = self._make_admin(db_session, user_factory(email="admin@test.com", username="admin"))
+        target = self._make_admin(
+            db_session, user_factory(email="target@test.com", username="target")
+        )
+
+        result = sample_user_service.set_admin_status(admin.id, target.id, False)
+
+        assert result.is_admin is False
+
+    def test_non_admin_cannot_grant(self, sample_user_service, user_factory):
+        non_admin = user_factory(email="nonadmin@test.com", username="nonadmin")
+        target = user_factory(email="target@test.com", username="target")
+
+        with pytest.raises(HTTPException) as exc_info:
+            sample_user_service.set_admin_status(non_admin.id, target.id, True)
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_cannot_modify_own_admin_status(self, db_session, sample_user_service, user_factory):
+        admin = self._make_admin(db_session, user_factory(email="admin@test.com", username="admin"))
+
+        with pytest.raises(HTTPException) as exc_info:
+            sample_user_service.set_admin_status(admin.id, admin.id, False)
+        assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_grant_admin_target_not_found(self, db_session, sample_user_service, user_factory):
+        admin = self._make_admin(db_session, user_factory(email="admin@test.com", username="admin"))
+
+        with pytest.raises(HTTPException) as exc_info:
+            sample_user_service.set_admin_status(admin.id, 99999, True)
+        assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND

@@ -1,7 +1,7 @@
 # backend/app/routers/users.py
 
 from app.config import get_settings
-from app.dependencies import get_album_service, get_current_user, get_user_service
+from app.dependencies import get_album_service, get_current_admin_user, get_current_user, get_user_service
 from app.models import User
 from app.schemas.album import AlbumResponse, UserNominationResponse
 from app.services.album_service import AlbumService
@@ -14,6 +14,7 @@ from app.schemas.user import (
     ReviewStatsResponse,
     SpotifyConnectUrlResponse,
     SpotifyTokenResponse,
+    AdminStatusUpdate,
     UserCreate,
     UserGroupItem,
     UserResponse,
@@ -169,6 +170,17 @@ def search_users(
 ):
     """Search users by username or email"""
     return user_service.search_users(query, limit=limit)
+
+
+@router.put("/{user_id}/admin", response_model=UserResponse)
+def set_user_admin_status(
+    user_id: int,
+    body: AdminStatusUpdate,
+    admin_user: User = Depends(get_current_admin_user),
+    user_service: UserService = Depends(get_user_service),
+):
+    """Grant or revoke admin status for a user. Requires admin privileges."""
+    return user_service.set_admin_status(admin_user.id, user_id, body.is_admin)
 
 
 @router.get("/apple-music/developer-token")

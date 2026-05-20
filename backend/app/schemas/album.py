@@ -83,6 +83,33 @@ class AlbumCreate(AlbumBase):
         return self
 
 
+class AlbumLinksUpdate(BaseModel):
+    """Schema for admin-only album link corrections."""
+
+    spotify_album_id: str | None = None
+    apple_music_album_id: str | None = None
+    youtube_music_id: str | None = None
+    artist_url: str | None = None
+
+    @field_validator("artist_url")
+    @classmethod
+    def validate_artist_url(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        try:
+            parsed = urlparse(v)
+        except Exception:
+            raise ValueError("artist_url must be a valid URL")
+        netloc = parsed.netloc.lower()
+        domain_ok = any(netloc.endswith("." + d) for d in _ALLOWED_ARTIST_URL_DOMAINS)
+        if not domain_ok:
+            allowed = ", ".join(sorted(_ALLOWED_ARTIST_URL_DOMAINS))
+            raise ValueError(f"artist_url must be from a supported domain: {allowed}")
+        if not parsed.path.lower().startswith("/album/"):
+            raise ValueError("artist_url must point to an album page (path must start with /album/)")
+        return v
+
+
 class AlbumResponse(AlbumBase):
     id: int
     youtube_music_id: str | None = None
