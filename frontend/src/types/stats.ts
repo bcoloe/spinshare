@@ -25,3 +25,21 @@ export interface AlbumReviewStatsResponse {
   min_rating: number | null
   max_rating: number | null
 }
+
+export interface MemberGuessResult {
+  guessing_user_id: number
+  guessing_username: string
+  guessed_user_id: number | null
+  guessed_username: string | null
+  is_chaos: boolean
+  correct: boolean
+}
+
+export interface AlbumGuessStatsResponse {
+  group_album_id: number
+  nominator_user_id: number
+  nominator_username: string
+  total_guesses: number
+  correct_guesses: number
+  guesses: MemberGuessResult[]
+}

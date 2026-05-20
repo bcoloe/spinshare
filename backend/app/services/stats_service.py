@@ -71,7 +71,8 @@ class StatsService:
                 guessing_user_id=g.guessing_user_id,
                 guessing_username=g.guessing_user.username,
                 guessed_user_id=g.guessed_user_id,
-                guessed_username=g.guessed_user.username,
+                guessed_username=g.guessed_user.username if g.guessed_user else None,
+                is_chaos=g.guessed_user_id is None,
                 correct=g.correct,
             )
             for g in group_album.guesses
