@@ -11,6 +11,7 @@ from app.utils.apple_music_client import (
     _split_artists,
     find_apple_music_album,
     generate_developer_token,
+    search_albums_catalog,
 )
 from fastapi import HTTPException
 
@@ -366,3 +367,53 @@ class TestFindAppleMusicAlbum:
             result = find_apple_music_album("Norman Fucking Rockwell!", "Lana Del Rey")
         assert result is not None
         assert mock_get.call_count == 3
+
+
+# ==================== SEARCH ALBUMS CATALOG ====================
+
+
+class TestSearchAlbumsCatalog:
+    def setup_method(self):
+        am_client._dev_token = "test_token"
+        am_client._dev_token_expires_at = 9_999_999_999.0
+
+    def teardown_method(self):
+        am_client._dev_token = None
+        am_client._dev_token_expires_at = 0.0
+
+    def _make_catalog_response(self, albums: list[dict]) -> MagicMock:
+        mock_resp = MagicMock()
+        mock_resp.is_success = True
+        mock_resp.json.return_value = {"results": {"albums": {"data": albums}}}
+        return mock_resp
+
+    def test_filters_out_singles(self):
+        full_album = _make_album_data(id="1", name="OK Computer", artist="Radiohead")
+        single = _make_album_data(id="2", name="Karma Police - Single", artist="Radiohead")
+        mock_resp = self._make_catalog_response([full_album, single])
+
+        with patch("httpx.get", return_value=mock_resp):
+            results = search_albums_catalog(query="Radiohead")
+
+        assert len(results) == 1
+        assert results[0].id == "1"
+
+    def test_keeps_ep_results(self):
+        ep = _make_album_data(id="1", name="M3LL155X - EP", artist="FKA twigs")
+        mock_resp = self._make_catalog_response([ep])
+
+        with patch("httpx.get", return_value=mock_resp):
+            results = search_albums_catalog(query="FKA twigs")
+
+        assert len(results) == 1
+        assert results[0].id == "1"
+
+    def test_returns_empty_list_on_api_failure(self):
+        mock_resp = MagicMock()
+        mock_resp.is_success = False
+        mock_resp.status_code = 500
+
+        with patch("httpx.get", return_value=mock_resp):
+            results = search_albums_catalog(query="anything")
+
+        assert results == []

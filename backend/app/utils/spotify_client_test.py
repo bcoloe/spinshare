@@ -36,10 +36,11 @@ class TestNormalizedTitle:
 
 
 class TestSearchAlbumsDeduplication:
-    def _make_item(self, id: str, name: str, artist: str) -> dict:
+    def _make_item(self, id: str, name: str, artist: str, album_type: str = "album") -> dict:
         return {
             "id": id,
             "name": name,
+            "album_type": album_type,
             "artists": [{"name": artist}],
             "release_date": "1997-05-21",
             "images": [],
@@ -92,6 +93,22 @@ class TestSearchAlbumsDeduplication:
             page = search_albums("greatest hits")
 
         assert len(page.items) == 2
+
+    def test_filters_out_singles_keeps_compilations(self):
+        items = [
+            self._make_item("id1", "Full Album", "Artist", album_type="album"),
+            self._make_item("id2", "Some Single", "Artist", album_type="single"),
+            self._make_item("id3", "Best Of", "Artist", album_type="compilation"),
+        ]
+        mock_resp = self._mock_search_response(items)
+
+        with patch("app.utils.spotify_client._get_client_token", return_value="tok"), \
+             patch("httpx.get", return_value=mock_resp):
+            page = search_albums("artist")
+
+        assert len(page.items) == 2
+        ids = {r.spotify_album_id for r in page.items}
+        assert ids == {"id1", "id3"}
 
 
 class TestSearchAlbumsMaxRetryAfter:

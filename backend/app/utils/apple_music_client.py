@@ -26,6 +26,9 @@ _ARTIST_THRESHOLD = 0.72
 # Strips any trailing parenthetical/bracketed group from a title (iteratively applied).
 _TRAILING_PAREN_RE = re.compile(r"\s*[\(\[][^\)\]]+[\)\]]\s*$")
 
+# Matches titles that are singles (e.g. "Song Title - Single") to filter them from search results.
+_SINGLE_TITLE_RE = re.compile(r"\s*-\s*Single\s*$", re.IGNORECASE)
+
 # Strips trailing dash-separated release qualifiers: "Song - EP", "Song - Single", etc.
 _TRAILING_DASH_QUALIFIER_RE = re.compile(
     r"\s*-\s*(?:EP|Single|Live|Acoustic|Demo|Instrumental|Soundtrack|OST|Radio\s+Edit|Extended)\s*$",
@@ -248,6 +251,8 @@ def search_albums_catalog(
     for album_data in raw_albums:
         attrs = album_data.get("attributes", {})
         title = attrs.get("name", "")
+        if _SINGLE_TITLE_RE.search(title):
+            continue
         artist_name = attrs.get("artistName", "")
         key = (_normalized_title(title), _normalize_text(artist_name))
         if key in seen:
