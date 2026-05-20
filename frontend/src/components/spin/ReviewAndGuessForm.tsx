@@ -241,7 +241,7 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
           label="Comment (optional)"
           value={editComment}
           onChange={(e) => setEditComment(e.currentTarget.value)}
-          maxLength={1000}
+          maxLength={5000}
           autosize
           minRows={2}
         />
@@ -416,7 +416,7 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
           placeholder="What did you think?"
           value={comment}
           onChange={(e) => { isDirtyRef.current = true; setComment(e.currentTarget.value) }}
-          maxLength={1000}
+          maxLength={5000}
           autosize
           minRows={2}
         />

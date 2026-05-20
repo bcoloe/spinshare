@@ -1,5 +1,5 @@
 import { apiFetch } from './apiClient'
-import type { AlbumReviewStatsResponse, UserGuessStatsResponse, UserWithStats } from '../types/stats'
+import type { AlbumGuessStatsResponse, AlbumReviewStatsResponse, UserGuessStatsResponse, UserWithStats } from '../types/stats'
 
 export const statsService = {
   getMyStats(): Promise<UserWithStats> {
@@ -12,5 +12,9 @@ export const statsService = {
 
   getAlbumReviewStats(albumId: number): Promise<AlbumReviewStatsResponse> {
     return apiFetch(`/stats/albums/${albumId}/reviews`)
+  },
+
+  getAlbumGuessStats(groupId: number, groupAlbumId: number): Promise<AlbumGuessStatsResponse> {
+    return apiFetch(`/stats/groups/${groupId}/albums/${groupAlbumId}/guesses`)
   },
 }

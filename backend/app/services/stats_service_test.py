@@ -146,6 +146,31 @@ class TestAlbumGuessStats:
         assert result.correct_guesses == 0
         assert result.guesses == []
 
+    def test_chaos_guess_in_stats(
+        self, stats_service, sample_group, sample_group_album, sample_user,
+        sample_group_service, user_factory, db_session,
+    ):
+        other = user_factory(email="other@test.com", username="other_user")
+        sample_group_service.add_user(sample_group.id, other.id)
+        _mark_selected(db_session, sample_group_album)
+        chaos_guess = NominationGuess(
+            group_album_id=sample_group_album.id,
+            guessing_user_id=other.id,
+            guessed_user_id=None,
+            correct=False,
+        )
+        db_session.add(chaos_guess)
+        db_session.commit()
+
+        result = stats_service.get_album_guess_stats(sample_group.id, sample_group_album.id)
+
+        assert result.total_guesses == 1
+        assert len(result.guesses) == 1
+        g = result.guesses[0]
+        assert g.is_chaos is True
+        assert g.guessed_user_id is None
+        assert g.guessed_username is None
+
 
 # ==================== REVIEW STATS ====================
 

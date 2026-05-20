@@ -33,6 +33,7 @@ import {
   IconX,
 } from '@tabler/icons-react'
 import { albumService } from '../../services/albumService'
+import { statsService } from '../../services/statsService'
 import { useAuth } from '../../hooks/useAuth'
 import { useCheckGuess, useGuessOptions, useUpdateReview } from '../../hooks/useDailySpin'
 import { ApiError } from '../../services/apiClient'
@@ -40,6 +41,7 @@ import GuessResult from '../spin/GuessResult'
 import ReviewAndGuessForm from '../spin/ReviewAndGuessForm'
 import type { AlbumReviewItem, CheckGuessResponse, GroupAlbumResponse, ReviewResponse } from '../../types/album'
 import type { GroupMemberResponse } from '../../types/group'
+import type { MemberGuessResult } from '../../types/stats'
 
 // ==================== TYPES ====================
 
@@ -347,6 +349,20 @@ function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allow
     enabled: isExpanded,
   })
 
+  const { data: guessStats } = useQuery({
+    queryKey: ['stats', groupId, 'albums', ga.id, 'guesses'],
+    queryFn: () => statsService.getAlbumGuessStats(groupId, ga.id),
+    enabled: allowGuessing && isExpanded,
+  })
+
+  const memberGuessLookup = useMemo(() => {
+    const map = new Map<number, MemberGuessResult>()
+    for (const g of guessStats?.guesses ?? []) {
+      map.set(g.guessing_user_id, g)
+    }
+    return map
+  }, [guessStats])
+
   const toggleCard = (id: number) =>
     setExpandedCards((prev) => {
       const next = new Set(prev)
@@ -490,6 +506,8 @@ function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allow
                 const isCardExpanded = expandedCards.has(r.id) || (isMine && editMode)
                 const previewLine = r.comment?.split('\n')[0]
 
+                const memberGuess = allowGuessing ? memberGuessLookup.get(r.user_id) : undefined
+
                 return (
                   <Paper key={r.id} withBorder p="sm" style={{ background: ratingBg(r.rating ?? 0) }}>
                     <Group
@@ -502,10 +520,25 @@ function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allow
                         if (!(isMine && editMode)) toggleCard(r.id)
                       }}
                     >
-                      <Group gap={4}>
-                        <Text size="sm" fw={600}>{memberName}</Text>
-                        {isMine && <Text size="xs" c="dimmed">(you)</Text>}
-                      </Group>
+                      <Stack gap={2}>
+                        <Group gap={4}>
+                          <Text size="sm" fw={600}>{memberName}</Text>
+                          {isMine && <Text size="xs" c="dimmed">(you)</Text>}
+                        </Group>
+                        {memberGuess && (
+                          <Group gap={3} wrap="nowrap">
+                            <Text size="xs" c="dimmed">guessed:</Text>
+                            {memberGuess.is_chaos
+                              ? <Text size="xs" c="dimmed">random</Text>
+                              : <Anchor component={Link} to={`/users/${memberGuess.guessed_username}`} size="xs" c="dimmed" onClick={(e) => e.stopPropagation()}>{memberGuess.guessed_username}</Anchor>
+                            }
+                            {memberGuess.correct
+                              ? <IconCheck size={10} color="var(--mantine-color-green-6)" />
+                              : <IconX size={10} color="var(--mantine-color-red-6)" />
+                            }
+                          </Group>
+                        )}
+                      </Stack>
                       <Group gap={4} wrap="nowrap">
                         <Text size="sm" fw={700} c={ratingColor(r.rating ?? 0)}>{r.rating}</Text>
                         {isMine && !editMode && (
@@ -555,7 +588,7 @@ function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allow
                             label="Comment (optional)"
                             value={editComment}
                             onChange={(e) => setEditComment(e.currentTarget.value)}
-                            maxLength={1000}
+                            maxLength={5000}
                             autosize
                             minRows={2}
                             size="xs"

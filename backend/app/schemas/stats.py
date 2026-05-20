@@ -14,8 +14,9 @@ class UserGuessStatsResponse(BaseModel):
 class MemberGuessResult(BaseModel):
     guessing_user_id: int
     guessing_username: str
-    guessed_user_id: int
-    guessed_username: str
+    guessed_user_id: int | None
+    guessed_username: str | None
+    is_chaos: bool
     correct: bool
 
 
