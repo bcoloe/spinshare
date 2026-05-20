@@ -262,6 +262,8 @@ def search_albums(
     seen: set[tuple[str, str]] = set()
     results = []
     for item in items:
+        if item.get("album_type") == "single":
+            continue
         images = item.get("images", [])
         cover = images[0]["url"] if images else None
         artists = ", ".join(a["name"] for a in item.get("artists", []))
