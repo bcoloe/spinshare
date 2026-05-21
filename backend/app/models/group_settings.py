@@ -1,9 +1,12 @@
 """GroupSettings table definition."""
 
 from sqlalchemy import Boolean, Column, ForeignKey, Integer, String
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import relationship
 
 from app.database import Base
+
+_ALL_DAYS = list(range(7))
 
 
 class GroupSettings(Base):
@@ -23,5 +26,12 @@ class GroupSettings(Base):
     guess_user_cap = Column(Integer, nullable=False, default=5, server_default="5")
     chaos_mode = Column(Boolean, nullable=False, default=False, server_default="false")
     daily_nomination_limit = Column(Integer, nullable=True)
+    timezone = Column(String, nullable=False, default="America/New_York", server_default="America/New_York")
+    selection_days = Column(
+        ARRAY(Integer),
+        nullable=False,
+        default=_ALL_DAYS,
+        server_default="{0,1,2,3,4,5,6}",
+    )
 
     group = relationship("Group", back_populates="settings")

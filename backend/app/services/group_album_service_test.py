@@ -300,6 +300,55 @@ class TestGetTodaysAlbums:
             group_album_service.get_todays_albums(sample_group.id, outsider)
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
 
+    def test_returns_previous_draw_on_non_scheduled_day(
+        self, group_album_service, sample_group, sample_group_album, sample_user, db_session
+    ):
+        """On a non-draw day, returns albums from the most recent scheduled draw date."""
+        from datetime import date
+        from app.models.group_settings import GroupSettings
+
+        # Set group to Wednesday-only
+        settings = db_session.query(GroupSettings).filter(
+            GroupSettings.group_id == sample_group.id
+        ).first()
+        settings.selection_days = [2]
+        db_session.commit()
+
+        # Mark the album selected on a specific Wednesday (Jan 7, 2026 noon UTC)
+        wednesday_ts = datetime(2026, 1, 7, 12, 0, 0, tzinfo=timezone.utc)
+        sample_group_album.selected_date = wednesday_ts
+        db_session.commit()
+
+        # Now query from Thursday — should still return Wednesday's album
+        thursday = date(2026, 1, 8)
+        assert thursday.isoweekday() == 4
+        with patch("app.services.group_album_service._group_today", return_value=thursday):
+            results = group_album_service.get_todays_albums(sample_group.id, sample_user)
+
+        assert len(results) == 1
+        assert results[0].id == sample_group_album.id
+
+    def test_returns_empty_when_most_recent_draw_failed(
+        self, group_album_service, sample_group, sample_group_album, sample_user, db_session
+    ):
+        """If the most recent scheduled draw day had no successful draw, returns []."""
+        from datetime import date
+        from app.models.group_settings import GroupSettings
+
+        # Set group to Wednesday-only; do NOT run any selection
+        settings = db_session.query(GroupSettings).filter(
+            GroupSettings.group_id == sample_group.id
+        ).first()
+        settings.selection_days = [2]
+        db_session.commit()
+
+        # Query on Thursday with no prior Wednesday selection (pool exhausted / never ran)
+        thursday = date(2026, 1, 8)
+        with patch("app.services.group_album_service._group_today", return_value=thursday):
+            results = group_album_service.get_todays_albums(sample_group.id, sample_user)
+
+        assert results == []
+
 
 # ==================== GUESSING ====================
 
@@ -826,15 +875,14 @@ class TestChaosSelection:
         # The group now has both the nominated album and the chaos album.
         # No unrelated albums remain in the global pool.
         # Advance to the next day so the idempotency check doesn't return yesterday's pick.
-        from datetime import datetime, timezone
+        from datetime import date
 
-        next_day_start = datetime(2099, 1, 2, tzinfo=timezone.utc)
-        next_day_end = datetime(2099, 1, 3, tzinfo=timezone.utc)
+        next_day = date(2099, 1, 2)
         with (
             patch("app.services.group_album_service.random.random", return_value=0.0),
             patch(
-                "app.services.group_album_service._utc_today_range",
-                return_value=(next_day_start, next_day_end),
+                "app.services.group_album_service._group_today",
+                return_value=next_day,
             ),
         ):
             # Only the nominated album is unselected — chaos has nothing to pull from,
@@ -1023,3 +1071,71 @@ class TestChaosGuessOptions:
             sample_group.id, sample_group_album.id, sample_user
         )
         assert result.has_chaos_option is False
+
+
+# ==================== SELECTION SCHEDULE ====================
+
+
+class TestSelectionSchedule:
+    """Tests for timezone-aware, day-of-week selection scheduling."""
+
+    def _set_selection_days(self, db_session, sample_group, days: list[int]):
+        """Update the group's selection_days setting directly."""
+        from app.models.group_settings import GroupSettings
+        settings = db_session.query(GroupSettings).filter(
+            GroupSettings.group_id == sample_group.id
+        ).first()
+        settings.selection_days = days
+        db_session.commit()
+
+    def test_skips_selection_on_unscheduled_day(
+        self, group_album_service, sample_group, sample_group_album, db_session
+    ):
+        """When today is not in selection_days, select_daily_albums returns [] without selecting."""
+        from datetime import date
+        # Set group to Wednesday-only (weekday index 2)
+        self._set_selection_days(db_session, sample_group, [2])
+        # Patch _group_today to return a Monday (isoweekday=1 → index 0)
+        monday = date(2026, 1, 5)
+        assert monday.isoweekday() == 1
+        with patch("app.services.group_album_service._group_today", return_value=monday):
+            result = group_album_service.select_daily_albums(sample_group.id, n=1)
+        assert result == []
+        db_session.refresh(sample_group_album)
+        assert sample_group_album.selected_date is None
+
+    def test_selects_on_scheduled_day(
+        self, group_album_service, sample_group, sample_group_album, db_session
+    ):
+        """When today is in selection_days, selection proceeds normally."""
+        from datetime import date
+        # Set group to Wednesday-only (weekday index 2)
+        self._set_selection_days(db_session, sample_group, [2])
+        # Patch _group_today to return a Wednesday (isoweekday=3 → index 2)
+        wednesday = date(2026, 1, 7)
+        assert wednesday.isoweekday() == 3
+        with patch("app.services.group_album_service._group_today", return_value=wednesday):
+            result = group_album_service.select_daily_albums(sample_group.id, n=1)
+        assert len(result) == 1
+        assert result[0].selected_date is not None
+
+    def test_bypass_schedule_selects_on_unscheduled_day(
+        self, group_album_service, sample_group, sample_group_album, db_session
+    ):
+        """bypass_schedule=True overrides the day-of-week check (used by manual triggers)."""
+        from datetime import date
+        self._set_selection_days(db_session, sample_group, [2])  # Wednesday only
+        monday = date(2026, 1, 5)
+        with patch("app.services.group_album_service._group_today", return_value=monday):
+            result = group_album_service.select_daily_albums(
+                sample_group.id, n=1, bypass_schedule=True
+            )
+        assert len(result) == 1
+        assert result[0].selected_date is not None
+
+    def test_all_days_selected_by_default(
+        self, group_album_service, sample_group, sample_group_album
+    ):
+        """Default selection_days=[0..6] means every day triggers selection."""
+        result = group_album_service.select_daily_albums(sample_group.id, n=1)
+        assert len(result) == 1

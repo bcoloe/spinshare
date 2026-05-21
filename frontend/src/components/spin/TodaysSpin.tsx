@@ -22,7 +22,7 @@ import {
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { IconBrandApple, IconBrandSpotify, IconBrandYoutube, IconCheck, IconDice5, IconExternalLink, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
+import { IconBrandApple, IconBrandSpotify, IconBrandYoutube, IconCheck, IconClock, IconDice5, IconExternalLink, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
 import AlbumCard from './AlbumCard'
 import ReviewAndGuessForm from './ReviewAndGuessForm'
 import AlbumSearchModal from '../albums/AlbumSearchModal'
@@ -33,6 +33,63 @@ import { albumSearchService } from '../../services/albumSearchService'
 import { ApiError } from '../../services/apiClient'
 import type { GroupAlbumResponse } from '../../types/album'
 import type { GroupDetailResponse } from '../../types/group'
+
+// ==================== NEXT DRAW HELPERS ====================
+
+const WEEKDAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const WEEKDAY_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+function getNextDrawInfo(
+  timezone: string,
+  selectionDays: number[],
+): { isToday: boolean; label: string | null } {
+  if (!selectionDays.length) return { isToday: false, label: null }
+  try {
+    const now = new Date()
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      weekday: 'short',
+      hour: 'numeric',
+      minute: 'numeric',
+      hourCycle: 'h23',
+    }).formatToParts(now)
+    const weekdayStr = parts.find(p => p.type === 'weekday')?.value ?? ''
+    const hour = parseInt(parts.find(p => p.type === 'hour')?.value ?? '0', 10)
+    const minute = parseInt(parts.find(p => p.type === 'minute')?.value ?? '0', 10)
+    const todayIdx = WEEKDAY_SHORT.indexOf(weekdayStr)
+    if (todayIdx === -1) return { isToday: false, label: null }
+
+    const isToday = selectionDays.includes(todayIdx)
+
+    // Minimum days ahead (>0) until next scheduled draw — wraps week if today is a draw day
+    let daysAhead = Infinity
+    for (const d of selectionDays) {
+      const diff = ((d - todayIdx + 7) % 7) || 7  // 1..7
+      if (diff < daysAhead) daysAhead = diff
+    }
+    if (!isFinite(daysAhead)) return { isToday, label: null }
+
+    const minutesUntilMidnight = (23 - hour) * 60 + (60 - minute)
+    const totalHours = Math.round(minutesUntilMidnight / 60) + (daysAhead - 1) * 24
+    const targetDayIdx = (todayIdx + daysAhead) % 7
+
+    let label: string
+    if (totalHours < 1) {
+      label = 'Next draw in less than an hour'
+    } else if (totalHours < 24) {
+      label = `Next draw in ${totalHours} hour${totalHours !== 1 ? 's' : ''}`
+    } else if (daysAhead === 1) {
+      label = `Next draw tomorrow (${WEEKDAY_FULL[targetDayIdx]})`
+    } else {
+      label = `Next draw in ${daysAhead} days (${WEEKDAY_FULL[targetDayIdx]})`
+    }
+    return { isToday, label }
+  } catch {
+    return { isToday: false, label: null }
+  }
+}
+
+// ==================== SPIN COMPONENTS ====================
 
 function SpinSlide({ groupAlbum, groupId, allowGuessing = true }: { groupAlbum: GroupAlbumResponse; groupId: number; allowGuessing?: boolean }) {
   const spotifyId = groupAlbum.album.spotify_album_id
@@ -462,8 +519,18 @@ export default function TodaysSpin({ groupId, group }: Props) {
           : pendingCount < 10 * dailyAlbumCount
             ? 'Pool is moderate — keep nominations coming'
             : 'Pool is healthy'
+  const nextDraw = group?.settings
+    ? getNextDrawInfo(group.settings.timezone, group.settings.selection_days)
+    : null
+
   const poolBadge = nominationCountData !== undefined ? (
-    <Group justify="flex-end">
+    <Group justify="space-between" align="center">
+      {nextDraw?.label ? (
+        <Group gap={4} c="dimmed">
+          <IconClock size={12} />
+          <Text size="xs">{nextDraw.label}</Text>
+        </Group>
+      ) : <span />}
       <Tooltip label={poolTooltip}>
         <Badge size="sm" color={poolColor} variant="light" style={{ cursor: 'default' }}>
           {pendingCount} nomination{pendingCount !== 1 ? 's' : ''} in pool
@@ -510,8 +577,12 @@ export default function TodaysSpin({ groupId, group }: Props) {
       <>
         <Stack gap="md">
           {poolBadge}
-          <Alert icon={<IconInfoCircle size={16} />} color="blue" title="No spin selected yet">
-            No album has been selected for today yet. Roll a random spin or nominate a new one.
+          <Alert
+            icon={<IconInfoCircle size={16} />}
+            color="blue"
+            title="No spin selected yet"
+          >
+            No album has been selected yet. Roll a random spin or nominate a new one.
           </Alert>
           <Center>
             <Group gap="sm">

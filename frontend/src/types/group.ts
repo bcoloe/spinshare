@@ -12,6 +12,8 @@ export interface GroupSettings {
   guess_user_cap: number
   chaos_mode: boolean
   daily_nomination_limit: number | null
+  timezone: string
+  selection_days: number[]
 }
 
 export interface GroupDetailResponse extends GroupResponse {
@@ -63,6 +65,8 @@ export interface GroupModify {
     guess_user_cap?: number
     chaos_mode?: boolean
     daily_nomination_limit?: number | null
+    timezone?: string
+    selection_days?: number[]
   }
 }
 
