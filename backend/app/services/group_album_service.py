@@ -500,7 +500,18 @@ class GroupAlbumService:
         today = _group_today(tz_name)
 
         selection_days = list(settings.selection_days) if settings and settings.selection_days else list(range(7))
-        target_date = _most_recent_scheduled_date(today, selection_days) or today
+
+        # Most recent date with an actual draw (schedule-agnostic — handles post-schedule-change state)
+        raw = (
+            self.db.query(func.max(_date_in_tz(GroupAlbum.selected_date, tz_name)))
+            .filter(GroupAlbum.group_id == group_id, GroupAlbum.selected_date.isnot(None))
+            .scalar()
+        )
+        most_recent_drawn = date.fromisoformat(raw) if isinstance(raw, str) else raw
+
+        scheduled = _most_recent_scheduled_date(today, selection_days)
+        candidates = [d for d in [most_recent_drawn, scheduled] if d is not None]
+        target_date = max(candidates) if candidates else today
 
         all_for_date = (
             self.db.query(GroupAlbum)
