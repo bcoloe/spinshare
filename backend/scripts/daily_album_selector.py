@@ -1,16 +1,17 @@
 """Daily album selector cron job.
 
-Selects N random unselected albums per group and marks them as today's spins
-by setting selected_date = now(). Intended to run once per day at midnight UTC
-(or each group's configured timezone, once group settings are added).
+Selects N random unselected albums per group and marks them as today's spins by
+setting selected_date = now(). The selector is idempotent — each group is
+selected at most once per its local calendar day. Running hourly ensures that
+midnight is caught for every group timezone and every configured selection day.
 
 Usage:
     python scripts/daily_album_selector.py            # 1 album per group (default)
     python scripts/daily_album_selector.py --n 3      # 3 albums per group
     python scripts/daily_album_selector.py --group 42 # single group only
 
-Cron example (daily at midnight UTC):
-    0 0 * * * cd /path/to/spinshare/backend && .venv/bin/python scripts/daily_album_selector.py
+Cron example (hourly, idempotent):
+    0 * * * * cd /path/to/spinshare/backend && .venv/bin/python scripts/daily_album_selector.py
 """
 
 import argparse

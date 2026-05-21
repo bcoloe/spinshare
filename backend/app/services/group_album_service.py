@@ -9,10 +9,11 @@ Guess lifecycle (per-user, instant feedback):
 """
 
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -31,12 +32,39 @@ from app.services.notification_service import NotificationService
 
 
 _CHAOS_PROBABILITY = 0.10
+_DEFAULT_TZ = "America/New_York"
 
 
 def _utc_today_range() -> tuple[datetime, datetime]:
     """Return [today_start, tomorrow_start) in UTC for date-boundary queries."""
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     return today_start, today_start + timedelta(days=1)
+
+
+def _group_today(tz_name: str) -> date:
+    """Return the current calendar date in the given IANA timezone."""
+    return datetime.now(tz=ZoneInfo(tz_name)).date()
+
+
+def _date_in_tz(col, tz_name: str):
+    """SQLAlchemy expression: extract the calendar date of a UTC timestamp in a given timezone."""
+    return func.date(func.timezone(tz_name, col))
+
+
+def _most_recent_scheduled_date(today: date, selection_days: list[int]) -> date | None:
+    """Return the most recent calendar date (≤ today) that falls on a scheduled draw weekday.
+
+    Looks back up to 7 days. Returns None if selection_days is empty.
+    Used so non-draw days show the previous draw's albums rather than an empty state.
+    """
+    if not selection_days:
+        return None
+    today_weekday = today.isoweekday() - 1  # isoweekday: 1=Mon…7=Sun → 0=Mon…6=Sun
+    for days_back in range(7):
+        candidate_weekday = (today_weekday - days_back) % 7
+        if candidate_weekday in selection_days:
+            return today - timedelta(days=days_back)
+    return None
 
 
 class GroupAlbumService:
@@ -47,15 +75,21 @@ class GroupAlbumService:
 
     # ==================== DAILY SELECTION (cron-driven) ====================
 
-    def select_daily_albums(self, group_id: int, n: int = 1) -> list[GroupAlbum]:
+    def select_daily_albums(
+        self, group_id: int, n: int = 1, *, bypass_schedule: bool = False
+    ) -> list[GroupAlbum]:
         """Randomly select N unselected albums as today's daily spins for a group.
 
-        Idempotent: if albums were already selected today, returns the existing selection
-        without adding more. Safe to call multiple times on the same day (e.g. cron retry).
+        Idempotent: if albums were already selected today (in the group's timezone), returns
+        the existing selection without adding more. Safe to call multiple times (e.g. hourly cron).
+
+        Respects the group's ``selection_days`` schedule: if today (in the group's timezone) is
+        not a scheduled day, returns [] immediately without selecting. Pass
+        ``bypass_schedule=True`` to override (used by manual triggers).
 
         For the global group, samples from all nominations across every non-global group.
         For regular groups, operates on distinct pending nominations within the group.
-        If the group has chaos_mode enabled, each slot has a 20% chance of being filled
+        If the group has chaos_mode enabled, each slot has a 10% chance of being filled
         from the global album pool (any album not already in the group) instead of from
         group nominations.
 
@@ -65,13 +99,22 @@ class GroupAlbumService:
         Raises:
             HTTPException 409: If no eligible distinct albums are available.
         """
-        today_start, tomorrow_start = _utc_today_range()
+        settings = self.db.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
+        tz_name = (settings.timezone if settings else None) or _DEFAULT_TZ
+
+        today = _group_today(tz_name)
+
+        # Skip selection on unscheduled days (cron path only; manual triggers bypass this)
+        if not bypass_schedule and settings is not None:
+            weekday = today.isoweekday() - 1  # isoweekday: 1=Mon…7=Sun → 0=Mon…6=Sun
+            if weekday not in settings.selection_days:
+                return []
+
         existing = (
             self.db.query(GroupAlbum)
             .filter(
                 GroupAlbum.group_id == group_id,
-                GroupAlbum.selected_date >= today_start,
-                GroupAlbum.selected_date < tomorrow_start,
+                _date_in_tz(GroupAlbum.selected_date, tz_name) == today,
             )
             .order_by(GroupAlbum.id)
             .all()
@@ -91,7 +134,6 @@ class GroupAlbumService:
             self._heal_genres(selected)
             return selected
 
-        settings = self.db.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
         chaos_mode = settings.chaos_mode if settings else False
 
         available_album_ids = [
@@ -334,13 +376,13 @@ class GroupAlbumService:
                 detail="Group settings not found",
             )
 
-        today_start, tomorrow_start = _utc_today_range()
+        tz_name = (settings.timezone if settings else None) or _DEFAULT_TZ
+        today = _group_today(tz_name)
         existing = (
             self.db.query(GroupAlbum)
             .filter(
                 GroupAlbum.group_id == group_id,
-                GroupAlbum.selected_date >= today_start,
-                GroupAlbum.selected_date < tomorrow_start,
+                _date_in_tz(GroupAlbum.selected_date, tz_name) == today,
             )
             .order_by(GroupAlbum.id)
             .all()
@@ -381,7 +423,7 @@ class GroupAlbumService:
                     detail="no_nominations_chaos_available",
                 )
 
-        return self.select_daily_albums(group_id, n=n)
+        return self.select_daily_albums(group_id, n=n, bypass_schedule=True)
 
     def _select_full_chaos(self, group_id: int, group: Group | None, n: int) -> list[GroupAlbum]:
         """Fill all N daily slots from the global album pool (FULL CHAOS MODE).
@@ -437,7 +479,12 @@ class GroupAlbumService:
         return result
 
     def get_todays_albums(self, group_id: int, user: User) -> list[GroupAlbum]:
-        """Return albums selected as today's daily spins for a group. Requires membership.
+        """Return albums from the most recent scheduled draw for a group. Requires membership.
+
+        On non-draw days, falls back to the previous scheduled draw's albums so members
+        always see the current spin until the next draw replaces it. Returns [] only when
+        the most recent scheduled draw ran but found nothing (pool exhausted) or no draws
+        have ever occurred.
 
         When an album has multiple nominations they are all selected together;
         this returns one canonical GroupAlbum (earliest nomination) per album.
@@ -448,13 +495,18 @@ class GroupAlbumService:
         group_service = gs.GroupService(self.db)
         group_service.require_membership(user.id, group_id)
 
-        today_start, tomorrow_start = _utc_today_range()
-        all_today = (
+        settings = self.db.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
+        tz_name = (settings.timezone if settings else None) or _DEFAULT_TZ
+        today = _group_today(tz_name)
+
+        selection_days = list(settings.selection_days) if settings and settings.selection_days else list(range(7))
+        target_date = _most_recent_scheduled_date(today, selection_days) or today
+
+        all_for_date = (
             self.db.query(GroupAlbum)
             .filter(
                 GroupAlbum.group_id == group_id,
-                GroupAlbum.selected_date >= today_start,
-                GroupAlbum.selected_date < tomorrow_start,
+                _date_in_tz(GroupAlbum.selected_date, tz_name) == target_date,
             )
             .options(
                 selectinload(GroupAlbum.albums).selectinload(Album.genres),
@@ -467,7 +519,7 @@ class GroupAlbumService:
         # Deduplicate by album_id, keeping the canonical (lowest id) row
         seen: set[int] = set()
         canonical = []
-        for ga in all_today:
+        for ga in all_for_date:
             if ga.album_id not in seen:
                 seen.add(ga.album_id)
                 canonical.append(ga)

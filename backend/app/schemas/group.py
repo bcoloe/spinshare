@@ -2,6 +2,7 @@
 
 import re
 from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -52,6 +53,8 @@ class GroupSettingsResponse(BaseModel):
     guess_user_cap: int
     chaos_mode: bool
     daily_nomination_limit: int | None
+    timezone: str
+    selection_days: list[int]
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -65,6 +68,8 @@ class GroupSettingsUpdate(BaseModel):
     guess_user_cap: int | None = None
     chaos_mode: bool | None = None
     daily_nomination_limit: int | None = None
+    timezone: str | None = None
+    selection_days: list[int] | None = None
 
     @field_validator("min_role_to_add_members", "min_role_to_nominate")
     @classmethod
@@ -102,6 +107,30 @@ class GroupSettingsUpdate(BaseModel):
         if v < 1 or v > MAX_DAILY_NOMINATION_LIMIT:
             raise ValueError(f"Must be between 1 and {MAX_DAILY_NOMINATION_LIMIT}")
         return v
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, v):
+        if v is None:
+            return v
+        try:
+            ZoneInfo(v)
+        except (ZoneInfoNotFoundError, KeyError):
+            raise ValueError(f"Unknown timezone: {v!r}")
+        return v
+
+    @field_validator("selection_days")
+    @classmethod
+    def validate_selection_days(cls, v):
+        if v is None:
+            return v
+        if not v:
+            raise ValueError("At least one selection day is required")
+        if any(d < 0 or d > 6 for d in v):
+            raise ValueError("Each day must be between 0 (Monday) and 6 (Sunday)")
+        if len(set(v)) != len(v):
+            raise ValueError("Selection days must not contain duplicates")
+        return sorted(v)
 
 
 class GroupModifyRequest(BaseModel):

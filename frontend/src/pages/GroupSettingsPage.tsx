@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import {
   ActionIcon,
   Button,
+  Chip,
   Divider,
   Group,
   Modal,
@@ -37,6 +38,40 @@ const ROLE_OPTIONS = [
   { value: 'owner', label: 'Owner' },
 ]
 
+const TIMEZONE_OPTIONS = [
+  { value: 'America/New_York', label: 'Eastern (ET)' },
+  { value: 'America/Chicago', label: 'Central (CT)' },
+  { value: 'America/Denver', label: 'Mountain (MT)' },
+  { value: 'America/Los_Angeles', label: 'Pacific (PT)' },
+  { value: 'America/Anchorage', label: 'Alaska (AKT)' },
+  { value: 'Pacific/Honolulu', label: 'Hawaii (HT)' },
+  { value: 'America/Toronto', label: 'Toronto (ET)' },
+  { value: 'America/Vancouver', label: 'Vancouver (PT)' },
+  { value: 'Europe/London', label: 'London (GMT/BST)' },
+  { value: 'Europe/Paris', label: 'Paris (CET)' },
+  { value: 'Europe/Berlin', label: 'Berlin (CET)' },
+  { value: 'Europe/Helsinki', label: 'Helsinki (EET)' },
+  { value: 'Asia/Dubai', label: 'Dubai (GST)' },
+  { value: 'Asia/Kolkata', label: 'India (IST)' },
+  { value: 'Asia/Bangkok', label: 'Bangkok (ICT)' },
+  { value: 'Asia/Singapore', label: 'Singapore (SGT)' },
+  { value: 'Asia/Tokyo', label: 'Tokyo (JST)' },
+  { value: 'Asia/Seoul', label: 'Seoul (KST)' },
+  { value: 'Australia/Sydney', label: 'Sydney (AEST)' },
+  { value: 'Pacific/Auckland', label: 'Auckland (NZST)' },
+  { value: 'UTC', label: 'UTC' },
+]
+
+const DAY_OPTIONS = [
+  { value: '0', label: 'Mon' },
+  { value: '1', label: 'Tue' },
+  { value: '2', label: 'Wed' },
+  { value: '3', label: 'Thu' },
+  { value: '4', label: 'Fri' },
+  { value: '5', label: 'Sat' },
+  { value: '6', label: 'Sun' },
+]
+
 export default function GroupSettingsPage() {
   const { groupId } = useParams<{ groupId: string }>()
   const gid = Number(groupId)
@@ -57,6 +92,8 @@ export default function GroupSettingsPage() {
   const [guessUserCap, setGuessUserCap] = useState<number | string | null>(null)
   const [chaosMode, setChaosMode] = useState<boolean | null>(null)
   const [dailyNominationLimit, setDailyNominationLimit] = useState<number | string | null | undefined>(undefined)
+  const [timezone, setTimezone] = useState<string | null>(null)
+  const [selectionDays, setSelectionDays] = useState<number[] | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [memberToRemove, setMemberToRemove] = useState<GroupMemberResponse | null>(null)
 
@@ -73,6 +110,8 @@ export default function GroupSettingsPage() {
     if (raw === null || raw === undefined || raw === '') return ''
     return raw as number
   })()
+  const currentTimezone = timezone ?? group?.settings?.timezone ?? 'America/New_York'
+  const currentSelectionDays = selectionDays ?? group?.settings?.selection_days ?? [0,1,2,3,4,5,6]
 
   const isOwner = group?.current_user_role === 'owner'
   const currentRole = group?.current_user_role
@@ -92,6 +131,8 @@ export default function GroupSettingsPage() {
             : currentDailyNominationLimit === ''
             ? null
             : undefined,
+          timezone: currentTimezone,
+          selection_days: currentSelectionDays,
         },
       })
       notifications.show({ color: 'green', message: 'Settings saved' })
@@ -236,6 +277,32 @@ export default function GroupSettingsPage() {
             checked={currentChaosMode}
             onChange={(e) => setChaosMode(e.currentTarget.checked)}
           />
+          <Select
+            label="Timezone"
+            description="When midnight resets the daily spin for this group."
+            data={TIMEZONE_OPTIONS}
+            value={currentTimezone}
+            onChange={(val) => val && setTimezone(val)}
+            allowDeselect={false}
+            w={220}
+          />
+          <Stack gap={6}>
+            <Text size="sm" fw={500}>Selection days</Text>
+            <Text size="xs" c="dimmed">Albums are drawn only on checked days. Use "Albums per day" to control how many are drawn each scheduled day.</Text>
+            <Chip.Group
+              multiple
+              value={currentSelectionDays.map(String)}
+              onChange={(vals) => setSelectionDays(vals.map(Number))}
+            >
+              <Group gap="xs">
+                {DAY_OPTIONS.map((d) => (
+                  <Chip key={d.value} value={d.value} size="sm">
+                    {d.label}
+                  </Chip>
+                ))}
+              </Group>
+            </Chip.Group>
+          </Stack>
           <Button
             style={{ alignSelf: 'flex-start' }}
             loading={updateGroup.isPending}
