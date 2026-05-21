@@ -349,6 +349,35 @@ class TestGetTodaysAlbums:
 
         assert results == []
 
+    def test_returns_most_recent_actual_draw_after_schedule_change(
+        self, group_album_service, sample_group, sample_group_album, sample_user, db_session
+    ):
+        """After a schedule update, shows the most recent actual draw even if it's now off-schedule."""
+        from datetime import date
+        from app.models.group_settings import GroupSettings
+
+        # Update group to Monday-only after albums were already drawn on Friday
+        settings = db_session.query(GroupSettings).filter(
+            GroupSettings.group_id == sample_group.id
+        ).first()
+        settings.selection_days = [0]
+        db_session.commit()
+
+        # Albums were drawn on Friday 2026-01-09 (under the old daily schedule)
+        friday_ts = datetime(2026, 1, 9, 12, 0, 0, tzinfo=timezone.utc)
+        sample_group_album.selected_date = friday_ts
+        db_session.commit()
+
+        # Query on Saturday 2026-01-10 — last Monday (Jan 5) is the most recent scheduled day,
+        # but Friday's draw (Jan 9) is more recent and should take precedence.
+        saturday = date(2026, 1, 10)
+        assert saturday.isoweekday() == 6
+        with patch("app.services.group_album_service._group_today", return_value=saturday):
+            results = group_album_service.get_todays_albums(sample_group.id, sample_user)
+
+        assert len(results) == 1
+        assert results[0].id == sample_group_album.id
+
 
 # ==================== GUESSING ====================
 
