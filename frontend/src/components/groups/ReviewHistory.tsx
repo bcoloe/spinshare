@@ -424,9 +424,6 @@ function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allow
           <CoverCell src={album.cover_url} />
         </Table.Td>
         <Table.Td>
-          <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{formatDate(ga.selected_date)}</Text>
-        </Table.Td>
-        <Table.Td>
           <Text
             size="sm"
             fw={500}
@@ -490,6 +487,9 @@ function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allow
                 : <Text size="sm" c="dimmed">—</Text>
             })()
           )}
+        </Table.Td>
+        <Table.Td>
+          <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{formatDate(ga.selected_date)}</Text>
         </Table.Td>
         <Table.Td>
           <Group gap={6} justify="flex-end" wrap="nowrap">
@@ -764,7 +764,7 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
             <SortButton field="artist" label="Artist" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
           </Table.Th>
           <Table.Th>
-            <SortButton field="date" label="Date" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
+            <SortButton field="date" label="Selected" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
           </Table.Th>
           <Table.Th />
         </Table.Tr>
@@ -837,9 +837,6 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
               <Table.Tr>
                 <Table.Th w={52} />
                 <Table.Th>
-                  <SortButton field="date" label="Selected" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
-                </Table.Th>
-                <Table.Th>
                   <SortButton field="title" label="Album" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
                 </Table.Th>
                 <Table.Th>
@@ -852,6 +849,9 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
                 <Table.Th>Group Avg</Table.Th>
                 <Table.Th>
                   <SortButton field="nominator" label="Nominated By" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
+                </Table.Th>
+                <Table.Th>
+                  <SortButton field="date" label="Selected" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
                 </Table.Th>
                 <Table.Th w={56} />
               </Table.Tr>
