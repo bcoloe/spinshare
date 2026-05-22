@@ -424,6 +424,9 @@ function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allow
           <CoverCell src={album.cover_url} />
         </Table.Td>
         <Table.Td>
+          <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{formatDate(ga.selected_date)}</Text>
+        </Table.Td>
+        <Table.Td>
           <Text
             size="sm"
             fw={500}
@@ -438,9 +441,6 @@ function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allow
         </Table.Td>
         <Table.Td>
           <Text size="sm" c="dimmed" lineClamp={1}>{album.artist}</Text>
-        </Table.Td>
-        <Table.Td>
-          <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{formatDate(ga.selected_date)}</Text>
         </Table.Td>
         <Table.Td>
           <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{formatReleaseDate(album.release_date)}</Text>
@@ -837,13 +837,13 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
               <Table.Tr>
                 <Table.Th w={52} />
                 <Table.Th>
+                  <SortButton field="date" label="Selected" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
+                </Table.Th>
+                <Table.Th>
                   <SortButton field="title" label="Album" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
                 </Table.Th>
                 <Table.Th>
                   <SortButton field="artist" label="Artist" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
-                </Table.Th>
-                <Table.Th>
-                  <SortButton field="date" label="Date" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
                 </Table.Th>
                 <Table.Th>
                   <SortButton field="release" label="Released" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
