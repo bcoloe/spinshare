@@ -88,7 +88,9 @@ export default function GroupSettingsPage() {
   const [name, setName] = useState<string | null>(null)
   const [isPublic, setIsPublic] = useState<boolean | null>(null)
   const [minRoleToAddMembers, setMinRoleToAddMembers] = useState<string | null>(null)
+  const [minRoleToNominate, setMinRoleToNominate] = useState<string | null>(null)
   const [dailyAlbumCount, setDailyAlbumCount] = useState<number | string | null>(null)
+  const [allowGuessing, setAllowGuessing] = useState<boolean | null>(null)
   const [guessUserCap, setGuessUserCap] = useState<number | string | null>(null)
   const [chaosMode, setChaosMode] = useState<boolean | null>(null)
   const [dailyNominationLimit, setDailyNominationLimit] = useState<number | string | null | undefined>(undefined)
@@ -100,7 +102,9 @@ export default function GroupSettingsPage() {
   const currentName = name ?? group?.name ?? ''
   const currentPublic = isPublic ?? group?.is_public ?? true
   const currentMinRole = minRoleToAddMembers ?? group?.settings?.min_role_to_add_members ?? 'admin'
+  const currentMinRoleToNominate = minRoleToNominate ?? group?.settings?.min_role_to_nominate ?? 'member'
   const currentDailyCount = dailyAlbumCount ?? group?.settings?.daily_album_count ?? 1
+  const currentAllowGuessing = allowGuessing ?? group?.settings?.allow_guessing ?? true
   const currentGuessUserCap = guessUserCap ?? group?.settings?.guess_user_cap ?? 5
   const currentChaosMode = chaosMode ?? group?.settings?.chaos_mode ?? false
   const currentDailyNominationLimit: string | number = (() => {
@@ -123,7 +127,9 @@ export default function GroupSettingsPage() {
         is_public: currentPublic,
         settings: {
           min_role_to_add_members: currentMinRole,
+          min_role_to_nominate: currentMinRoleToNominate,
           daily_album_count: typeof currentDailyCount === 'number' ? currentDailyCount : undefined,
+          allow_guessing: currentAllowGuessing,
           guess_user_cap: typeof currentGuessUserCap === 'number' ? currentGuessUserCap : undefined,
           chaos_mode: currentChaosMode,
           daily_nomination_limit: typeof currentDailyNominationLimit === 'number'
@@ -242,6 +248,15 @@ export default function GroupSettingsPage() {
             allowDeselect={false}
             w={200}
           />
+          <Select
+            label="Who can nominate albums"
+            description="Minimum role required to add nominations to the pool. Use 'Owner' or 'Admin' to restrict to privileged members only."
+            data={ROLE_OPTIONS}
+            value={currentMinRoleToNominate}
+            onChange={(val) => val && setMinRoleToNominate(val)}
+            allowDeselect={false}
+            w={200}
+          />
           <NumberInput
             label="Albums per day"
             description="Number of albums drawn for daily review (max 10)."
@@ -270,6 +285,12 @@ export default function GroupSettingsPage() {
             placeholder="No limit"
             w={160}
             allowDecimal={false}
+          />
+          <Switch
+            label="Enable guessing game"
+            description="Members can guess who nominated each day's album before the reveal. Disable to skip guessing entirely."
+            checked={currentAllowGuessing}
+            onChange={(e) => setAllowGuessing(e.currentTarget.checked)}
           />
           <Switch
             label="Chaos mode"

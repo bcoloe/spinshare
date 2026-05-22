@@ -279,6 +279,8 @@ class TestGroupStats:
             "albums_per_member": [{"username": "alice", "count": 6}, {"username": "bob", "count": 4}],
             "selected_per_member": [{"username": "alice", "count": 3}, {"username": "bob", "count": 2}],
             "decade_breakdown": [{"decade": "1990s", "count": 7}, {"decade": "2000s", "count": 3}],
+            "guess_histogram": [{"label": "0–10%", "count": 1}, {"label": "90–100%", "count": 2}],
+            "member_guess_accuracy": [{"username": "alice", "total_guesses": 6, "correct_guesses": 4, "accuracy": 0.67}],
         }
 
         resp = client.get("/groups/1/stats")

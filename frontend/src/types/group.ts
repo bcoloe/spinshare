@@ -41,6 +41,18 @@ export interface GroupDecadeBreakdownItem {
   count: number
 }
 
+export interface GuessHistogramBucket {
+  label: string
+  count: number
+}
+
+export interface MemberGuessAccuracyItem {
+  username: string
+  total_guesses: number
+  correct_guesses: number
+  accuracy: number
+}
+
 export interface GroupStatsResponse {
   member_count: number
   albums_added: number
@@ -49,6 +61,8 @@ export interface GroupStatsResponse {
   albums_per_member: AlbumsPerMemberItem[]
   selected_per_member: AlbumsPerMemberItem[]
   decade_breakdown: GroupDecadeBreakdownItem[]
+  guess_histogram: GuessHistogramBucket[]
+  member_guess_accuracy: MemberGuessAccuracyItem[]
 }
 
 export interface GroupCreate {
@@ -61,7 +75,9 @@ export interface GroupModify {
   is_public?: boolean
   settings?: {
     min_role_to_add_members?: string
+    min_role_to_nominate?: string
     daily_album_count?: number
+    allow_guessing?: boolean
     guess_user_cap?: number
     chaos_mode?: boolean
     daily_nomination_limit?: number | null

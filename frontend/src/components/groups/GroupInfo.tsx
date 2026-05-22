@@ -16,13 +16,18 @@ import {
 import ChartCarousel from '../profile/ChartCarousel'
 import MemberList from './MemberList'
 import { useGroupStats, useGroupPendingInvitations } from '../../hooks/useGroups'
-import type { GroupDetailResponse } from '../../types/group'
+import type { GroupDetailResponse, GuessHistogramBucket, MemberGuessAccuracyItem } from '../../types/group'
 
 const DECADE_COLORS = [
   '#7950f2', '#228be6', '#12b886', '#f03e3e', '#fd7e14',
   '#fab005', '#74c0fc', '#63e6be', '#ffa8a8', '#e599f7',
 ]
 const OUTSIDE_GROUP_COLOR = '#5c5f66'
+
+const HISTOGRAM_COLORS = [
+  '#f03e3e', '#fd7e14', '#fd7e14', '#fab005', '#fab005',
+  '#94d82d', '#94d82d', '#40c057', '#40c057', '#2f9e44',
+]
 
 interface MemberPieProps {
   data: { username: string; count: number }[]
@@ -83,6 +88,82 @@ function StatCard({ label, value }: StatCardProps) {
       <Text size="xl" fw={700}>{value}</Text>
       <Text size="xs" c="dimmed">{label}</Text>
     </Stack>
+  )
+}
+
+interface GuessHistogramChartProps {
+  data: GuessHistogramBucket[]
+}
+
+function GuessHistogramChart({ data }: GuessHistogramChartProps) {
+  return (
+    <ResponsiveContainer width="100%" height={180}>
+      <BarChart data={data} barCategoryGap="15%">
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" vertical={false} />
+        <XAxis dataKey="label" tick={{ fontSize: 10, fill: 'var(--mantine-color-dimmed)' }} axisLine={false} tickLine={false} interval={0} />
+        <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: 'var(--mantine-color-dimmed)' }} axisLine={false} tickLine={false} width={24} />
+        <RechartsTooltip
+          formatter={(value) => [`${value} album${value !== 1 ? 's' : ''}`, 'Albums']}
+          contentStyle={{ background: 'var(--mantine-color-dark-7)', border: '1px solid var(--mantine-color-dark-4)', borderRadius: 4, fontSize: 13 }}
+          labelStyle={{ color: '#c1c2c5' }}
+          itemStyle={{ color: '#c1c2c5' }}
+          cursor={{ fill: 'var(--mantine-color-dark-5)' }}
+        />
+        <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+          {data.map((_, i) => (
+            <Cell key={i} fill={HISTOGRAM_COLORS[i % HISTOGRAM_COLORS.length]} />
+          ))}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  )
+}
+
+interface MemberGuessAccuracyChartProps {
+  data: MemberGuessAccuracyItem[]
+}
+
+function MemberGuessAccuracyChart({ data }: MemberGuessAccuracyChartProps) {
+  const chartData = [...data]
+    .sort((a, b) => b.accuracy - a.accuracy)
+    .map((d) => ({
+      username: d.username,
+      pct: Math.round(d.accuracy * 100),
+      correct: d.correct_guesses,
+      total: d.total_guesses,
+    }))
+  return (
+    <ResponsiveContainer width="100%" height={Math.max(160, chartData.length * 40)}>
+      <BarChart data={chartData} layout="vertical" barCategoryGap="25%">
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" horizontal={false} />
+        <XAxis
+          type="number"
+          domain={[0, 100]}
+          tickFormatter={(v) => `${v}%`}
+          tick={{ fontSize: 11, fill: 'var(--mantine-color-dimmed)' }}
+          axisLine={false}
+          tickLine={false}
+        />
+        <YAxis
+          type="category"
+          dataKey="username"
+          width={90}
+          tick={{ fontSize: 12, fill: 'var(--mantine-color-dimmed)' }}
+          axisLine={false}
+          tickLine={false}
+        />
+        <RechartsTooltip
+          formatter={(value, _name, props) =>
+            [`${value}% (${props.payload.correct} / ${props.payload.total} correct)`, 'Accuracy']
+          }
+          contentStyle={{ background: 'var(--mantine-color-dark-7)', border: '1px solid var(--mantine-color-dark-4)', borderRadius: 4, fontSize: 13 }}
+          labelStyle={{ color: '#c1c2c5' }}
+          itemStyle={{ color: '#c1c2c5' }}
+          cursor={{ fill: 'var(--mantine-color-dark-5)' }}
+        />
+        <Bar dataKey="pct" radius={[0, 4, 4, 0]} fill="#7950f2" />
+      </BarChart>
+    </ResponsiveContainer>
   )
 }
 
@@ -168,6 +249,20 @@ export default function GroupInfo({ group }: Props) {
                   </BarChart>
                 </ResponsiveContainer>
               ),
+            },
+            {
+              title: 'Guess Accuracy Distribution',
+              loading: statsLoading,
+              empty: !(stats?.guess_histogram ?? []).some((b) => b.count > 0),
+              emptyMessage: 'No guesses submitted yet.',
+              chart: <GuessHistogramChart data={stats?.guess_histogram ?? []} />,
+            },
+            {
+              title: 'Member Guess Accuracy',
+              loading: statsLoading,
+              empty: !(stats?.member_guess_accuracy ?? []).length,
+              emptyMessage: 'No guesses submitted yet.',
+              chart: <MemberGuessAccuracyChart data={stats?.member_guess_accuracy ?? []} />,
             },
           ]}
         />

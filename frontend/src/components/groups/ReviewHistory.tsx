@@ -45,7 +45,7 @@ import type { MemberGuessResult } from '../../types/stats'
 
 // ==================== TYPES ====================
 
-type SortField = 'title' | 'artist' | 'date' | 'nominator'
+type SortField = 'title' | 'artist' | 'date' | 'release' | 'nominator'
 type SortDir = 'asc' | 'desc'
 
 // ==================== HELPERS ====================
@@ -79,6 +79,16 @@ function ratingBg(rating: number): string {
   return 'color-mix(in srgb, var(--mantine-color-green-7) 12%, transparent)'
 }
 
+function formatReleaseDate(releaseDate: string | null): string {
+  if (!releaseDate) return '—'
+  // release_date can be "YYYY", "YYYY-MM", or "YYYY-MM-DD"
+  const parts = releaseDate.split('-')
+  if (parts.length === 1) return parts[0]
+  const year = parts[0]
+  const month = new Date(releaseDate + (parts.length === 2 ? '-01' : '')).toLocaleDateString(undefined, { month: 'short' })
+  return `${month} ${year}`
+}
+
 function sortAlbums(
   albums: GroupAlbumResponse[],
   members: GroupMemberResponse[],
@@ -100,6 +110,10 @@ function sortAlbums(
       case 'date':
         av = a.selected_date ?? ''
         bv = b.selected_date ?? ''
+        break
+      case 'release':
+        av = a.album.release_date ?? ''
+        bv = b.album.release_date ?? ''
         break
       case 'nominator':
         av = getNominator(a, members)
@@ -429,6 +443,9 @@ function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allow
           <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{formatDate(ga.selected_date)}</Text>
         </Table.Td>
         <Table.Td>
+          <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{formatReleaseDate(album.release_date)}</Text>
+        </Table.Td>
+        <Table.Td>
           <Text size="sm" fw={700} c={ratingColor(review.rating ?? 0)}>{review.rating}</Text>
         </Table.Td>
         <Table.Td>
@@ -487,7 +504,7 @@ function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allow
       {isExpanded && (
         <Table.Tr>
           <Table.Td
-            colSpan={8}
+            colSpan={9}
             style={{ background: 'var(--mantine-color-dark-7)', padding: '16px 20px' }}
           >
             <Stack gap="sm">
@@ -827,6 +844,9 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
                 </Table.Th>
                 <Table.Th>
                   <SortButton field="date" label="Date" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
+                </Table.Th>
+                <Table.Th>
+                  <SortButton field="release" label="Released" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
                 </Table.Th>
                 <Table.Th>Rating</Table.Th>
                 <Table.Th>Group Avg</Table.Th>
