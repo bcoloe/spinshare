@@ -298,6 +298,11 @@ function UnreviewedRow({ ga, groupId, members: _members, isExpanded, onToggle, a
         </Table.Td>
         <Table.Td>
           <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+            {formatReleaseDate(album.release_date)}
+          </Text>
+        </Table.Td>
+        <Table.Td>
+          <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
             {formatDate(ga.selected_date)}
           </Text>
         </Table.Td>
@@ -317,7 +322,7 @@ function UnreviewedRow({ ga, groupId, members: _members, isExpanded, onToggle, a
       {isExpanded && (
         <Table.Tr>
           <Table.Td
-            colSpan={5}
+            colSpan={6}
             style={{ background: 'var(--mantine-color-dark-7)', padding: '16px 20px' }}
           >
             <ReviewAndGuessForm
@@ -762,6 +767,9 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
           </Table.Th>
           <Table.Th>
             <SortButton field="artist" label="Artist" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
+          </Table.Th>
+          <Table.Th>
+            <SortButton field="release" label="Released" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
           </Table.Th>
           <Table.Th>
             <SortButton field="date" label="Selected" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
