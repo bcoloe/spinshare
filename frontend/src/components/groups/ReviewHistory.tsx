@@ -45,7 +45,7 @@ import type { MemberGuessResult } from '../../types/stats'
 
 // ==================== TYPES ====================
 
-type SortField = 'title' | 'artist' | 'date' | 'nominator'
+type SortField = 'title' | 'artist' | 'date' | 'release' | 'nominator'
 type SortDir = 'asc' | 'desc'
 
 // ==================== HELPERS ====================
@@ -79,6 +79,16 @@ function ratingBg(rating: number): string {
   return 'color-mix(in srgb, var(--mantine-color-green-7) 12%, transparent)'
 }
 
+function formatReleaseDate(releaseDate: string | null): string {
+  if (!releaseDate) return '—'
+  // release_date can be "YYYY", "YYYY-MM", or "YYYY-MM-DD"
+  const parts = releaseDate.split('-')
+  if (parts.length === 1) return parts[0]
+  const year = parts[0]
+  const month = new Date(releaseDate + (parts.length === 2 ? '-01' : '')).toLocaleDateString(undefined, { month: 'short' })
+  return `${month} ${year}`
+}
+
 function sortAlbums(
   albums: GroupAlbumResponse[],
   members: GroupMemberResponse[],
@@ -100,6 +110,10 @@ function sortAlbums(
       case 'date':
         av = a.selected_date ?? ''
         bv = b.selected_date ?? ''
+        break
+      case 'release':
+        av = a.album.release_date ?? ''
+        bv = b.album.release_date ?? ''
         break
       case 'nominator':
         av = getNominator(a, members)
@@ -284,6 +298,11 @@ function UnreviewedRow({ ga, groupId, members: _members, isExpanded, onToggle, a
         </Table.Td>
         <Table.Td>
           <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+            {formatReleaseDate(album.release_date)}
+          </Text>
+        </Table.Td>
+        <Table.Td>
+          <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
             {formatDate(ga.selected_date)}
           </Text>
         </Table.Td>
@@ -303,7 +322,7 @@ function UnreviewedRow({ ga, groupId, members: _members, isExpanded, onToggle, a
       {isExpanded && (
         <Table.Tr>
           <Table.Td
-            colSpan={5}
+            colSpan={6}
             style={{ background: 'var(--mantine-color-dark-7)', padding: '16px 20px' }}
           >
             <ReviewAndGuessForm
@@ -426,7 +445,7 @@ function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allow
           <Text size="sm" c="dimmed" lineClamp={1}>{album.artist}</Text>
         </Table.Td>
         <Table.Td>
-          <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{formatDate(ga.selected_date)}</Text>
+          <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{formatReleaseDate(album.release_date)}</Text>
         </Table.Td>
         <Table.Td>
           <Text size="sm" fw={700} c={ratingColor(review.rating ?? 0)}>{review.rating}</Text>
@@ -475,6 +494,9 @@ function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allow
           )}
         </Table.Td>
         <Table.Td>
+          <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{formatDate(ga.selected_date)}</Text>
+        </Table.Td>
+        <Table.Td>
           <Group gap={6} justify="flex-end" wrap="nowrap">
             <ActionIcon size="sm" variant="subtle" onClick={handleEditOpen}>
               <IconPencil size={13} />
@@ -487,7 +509,7 @@ function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allow
       {isExpanded && (
         <Table.Tr>
           <Table.Td
-            colSpan={8}
+            colSpan={9}
             style={{ background: 'var(--mantine-color-dark-7)', padding: '16px 20px' }}
           >
             <Stack gap="sm">
@@ -747,7 +769,10 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
             <SortButton field="artist" label="Artist" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
           </Table.Th>
           <Table.Th>
-            <SortButton field="date" label="Date" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
+            <SortButton field="release" label="Released" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
+          </Table.Th>
+          <Table.Th>
+            <SortButton field="date" label="Selected" active={unreviewedField} dir={unreviewedDir} onClick={toggleUnreviewedSort} />
           </Table.Th>
           <Table.Th />
         </Table.Tr>
@@ -826,12 +851,15 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
                   <SortButton field="artist" label="Artist" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
                 </Table.Th>
                 <Table.Th>
-                  <SortButton field="date" label="Date" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
+                  <SortButton field="release" label="Released" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
                 </Table.Th>
                 <Table.Th>Rating</Table.Th>
                 <Table.Th>Group Avg</Table.Th>
                 <Table.Th>
                   <SortButton field="nominator" label="Nominated By" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
+                </Table.Th>
+                <Table.Th>
+                  <SortButton field="date" label="Selected" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
                 </Table.Th>
                 <Table.Th w={56} />
               </Table.Tr>

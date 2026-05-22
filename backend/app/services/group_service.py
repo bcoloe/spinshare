@@ -1,11 +1,16 @@
 """Group service."""
 
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime
 
-from app.models import Group, GroupAlbum, GroupSettings, User, group_members
+from app.models import Group, GroupAlbum, GroupSettings, NominationGuess, User, group_members
 from app.models.group import GroupRole
-from app.schemas.group import GroupCreate, GroupModifyRequest
+from app.schemas.group import (
+    GroupCreate,
+    GroupModifyRequest,
+    GuessHistogramBucket,
+    MemberGuessAccuracyItem,
+)
 from app.schemas.notification import NotificationType
 from app.services import user_service
 from app.services.notification_service import NotificationService
@@ -359,6 +364,8 @@ class GroupService:
                 gs.min_role_to_nominate = update_data.settings.min_role_to_nominate
             if update_data.settings.daily_album_count is not None:
                 gs.daily_album_count = update_data.settings.daily_album_count
+            if update_data.settings.allow_guessing is not None:
+                gs.allow_guessing = update_data.settings.allow_guessing
             if update_data.settings.guess_user_cap is not None:
                 gs.guess_user_cap = update_data.settings.guess_user_cap
             if update_data.settings.chaos_mode is not None:
@@ -492,6 +499,63 @@ class GroupService:
             key=lambda x: x["decade"],
         )
 
+        # ── Guess stats ──────────────────────────────────────────────────────
+        # Fetch all guesses for selected albums in this group in one query.
+        guess_rows = (
+            self.db.query(NominationGuess)
+            .join(GroupAlbum, NominationGuess.group_album_id == GroupAlbum.id)
+            .filter(GroupAlbum.group_id == group_id, GroupAlbum.selected_date.isnot(None))
+            .all()
+        )
+
+        # Per group-album: accumulate total/correct counts (for histogram).
+        album_totals: dict[int, list[int]] = defaultdict(lambda: [0, 0])  # ga_id → [total, correct]
+        # Per guesser: accumulate total/correct counts (for member leaderboard).
+        guesser_totals: dict[int, list[int]] = defaultdict(lambda: [0, 0])  # user_id → [total, correct]
+
+        for guess in guess_rows:
+            album_totals[guess.group_album_id][0] += 1
+            guesser_totals[guess.guessing_user_id][0] += 1
+            if guess.correct:
+                album_totals[guess.group_album_id][1] += 1
+                guesser_totals[guess.guessing_user_id][1] += 1
+
+        # Build histogram (10 buckets: 0–10%, …, 90–100%) over per-album accuracy.
+        BUCKET_LABELS = [
+            "0–10%", "10–20%", "20–30%", "30–40%", "40–50%",
+            "50–60%", "60–70%", "70–80%", "80–90%", "90–100%",
+        ]
+        bucket_counts = [0] * 10
+        for total, correct in album_totals.values():
+            rate = correct / total  # total > 0 guaranteed
+            idx = min(int(rate * 10), 9)  # clamp 100% → bucket 9
+            bucket_counts[idx] += 1
+        guess_histogram = [
+            GuessHistogramBucket(label=BUCKET_LABELS[i], count=bucket_counts[i])
+            for i in range(10)
+        ]
+
+        # Per-member guess accuracy — resolve user IDs to usernames.
+        all_guesser_ids = set(guesser_totals.keys())
+        if all_guesser_ids - set(username_map.keys()):
+            extra_users = self.db.query(User).filter(
+                User.id.in_(all_guesser_ids - set(username_map.keys()))
+            ).all()
+            for u in extra_users:
+                username_map[u.id] = u.username
+
+        member_guess_accuracy: list[MemberGuessAccuracyItem] = []
+        for uid, (total, correct) in guesser_totals.items():
+            member_guess_accuracy.append(
+                MemberGuessAccuracyItem(
+                    username=username_map.get(uid, "Unknown"),
+                    total_guesses=total,
+                    correct_guesses=correct,
+                    accuracy=correct / total,
+                )
+            )
+        member_guess_accuracy.sort(key=lambda x: -x.accuracy)
+
         return {
             "member_count": len(group.members),
             "albums_added": len(group.albums),
@@ -500,6 +564,8 @@ class GroupService:
             "albums_per_member": albums_per_member,
             "selected_per_member": selected_per_member,
             "decade_breakdown": decade_breakdown,
+            "guess_histogram": guess_histogram,
+            "member_guess_accuracy": member_guess_accuracy,
         }
 
     # ==================== MEMBERS ====================

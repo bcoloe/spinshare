@@ -65,6 +65,7 @@ class GroupSettingsUpdate(BaseModel):
     min_role_to_add_members: str | None = None
     min_role_to_nominate: str | None = None
     daily_album_count: int | None = None
+    allow_guessing: bool | None = None
     guess_user_cap: int | None = None
     chaos_mode: bool | None = None
     daily_nomination_limit: int | None = None
@@ -188,6 +189,22 @@ class GroupDecadeBreakdownItem(BaseModel):
     count: int
 
 
+class GuessHistogramBucket(BaseModel):
+    """One bucket of the group-wide guess-accuracy histogram."""
+
+    label: str  # e.g. "0–10%", "90–100%"
+    count: int  # number of albums whose per-album correct% falls in this bucket
+
+
+class MemberGuessAccuracyItem(BaseModel):
+    """Per-member guess accuracy across all nominations they've guessed in a group."""
+
+    username: str
+    total_guesses: int
+    correct_guesses: int
+    accuracy: float  # 0.0–1.0
+
+
 class GroupStatsResponse(BaseModel):
     """Aggregate statistics for a group"""
 
@@ -198,6 +215,8 @@ class GroupStatsResponse(BaseModel):
     albums_per_member: list[AlbumsPerMemberItem]
     selected_per_member: list[AlbumsPerMemberItem]
     decade_breakdown: list[GroupDecadeBreakdownItem]
+    guess_histogram: list[GuessHistogramBucket]
+    member_guess_accuracy: list[MemberGuessAccuracyItem]
 
 
 class RoleUpdateRequest(BaseModel):

@@ -20,7 +20,9 @@ def send_invitation_email(
     """Send a group invitation email.
 
     No-ops when SMTP_ENABLED is False (default in dev/test).
-    Raises smtplib.SMTPException on delivery failure.
+    Logs and swallows all delivery failures — the invitation DB record is
+    already committed at call time, so the invite link remains valid even
+    when the email cannot be delivered.
     """
     settings = get_settings()
 
@@ -60,6 +62,8 @@ def send_invitation_email(
             if settings.SMTP_USERNAME:
                 server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
             server.sendmail(settings.SMTP_FROM, to_email, msg.as_string())
-    except smtplib.SMTPException:
+    except Exception:
+        # Log and swallow — invitation is already committed to the DB.
+        # Email delivery failure (SMTP error, connection refused, etc.) is
+        # non-fatal; the invite link remains valid regardless.
         logger.exception("Failed to send invitation email to %s", to_email)
-        raise

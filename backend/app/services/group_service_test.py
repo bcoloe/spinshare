@@ -650,6 +650,22 @@ class TestGroupServiceSettings:
             sample_group_service.update_group_settings(sample_group.id, member.id, request)
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
 
+    def test_update_settings_allow_guessing(self, sample_group, sample_group_service, sample_user):
+        """Owner can toggle allow_guessing."""
+        request = GroupModifyRequest(settings=GroupSettingsUpdate(allow_guessing=False))
+        sample_group_service.update_group_settings(sample_group.id, sample_user.id, request)
+        assert sample_group.settings.allow_guessing is False
+
+        request2 = GroupModifyRequest(settings=GroupSettingsUpdate(allow_guessing=True))
+        sample_group_service.update_group_settings(sample_group.id, sample_user.id, request2)
+        assert sample_group.settings.allow_guessing is True
+
+    def test_update_settings_min_role_to_nominate(self, sample_group, sample_group_service, sample_user):
+        """Owner can update min_role_to_nominate."""
+        request = GroupModifyRequest(settings=GroupSettingsUpdate(min_role_to_nominate="admin"))
+        sample_group_service.update_group_settings(sample_group.id, sample_user.id, request)
+        assert sample_group.settings.min_role_to_nominate == "admin"
+
 
 class TestGlobalGroup:
     def test_delete_global_group_forbidden(self, sample_group_service, global_group, sample_user):
