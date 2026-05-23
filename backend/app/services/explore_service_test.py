@@ -205,16 +205,21 @@ class TestGetExploreGroups:
         assert names == sorted(names, key=str.lower)
 
     def test_pagination(self, explore_service, db_session):
+        # Count any groups already present (CI seeds a global spinshare group via migration)
+        baseline = len(explore_service.get_explore_groups(limit=100).items)
+
         for i in range(5):
             _make_group(db_session, name=f"Group {i:02d}")
+
+        total = baseline + 5
 
         page = explore_service.get_explore_groups(offset=0, limit=3)
         assert len(page.items) == 3
         assert page.next_offset == 3
 
         page2 = explore_service.get_explore_groups(offset=3, limit=3)
-        assert len(page2.items) == 2
-        assert page2.next_offset is None
+        assert len(page2.items) == min(total - 3, 3)
+        assert page2.next_offset == (6 if total > 6 else None)
 
     def test_q_filters_by_partial_name(self, explore_service, db_session):
         _make_group(db_session, name="Jazz Lovers")
