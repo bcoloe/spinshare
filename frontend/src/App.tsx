@@ -31,6 +31,9 @@ const SearchPage = lazy(() => import('./pages/SearchPage'))
 const ExploreAlbumsPage = lazy(() => import('./pages/explore/ExploreAlbumsPage'))
 const ExploreGroupsPage = lazy(() => import('./pages/explore/ExploreGroupsPage'))
 const ExploreStatsPage = lazy(() => import('./pages/explore/ExploreStatsPage'))
+const AboutPage = lazy(() => import('./pages/AboutPage'))
+const GettingStartedPage = lazy(() => import('./pages/GettingStartedPage'))
+const ContributingPage = lazy(() => import('./pages/ContributingPage'))
 
 const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -54,6 +57,9 @@ const router = createBrowserRouter([
       { path: '/explore/albums', element: <ExploreAlbumsPage /> },
       { path: '/explore/groups', element: <ExploreGroupsPage /> },
       { path: '/explore/stats', element: <ExploreStatsPage /> },
+      { path: '/about', element: <AboutPage /> },
+      { path: '/about/getting-started', element: <GettingStartedPage /> },
+      { path: '/about/contributing', element: <ContributingPage /> },
     ],
   },
   { path: '*', element: <NotFoundPage /> },
