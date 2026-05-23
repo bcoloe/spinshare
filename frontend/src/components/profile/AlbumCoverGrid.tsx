@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ratingColorHex } from '../../utils/ratingColor'
 import { useNavigate } from 'react-router-dom'
 import { Group, Image, Paper, SimpleGrid, Skeleton, Stack, Text } from '@mantine/core'
 
@@ -17,13 +18,6 @@ interface Props {
   emptyMessage: string
 }
 
-function ratingColor(rating: number): string {
-  if (rating < 3) return '#fa5252'
-  if (rating < 5) return '#6b4226'
-  if (rating < 7) return '#fd7e14'
-  if (rating < 9) return '#a9e34b'
-  return '#40c057'
-}
 
 function releaseYear(release_date: string | null): string {
   if (!release_date) return '—'
@@ -48,7 +42,7 @@ function AlbumCell({ item, selected, onClick }: AlbumCellProps) {
         borderRadius: 4,
         overflow: 'hidden',
         cursor: 'pointer',
-        outline: selected ? `2px solid ${ratingColor(item.rating)}` : 'none',
+        outline: selected ? `2px solid ${ratingColorHex(item.rating)}` : 'none',
         outlineOffset: 2,
       }}
       onClick={onClick}
@@ -77,7 +71,7 @@ function AlbumCell({ item, selected, onClick }: AlbumCellProps) {
               width: 44,
               height: 44,
               borderRadius: '50%',
-              background: ratingColor(item.rating),
+              background: ratingColorHex(item.rating),
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -160,7 +154,7 @@ export default function AlbumCoverGrid({ items, isLoading, emptyMessage }: Props
                   width: 40,
                   height: 40,
                   borderRadius: '50%',
-                  background: ratingColor(selected.rating),
+                  background: ratingColorHex(selected.rating),
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',

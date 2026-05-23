@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { ratingColor } from '../utils/ratingColor'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   Badge,
@@ -63,13 +64,6 @@ const DECADE_COLORS = [
   '#fab005', '#74c0fc', '#63e6be', '#ffa8a8', '#e599f7',
 ]
 
-function ratingColor(rating: number): string {
-  if (rating < 3) return 'red.7'
-  if (rating < 5) return '#6b4226'
-  if (rating < 7) return 'orange.5'
-  if (rating < 9) return 'lime.5'
-  return 'green.7'
-}
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '—'

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { ratingColor } from '../../utils/ratingColor'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   ActionIcon,
@@ -63,19 +64,12 @@ function getNominator(ga: GroupAlbumResponse, members: GroupMemberResponse[]): s
   return members.find((m) => m.user_id === ga.added_by)?.username ?? '—'
 }
 
-function ratingColor(rating: number): string {
-  if (rating < 3) return 'red.7'
-  if (rating < 5) return '#6b4226'
-  if (rating < 7) return 'orange.5'
-  if (rating < 9) return 'lime.5'
-  return 'green.7'
-}
-
 function ratingBg(rating: number): string {
   if (rating < 3) return 'color-mix(in srgb, var(--mantine-color-red-7) 12%, transparent)'
   if (rating < 5) return 'color-mix(in srgb, #6b4226 12%, transparent)'
   if (rating < 7) return 'color-mix(in srgb, var(--mantine-color-orange-5) 12%, transparent)'
-  if (rating < 9) return 'color-mix(in srgb, var(--mantine-color-lime-5) 12%, transparent)'
+  if (rating < 8) return 'color-mix(in srgb, var(--mantine-color-blue-6) 12%, transparent)'
+  if (rating < 9) return 'color-mix(in srgb, var(--mantine-color-lime-7) 12%, transparent)'
   return 'color-mix(in srgb, var(--mantine-color-green-7) 12%, transparent)'
 }
 

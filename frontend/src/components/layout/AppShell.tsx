@@ -25,6 +25,7 @@ import { useState } from 'react'
 import { useDisclosure } from '@mantine/hooks'
 import {
   IconBell,
+  IconChartBar,
   IconCheck,
   IconDisc,
   IconLayoutSidebarLeftCollapse,
@@ -35,6 +36,7 @@ import {
   IconStar,
   IconStarFilled,
   IconUser,
+  IconUsersGroup,
   IconX,
 } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
@@ -343,7 +345,34 @@ export default function AppShell({ children }: AppShellProps) {
           </Button>
         </MantineAppShell.Section>
 
-        <MantineAppShell.Section grow component={ScrollArea} mt="md">
+        <MantineAppShell.Section mt="md">
+          <Text size="xs" fw={600} c="dimmed" mb="xs" tt="uppercase">Explore</Text>
+          <NavLink
+            label="Albums"
+            component={Link}
+            to="/explore/albums"
+            leftSection={<IconDisc size={14} />}
+            active={location.pathname.startsWith('/explore/albums')}
+          />
+          <NavLink
+            label="Groups"
+            component={Link}
+            to="/explore/groups"
+            leftSection={<IconUsersGroup size={14} />}
+            active={location.pathname.startsWith('/explore/groups')}
+          />
+          <NavLink
+            label="Stats"
+            component={Link}
+            to="/explore/stats"
+            leftSection={<IconChartBar size={14} />}
+            active={location.pathname.startsWith('/explore/stats')}
+          />
+        </MantineAppShell.Section>
+
+        <Divider my="xs" />
+
+        <MantineAppShell.Section grow component={ScrollArea}>
           <Text size="xs" fw={600} c="dimmed" mb="xs" tt="uppercase">
             Your Groups
           </Text>

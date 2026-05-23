@@ -12,6 +12,7 @@ from app.services.invitation_service import InvitationService
 from app.services.invite_link_service import InviteLinkService
 from app.services.notification_service import NotificationService
 from app.services.review_service import ReviewService
+from app.services.explore_service import ExploreService
 from app.services.stats_service import StatsService
 from app.services.user_service import UserService
 from app.utils.security import decode_access_token
@@ -62,6 +63,11 @@ def get_invite_link_service(db: Session = Depends(get_db)) -> InviteLinkService:
 def get_stats_service(db: Session = Depends(get_db)) -> StatsService:
     """Dependency to get StatsService"""
     return StatsService(db)
+
+
+def get_explore_service(db: Session = Depends(get_db)) -> ExploreService:
+    """Dependency to get ExploreService"""
+    return ExploreService(db)
 
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
