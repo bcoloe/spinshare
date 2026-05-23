@@ -28,6 +28,9 @@ const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 const UserProfilePage = lazy(() => import('./pages/UserProfilePage'))
 const AlbumPage = lazy(() => import('./pages/AlbumPage'))
 const SearchPage = lazy(() => import('./pages/SearchPage'))
+const ExploreAlbumsPage = lazy(() => import('./pages/explore/ExploreAlbumsPage'))
+const ExploreGroupsPage = lazy(() => import('./pages/explore/ExploreGroupsPage'))
+const ExploreStatsPage = lazy(() => import('./pages/explore/ExploreStatsPage'))
 
 const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -47,6 +50,10 @@ const router = createBrowserRouter([
       { path: '/users/:username', element: <UserProfilePage /> },
       { path: '/albums/:albumId', element: <AlbumPage /> },
       { path: '/search', element: <SearchPage /> },
+      { path: '/explore', element: <Navigate to="/explore/albums" replace /> },
+      { path: '/explore/albums', element: <ExploreAlbumsPage /> },
+      { path: '/explore/groups', element: <ExploreGroupsPage /> },
+      { path: '/explore/stats', element: <ExploreStatsPage /> },
     ],
   },
   { path: '*', element: <NotFoundPage /> },

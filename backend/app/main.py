@@ -8,6 +8,7 @@ from app.routers.group_albums import router as group_album_workflow_router
 from app.routers.invite_links import router as invite_links_router
 from app.routers.invitations import router as invitations_router
 from app.routers.notifications import router as notifications_router
+from app.routers.explore import router as explore_router
 from app.routers.stats import router as stats_router
 
 settings = get_settings()
@@ -32,3 +33,4 @@ app.include_router(invitations_router)
 app.include_router(invite_links_router)
 app.include_router(notifications_router)
 app.include_router(stats_router)
+app.include_router(explore_router)

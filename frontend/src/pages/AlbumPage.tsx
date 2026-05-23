@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { ratingColor } from '../utils/ratingColor'
 import { useParams, Link } from 'react-router-dom'
 import {
   ActionIcon,
@@ -86,13 +87,6 @@ function formatTrackDuration(ms: number): string {
   return `${min}:${sec.toString().padStart(2, '0')}`
 }
 
-function ratingColor(rating: number): string {
-  if (rating < 3) return 'red.7'
-  if (rating < 5) return '#6b4226'
-  if (rating < 7) return 'orange.5'
-  if (rating < 9) return 'lime.5'
-  return 'green.7'
-}
 
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString(undefined, {
