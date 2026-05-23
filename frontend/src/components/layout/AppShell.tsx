@@ -28,6 +28,7 @@ import {
   IconChartBar,
   IconCheck,
   IconDisc,
+  IconInfoCircle,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconLogout,
@@ -417,14 +418,27 @@ export default function AppShell({ children }: AppShellProps) {
         </MantineAppShell.Section>
 
         <MantineAppShell.Section>
-          <Button
-            fullWidth
-            variant="light"
-            leftSection={<IconPlus size={16} />}
-            onClick={openCreate}
-          >
-            New group
-          </Button>
+          <Stack gap="xs">
+            <Button
+              fullWidth
+              variant="subtle"
+              justify="start"
+              leftSection={<IconInfoCircle size={16} />}
+              component={Link}
+              to="/about"
+              color={location.pathname.startsWith('/about') ? 'violet' : 'gray'}
+            >
+              About
+            </Button>
+            <Button
+              fullWidth
+              variant="light"
+              leftSection={<IconPlus size={16} />}
+              onClick={openCreate}
+            >
+              New group
+            </Button>
+          </Stack>
         </MantineAppShell.Section>
       </MantineAppShell.Navbar>
 
