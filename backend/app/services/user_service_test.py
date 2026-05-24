@@ -1,6 +1,7 @@
 """Unit tests of the UserService interactions."""
 
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 import pydantic
 import pytest
@@ -486,3 +487,86 @@ class TestUserServiceAdmin:
         with pytest.raises(HTTPException) as exc_info:
             sample_user_service.set_admin_status(admin.id, 99999, True)
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestUserServicePasswordReset:
+    """Tests for the password reset request/confirm flow."""
+
+    def test_request_sends_email_for_known_user(self, sample_user_service, user_factory):
+        """request_password_reset calls send_password_reset_email for a real address.
+
+        The service imports get_settings and send_password_reset_email locally
+        inside the method, so we patch them at their definition site.
+        """
+        user = user_factory(email="reset@test.com", username="resetuser")
+        with (
+            patch("app.config.get_settings") as mock_settings,
+            patch("app.utils.email.send_password_reset_email") as mock_email,
+        ):
+            mock_settings.return_value.FRONTEND_URL = "http://localhost:5173"
+            sample_user_service.request_password_reset(user.email)
+
+        mock_email.assert_called_once()
+        call_kwargs = mock_email.call_args.kwargs
+        assert call_kwargs["to_email"] == user.email
+        assert "token=" in call_kwargs["reset_url"]
+
+    def test_request_silent_for_unknown_email(self, sample_user_service):
+        """request_password_reset returns silently for an unknown address (no leak)."""
+        with patch("app.utils.email.send_password_reset_email") as mock_email:
+            sample_user_service.request_password_reset("nobody@nowhere.com")
+
+        mock_email.assert_not_called()
+
+    def test_confirm_updates_password(self, sample_user_service, user_factory):
+        """confirm_password_reset hashes and stores the new password."""
+        from app.utils.security import create_password_reset_token, verify_password
+
+        user = user_factory(email="reset@test.com", username="resetuser")
+        token = create_password_reset_token(user.email)
+        new_password = "NewValidPass1"
+
+        sample_user_service.confirm_password_reset(token, new_password)
+
+        # Re-fetch from DB to verify the hash was written
+        updated = sample_user_service.db.query(User).filter_by(id=user.id).first()
+        assert verify_password(new_password, updated.password_hash)
+
+    def test_confirm_invalid_token_raises_400(self, sample_user_service):
+        """confirm_password_reset raises 400 for a bogus token."""
+        with pytest.raises(HTTPException) as exc_info:
+            sample_user_service.confirm_password_reset("not.a.token", "ValidPass1")
+        assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_confirm_expired_token_raises_400(self, sample_user_service, user_factory):
+        """confirm_password_reset raises 400 for an expired token."""
+        from datetime import timedelta
+        from app.config import get_settings
+        from jose import jwt as jose_jwt
+
+        user = user_factory(email="reset@test.com", username="resetuser")
+        settings = get_settings()
+        expired_token = jose_jwt.encode(
+            {
+                "sub": user.email,
+                "type": "password_reset",
+                "exp": datetime.now(UTC) - timedelta(seconds=1),
+                "iat": datetime.now(UTC) - timedelta(minutes=31),
+                "jti": "test",
+            },
+            settings.SECRET_KEY,
+            algorithm="HS256",
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            sample_user_service.confirm_password_reset(expired_token, "ValidPass1")
+        assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_confirm_weak_password_raises_400(self, sample_user_service, user_factory):
+        """confirm_password_reset raises 400 when the new password is too weak."""
+        from app.utils.security import create_password_reset_token
+
+        user = user_factory(email="reset@test.com", username="resetuser")
+        token = create_password_reset_token(user.email)
+        with pytest.raises(HTTPException) as exc_info:
+            sample_user_service.confirm_password_reset(token, "weak")
+        assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST

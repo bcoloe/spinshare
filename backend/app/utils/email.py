@@ -67,3 +67,52 @@ def send_invitation_email(
         # Email delivery failure (SMTP error, connection refused, etc.) is
         # non-fatal; the invite link remains valid regardless.
         logger.exception("Failed to send invitation email to %s", to_email)
+
+
+def send_password_reset_email(*, to_email: str, reset_url: str) -> None:
+    """Send a password reset email containing a one-time reset link.
+
+    No-ops when SMTP_ENABLED is False (default in dev/test) — logs the URL
+    instead so developers can test the flow without SMTP.
+    Logs and swallows delivery failures; the token remains valid regardless.
+    """
+    settings = get_settings()
+
+    if not settings.SMTP_ENABLED:
+        logger.warning(
+            "SMTP disabled — skipping password reset email to %s (url=%s)", to_email, reset_url
+        )
+        return
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "Reset your SpinShare password"
+    msg["From"] = settings.SMTP_FROM
+    msg["To"] = to_email
+
+    plain = (
+        f"You requested a password reset for your SpinShare account.\n\n"
+        f"Reset your password: {reset_url}\n\n"
+        f"This link expires in 30 minutes. If you did not request a reset, "
+        f"you can safely ignore this email.\n"
+    )
+
+    html = f"""\
+<html><body>
+  <p>You requested a password reset for your SpinShare account.</p>
+  <p><a href="{reset_url}">Reset your password</a></p>
+  <p>This link expires in <strong>30 minutes</strong>. If you did not request
+     a reset, you can safely ignore this email.</p>
+</body></html>"""
+
+    msg.attach(MIMEText(plain, "plain"))
+    msg.attach(MIMEText(html, "html"))
+
+    try:
+        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+            if settings.SMTP_USE_TLS:
+                server.starttls()
+            if settings.SMTP_USERNAME:
+                server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
+            server.sendmail(settings.SMTP_FROM, to_email, msg.as_string())
+    except Exception:
+        logger.exception("Failed to send password reset email to %s", to_email)

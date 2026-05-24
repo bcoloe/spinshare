@@ -10,6 +10,8 @@ from app.schemas.user import (
     LoginRequest,
     LoginResponse,
     NominationDecadeBreakdownResponse,
+    PasswordResetConfirm,
+    PasswordResetRequest,
     PublicProfileResponse,
     ReviewStatsResponse,
     SpotifyConnectUrlResponse,
@@ -47,6 +49,35 @@ def login(credentials: LoginRequest, user_service: UserService = Depends(get_use
 def refresh_access_token(refresh_token: str, user_service: UserService = Depends(get_user_service)):
     """Exchange a valid REFRESH token for a new ACCESS token."""
     return user_service.refresh(refresh_token)
+
+
+@router.post("/password-reset/request", status_code=status.HTTP_200_OK)
+def request_password_reset(
+    body: PasswordResetRequest,
+    user_service: UserService = Depends(get_user_service),
+):
+    """Initiate a password reset.
+
+    Always returns 200 regardless of whether the email is registered to
+    prevent email enumeration. A reset link is emailed when SMTP is enabled;
+    in dev/test mode the URL is logged instead.
+    """
+    user_service.request_password_reset(body.email)
+    return {"detail": "If that email is registered, a reset link has been sent."}
+
+
+@router.post("/password-reset/confirm", status_code=status.HTTP_200_OK)
+def confirm_password_reset(
+    body: PasswordResetConfirm,
+    user_service: UserService = Depends(get_user_service),
+):
+    """Complete a password reset using the token from the reset email.
+
+    Raises:
+        HTTPException 400: If the token is invalid/expired or the password is weak.
+    """
+    user_service.confirm_password_reset(body.token, body.new_password)
+    return {"detail": "Password updated successfully."}
 
 
 @router.get("/me", response_model=UserResponse)

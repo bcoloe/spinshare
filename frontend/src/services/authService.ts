@@ -25,4 +25,18 @@ export const authService = {
   getMe(): Promise<UserResponse> {
     return apiFetch('/users/me')
   },
+
+  requestPasswordReset(email: string): Promise<void> {
+    return apiFetch('/users/password-reset/request', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    })
+  },
+
+  confirmPasswordReset(token: string, newPassword: string): Promise<void> {
+    return apiFetch('/users/password-reset/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ token, new_password: newPassword }),
+    })
+  },
 }

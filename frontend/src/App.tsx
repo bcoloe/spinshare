@@ -17,6 +17,8 @@ function RootRoute() {
 }
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
+const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'))
+const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'))
 const GroupPage = lazy(() => import('./pages/GroupPage'))
 const GroupCatalogPage = lazy(() => import('./pages/GroupCatalogPage'))
 const GroupSettingsPage = lazy(() => import('./pages/GroupSettingsPage'))
@@ -38,6 +40,8 @@ const ContributingPage = lazy(() => import('./pages/ContributingPage'))
 const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
   { path: '/register', element: <RegisterPage /> },
+  { path: '/forgot-password', element: <ForgotPasswordPage /> },
+  { path: '/reset-password', element: <ResetPasswordPage /> },
   { path: '/invite/:token', element: <InviteAcceptPage /> },
   { path: '/join/:token', element: <JoinGroupPage /> },
   {

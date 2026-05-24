@@ -71,12 +71,19 @@ export default function LoginPage() {
                 autoComplete="username"
                 {...form.getInputProps('identifier')}
               />
-              <PasswordInput
-                label="Password"
-                placeholder="Your password"
-                autoComplete="current-password"
-                {...form.getInputProps('password')}
-              />
+              <div>
+                <PasswordInput
+                  label="Password"
+                  placeholder="Your password"
+                  autoComplete="current-password"
+                  {...form.getInputProps('password')}
+                />
+                <Text size="xs" ta="right" mt={4}>
+                  <Anchor component={Link} to="/forgot-password" c="dimmed">
+                    Forgot password?
+                  </Anchor>
+                </Text>
+              </div>
               <Button type="submit" loading={loading} fullWidth mt="xs">
                 Sign in
               </Button>

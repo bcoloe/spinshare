@@ -454,6 +454,66 @@ class UserService:
                 detail="Cannot delete user due to existing dependencies",
             ) from None
 
+    # ==================== PASSWORD RESET ====================
+
+    def request_password_reset(self, email: str) -> None:
+        """Initiate a password reset by sending a reset link to the given email.
+
+        Always returns silently regardless of whether the email is registered —
+        callers must never reveal to the client whether an address exists.
+
+        When SMTP is disabled (dev/test) the reset URL is logged instead.
+        """
+        from app.config import get_settings
+        from app.utils.email import send_password_reset_email
+
+        user = self.get_user_by_email(email)
+        if not user:
+            # Silently no-op — do not leak email existence.
+            return
+
+        token = security.create_password_reset_token(user.email)
+        settings = get_settings()
+        reset_url = f"{settings.FRONTEND_URL}/reset-password?token={token}"
+        send_password_reset_email(to_email=user.email, reset_url=reset_url)
+
+    def confirm_password_reset(self, token: str, new_password: str) -> None:
+        """Complete a password reset by verifying the token and updating the password.
+
+        Raises:
+            HTTPException 400: If the token is invalid or expired.
+            HTTPException 400: If the new password does not meet strength requirements.
+            HTTPException 400: If the embedded email no longer maps to a user.
+        """
+        payload = security.decode_password_reset_token(token)
+        if payload is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired password reset token",
+            )
+
+        email: str | None = payload.get("sub")
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired password reset token",
+            )
+
+        user = self.get_user_by_email(email)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired password reset token",
+            )
+
+        is_valid, reasons = security.validate_password_strength(new_password)
+        if not is_valid:
+            reasons_str = "\n".join([" * " + x for x in reasons])
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=reasons_str)
+
+        user.password_hash = security.hash_password(new_password)
+        self.db.commit()
+
     # ==================== AUTHENTICATION ====================
 
     def authenticate_user(

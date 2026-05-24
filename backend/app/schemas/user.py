@@ -203,3 +203,33 @@ class ReviewStatsResponse(BaseModel):
     rating_histogram: list[RatingHistogramBucket]
     avg_rating_by_decade: list[AvgRatingByDecadeItem]
     guess_accuracy: GuessAccuracyStats
+
+
+# ==================== PASSWORD RESET ====================
+
+
+class PasswordResetRequest(BaseModel):
+    """Request payload for initiating a password reset."""
+
+    email: EmailStr
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def lowercase_email(cls, v):
+        return v.lower() if v else v
+
+
+class PasswordResetConfirm(BaseModel):
+    """Payload for completing a password reset using a token."""
+
+    token: str
+    new_password: str = Field(..., min_length=MIN_PWD_LEN, max_length=MAX_PWD_LEN)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        is_valid, reasons = validate_password_strength(v)
+        if not is_valid:
+            reasons_str = "\n".join([" * " + x for x in reasons])
+            raise ValueError(reasons_str)
+        return v

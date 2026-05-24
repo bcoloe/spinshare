@@ -306,3 +306,75 @@ class TestSetUserAdminStatus:
         )
         resp = admin_client.put("/users/999/admin", json={"is_admin": True})
         assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+
+# ==================== PASSWORD RESET ====================
+
+class TestPasswordResetRequest:
+    """Router tests for POST /users/password-reset/request."""
+
+    def test_returns_200_for_known_email(self, unauthed_client, mock_user_service):
+        """Always returns 200 — no email enumeration."""
+        resp = unauthed_client.post(
+            "/users/password-reset/request", json={"email": "user@example.com"}
+        )
+        assert resp.status_code == 200
+        mock_user_service.request_password_reset.assert_called_once_with("user@example.com")
+
+    def test_returns_200_for_unknown_email(self, unauthed_client, mock_user_service):
+        """Returns 200 even when the service is a no-op (unknown email)."""
+        mock_user_service.request_password_reset.return_value = None
+        resp = unauthed_client.post(
+            "/users/password-reset/request", json={"email": "nobody@nowhere.com"}
+        )
+        assert resp.status_code == 200
+
+    def test_rejects_invalid_email(self, unauthed_client, mock_user_service):
+        """Pydantic validates the email field; bad addresses get 422."""
+        resp = unauthed_client.post(
+            "/users/password-reset/request", json={"email": "not-an-email"}
+        )
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        mock_user_service.request_password_reset.assert_not_called()
+
+
+class TestPasswordResetConfirm:
+    """Router tests for POST /users/password-reset/confirm."""
+
+    def test_returns_200_on_success(self, unauthed_client, mock_user_service):
+        resp = unauthed_client.post(
+            "/users/password-reset/confirm",
+            json={"token": "valid.token.here", "new_password": "NewValidPass1"},
+        )
+        assert resp.status_code == 200
+        mock_user_service.confirm_password_reset.assert_called_once_with(
+            "valid.token.here", "NewValidPass1"
+        )
+
+    def test_returns_400_for_invalid_token(self, unauthed_client, mock_user_service):
+        mock_user_service.confirm_password_reset.side_effect = HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired password reset token",
+        )
+        resp = unauthed_client.post(
+            "/users/password-reset/confirm",
+            json={"token": "bad.token", "new_password": "NewValidPass1"},
+        )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_pydantic_rejects_weak_password(self, unauthed_client, mock_user_service):
+        """Pydantic schema validates strength before the service is called; weak
+        passwords get 422, never reaching confirm_password_reset."""
+        resp = unauthed_client.post(
+            "/users/password-reset/confirm",
+            json={"token": "tok", "new_password": "weak"},
+        )
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        mock_user_service.confirm_password_reset.assert_not_called()
+
+    def test_pydantic_rejects_missing_token(self, unauthed_client, mock_user_service):
+        resp = unauthed_client.post(
+            "/users/password-reset/confirm", json={"new_password": "NewValidPass1"}
+        )
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        mock_user_service.confirm_password_reset.assert_not_called()
