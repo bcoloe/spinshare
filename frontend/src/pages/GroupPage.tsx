@@ -34,6 +34,7 @@ export default function GroupPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const tab: Tab = (searchParams.get('tab') as Tab) ?? 'spin'
+  const focusAlbumId = searchParams.get('album') ? Number(searchParams.get('album')) : null
   const [leaveOpened, { open: openLeave, close: closeLeave }] = useDisclosure(false)
   const [inviteOpened, { open: openInvite, close: closeInvite }] = useDisclosure(false)
   const isMobile = useMediaQuery('(max-width: 768px)')
@@ -135,6 +136,7 @@ export default function GroupPage() {
               members={members}
               isLoading={albumsLoading || membersLoading}
               allowGuessing={group?.settings?.allow_guessing ?? true}
+              focusAlbumId={focusAlbumId}
             />
           </ScrollArea>
         )}

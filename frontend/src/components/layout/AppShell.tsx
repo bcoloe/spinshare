@@ -237,10 +237,13 @@ export default function AppShell({ children }: AppShellProps) {
                               onClick={() => {
                                 if (n.group_id) {
                                   closeBell()
-                                  const dest = n.type === 'member_reviewed_album'
-                                    ? `/groups/${n.group_id}?tab=history`
-                                    : `/groups/${n.group_id}`
-                                  navigate(dest)
+                                  if (n.type === 'member_reviewed_album') {
+                                    const params = new URLSearchParams({ tab: 'history' })
+                                    if (n.album_id) params.set('album', String(n.album_id))
+                                    navigate(`/groups/${n.group_id}?${params.toString()}`)
+                                  } else {
+                                    navigate(`/groups/${n.group_id}`)
+                                  }
                                 }
                               }}
                             >
@@ -288,10 +291,13 @@ export default function AppShell({ children }: AppShellProps) {
                                     onClick={() => {
                                       if (n.group_id) {
                                         closeBell()
-                                        const dest = n.type === 'member_reviewed_album'
-                                          ? `/groups/${n.group_id}?tab=history`
-                                          : `/groups/${n.group_id}`
-                                        navigate(dest)
+                                        if (n.type === 'member_reviewed_album') {
+                                          const params = new URLSearchParams({ tab: 'history' })
+                                          if (n.album_id) params.set('album', String(n.album_id))
+                                          navigate(`/groups/${n.group_id}?${params.toString()}`)
+                                        } else {
+                                          navigate(`/groups/${n.group_id}`)
+                                        }
                                       }
                                     }}
                                   >

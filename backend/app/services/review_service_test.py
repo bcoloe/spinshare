@@ -215,7 +215,23 @@ class TestReviewNotifications:
         assert len(unread) == 1
         assert unread[0].type == NotificationType.member_reviewed_album
         assert unread[0].group_id == sample_group.id
+        assert unread[0].album_id == sample_album.id
         assert "other_reviewer" in unread[0].message
+
+    def test_notification_carries_album_id(
+        self, db_session, review_service, sample_album, sample_user, sample_group, user_factory
+    ):
+        other = user_factory(email="other@test.com", username="other_reviewer")
+        sample_group.members.append(other)
+        db_session.commit()
+        self._link_album_to_group(db_session, sample_group.id, sample_album.id, sample_user.id)
+
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=7.0))
+        review_service.create_review(sample_album.id, other.id, ReviewCreate(rating=8.0))
+
+        ns = NotificationService(db_session)
+        unread = ns.get_unread(sample_user)
+        assert unread[0].album_id == sample_album.id
 
     def test_no_notification_when_no_prior_reviewers(
         self, db_session, review_service, sample_album, sample_user, sample_group

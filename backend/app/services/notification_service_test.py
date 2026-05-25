@@ -48,6 +48,15 @@ class TestCreateNotification:
         )
         assert n.group_id == sample_group.id
 
+    def test_create_with_album(self, notification_service, sample_user, sample_album):
+        n = notification_service.create(
+            user_id=sample_user.id,
+            type=NotificationType.member_reviewed_album,
+            message="test",
+            album_id=sample_album.id,
+        )
+        assert n.album_id == sample_album.id
+
 
 class TestGetUnread:
     def test_returns_only_unread(self, db_session, notification_service, sample_user):
