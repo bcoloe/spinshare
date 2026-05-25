@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { ratingColor } from '../../utils/ratingColor'
 import { Link, useNavigate } from 'react-router-dom'
 import {
@@ -345,9 +345,10 @@ interface ReviewedRowProps {
   allowGuessing: boolean
   guessResult: CheckGuessResponse | undefined
   currentUserId: number | undefined
+  rowRef?: React.RefCallback<HTMLTableRowElement>
 }
 
-function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allowGuessing, guessResult, currentUserId }: ReviewedRowProps) {
+function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allowGuessing, guessResult, currentUserId, rowRef }: ReviewedRowProps) {
   const { album } = ga
   const navigate = useNavigate()
   const [editMode, setEditMode] = useState(false)
@@ -418,7 +419,7 @@ function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allow
 
   return (
     <>
-      <Table.Tr style={{ cursor: 'pointer' }} onClick={onToggle}>
+      <Table.Tr ref={rowRef} style={{ cursor: 'pointer' }} onClick={onToggle}>
         <Table.Td>
           <CoverCell src={album.cover_url} />
         </Table.Td>
@@ -640,15 +641,18 @@ interface Props {
   members: GroupMemberResponse[]
   isLoading: boolean
   allowGuessing?: boolean
+  focusAlbumId?: number | null
 }
 
-export default function ReviewHistory({ groupId, albums, members, isLoading, allowGuessing = true }: Props) {
+export default function ReviewHistory({ groupId, albums, members, isLoading, allowGuessing = true, focusAlbumId }: Props) {
   const { user } = useAuth()
   const [pendingOpen, { toggle: togglePending }] = useDisclosure(true)
   const [inProgressOpen, { toggle: toggleInProgress }] = useDisclosure(true)
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [expandedInProgressId, setExpandedInProgressId] = useState<number | null>(null)
   const [expandedReviewedId, setExpandedReviewedId] = useState<number | null>(null)
+  const rowRefs = useRef<Map<number, HTMLTableRowElement>>(new Map())
+  const hasScrolled = useRef(false)
 
   const [unreviewedField, setUnreviewedField] = useState<SortField>('date')
   const [unreviewedDir, setUnreviewedDir] = useState<SortDir>('desc')
@@ -736,6 +740,20 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
 
   const toggleExpand = (id: number) => setExpandedId((prev) => (prev === id ? null : id))
   const toggleInProgressExpand = (id: number) => setExpandedInProgressId((prev) => (prev === id ? null : id))
+
+  useEffect(() => {
+    if (!focusAlbumId || hasScrolled.current || isLoading || reviewsLoading) return
+    const targetGa = reviewed.find((ga) => ga.album_id === focusAlbumId)
+    if (!targetGa) return
+
+    setExpandedReviewedId(targetGa.id)
+    hasScrolled.current = true
+
+    requestAnimationFrame(() => {
+      const el = rowRefs.current.get(targetGa.id)
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+  }, [focusAlbumId, reviewed, isLoading, reviewsLoading])
 
   if (isLoading || reviewsLoading) {
     return (
@@ -871,6 +889,10 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
                   allowGuessing={allowGuessing}
                   guessResult={guessMap.get(ga.id)}
                   currentUserId={user?.id}
+                  rowRef={(el) => {
+                    if (el) rowRefs.current.set(ga.id, el)
+                    else rowRefs.current.delete(ga.id)
+                  }}
                 />
               ))}
             </Table.Tbody>

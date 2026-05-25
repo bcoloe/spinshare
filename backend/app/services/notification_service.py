@@ -23,6 +23,7 @@ class NotificationService:
         type: NotificationType,
         message: str,
         group_id: int | None = None,
+        album_id: int | None = None,
     ) -> Notification:
         """Create a notification for a user."""
         notification = Notification(
@@ -30,6 +31,7 @@ class NotificationService:
             type=type,
             message=message,
             group_id=group_id,
+            album_id=album_id,
         )
         self.db.add(notification)
         self.db.commit()

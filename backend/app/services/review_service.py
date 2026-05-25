@@ -126,6 +126,7 @@ class ReviewService:
                         type=NotificationType.member_reviewed_album,
                         message=f"{reviewer.username} also reviewed {album.title}",
                         group_id=ga.group_id,
+                        album_id=album_id,
                     )
                     already_notified.add(uid)
 

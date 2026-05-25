@@ -19,6 +19,7 @@ class NotificationResponse(BaseModel):
     type: NotificationType
     message: str
     group_id: int | None
+    album_id: int | None
     read_at: datetime | None
     created_at: datetime
 

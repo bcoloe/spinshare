@@ -15,8 +15,10 @@ class Notification(Base):
     type = Column(String, nullable=False)
     message = Column(String, nullable=False)
     group_id = Column(Integer, ForeignKey("groups.id", ondelete="SET NULL"), nullable=True)
+    album_id = Column(Integer, ForeignKey("albums.id", ondelete="SET NULL"), nullable=True)
     read_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     user = relationship("User", foreign_keys=[user_id])
     group = relationship("Group")
+    album = relationship("Album")

@@ -10,6 +10,7 @@ export interface NotificationResponse {
   type: NotificationType
   message: string
   group_id: number | null
+  album_id: number | null
   read_at: string | null
   created_at: string
 }
