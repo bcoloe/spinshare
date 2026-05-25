@@ -63,7 +63,7 @@ export default function AppShell({ children }: AppShellProps) {
   const footerHeight = minimized ? 48 : 220
   const navigate = useNavigate()
   const location = useLocation()
-  const [mobileOpened, { toggle: toggleMobile }] = useDisclosure()
+  const [mobileOpened, { toggle: toggleMobile, close: closeMobile }] = useDisclosure()
   const [desktopOpened, { toggle: toggleDesktop }] = useDisclosure(true)
   const [createOpened, { open: openCreate, close: closeCreate }] = useDisclosure()
   const [searchOpened, { open: openSearch, close: closeSearch }] = useDisclosure()
@@ -399,6 +399,9 @@ export default function AppShell({ children }: AppShellProps) {
                     component={Link}
                     to={`/groups/${g.id}`}
                     active={location.pathname.startsWith(`/groups/${g.id}`)}
+                    onClick={() => {
+                      if (mobileOpened) closeMobile()
+                    }}
                     rightSection={
                       <ActionIcon
                         size="xs"
