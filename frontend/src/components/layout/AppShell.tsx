@@ -32,6 +32,7 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconLogout,
+  IconMessageReport,
   IconPlus,
   IconSearch,
   IconStar,
@@ -49,6 +50,7 @@ import { useUnreadNotifications, useMarkAllNotificationsRead, useNotificationHis
 import { usePlayer } from '../../context/PlayerContext'
 import { ApiError } from '../../services/apiClient'
 import CreateGroupModal from '../groups/CreateGroupModal'
+import FeedbackModal from '../feedback/FeedbackModal'
 import SearchModal from '../search/SearchModal'
 import PlayerBar from './PlayerBar'
 
@@ -66,6 +68,7 @@ export default function AppShell({ children }: AppShellProps) {
   const [mobileOpened, { toggle: toggleMobile, close: closeMobile }] = useDisclosure()
   const [desktopOpened, { toggle: toggleDesktop }] = useDisclosure(true)
   const [createOpened, { open: openCreate, close: closeCreate }] = useDisclosure()
+  const [feedbackOpened, { open: openFeedback, close: closeFeedback }] = useDisclosure()
   const [searchOpened, { open: openSearch, close: closeSearch }] = useDisclosure()
 
   const { data: groups, isLoading } = useMyGroups(user?.username ?? '')
@@ -315,6 +318,10 @@ export default function AppShell({ children }: AppShellProps) {
               </Popover.Dropdown>
             </Popover>
 
+            <ActionIcon variant="subtle" onClick={openFeedback} aria-label="Send feedback">
+              <IconMessageReport size={18} />
+            </ActionIcon>
+
           <Menu shadow="md" width={180}>
             <Menu.Target>
               <UnstyledButton>
@@ -460,6 +467,7 @@ export default function AppShell({ children }: AppShellProps) {
       )}
 
       <CreateGroupModal opened={createOpened} onClose={closeCreate} />
+      <FeedbackModal opened={feedbackOpened} onClose={closeFeedback} />
       <SearchModal opened={searchOpened} onClose={closeSearch} />
     </MantineAppShell>
   )

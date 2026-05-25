@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     APPLE_MUSIC_TEAM_ID: str = ""
     APPLE_MUSIC_KEY_ID: str = ""
     APPLE_MUSIC_PRIVATE_KEY: str = ""
+    # ── GitHub Feedback ──────────────────────────────────────────────────────
+    # GITHUB_TOKEN is a personal access token with repo/issues write scope.
+    # GITHUB_REPO is the target repository in "owner/repo" format.
+    GITHUB_TOKEN: str = ""
+    GITHUB_REPO: str = ""  # e.g. "myorg/spinshare"
 
     model_config = SettingsConfigDict(env_file=".env", extra="allow")
 
