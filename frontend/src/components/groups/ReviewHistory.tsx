@@ -652,7 +652,7 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
   const [expandedInProgressId, setExpandedInProgressId] = useState<number | null>(null)
   const [expandedReviewedId, setExpandedReviewedId] = useState<number | null>(null)
   const rowRefs = useRef<Map<number, HTMLTableRowElement>>(new Map())
-  const hasScrolled = useRef(false)
+  const scrolledToAlbumId = useRef<number | null>(null)
 
   const [unreviewedField, setUnreviewedField] = useState<SortField>('date')
   const [unreviewedDir, setUnreviewedDir] = useState<SortDir>('desc')
@@ -742,12 +742,12 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
   const toggleInProgressExpand = (id: number) => setExpandedInProgressId((prev) => (prev === id ? null : id))
 
   useEffect(() => {
-    if (!focusAlbumId || hasScrolled.current || isLoading || reviewsLoading) return
+    if (!focusAlbumId || scrolledToAlbumId.current === focusAlbumId || isLoading || reviewsLoading) return
     const targetGa = reviewed.find((ga) => ga.album_id === focusAlbumId)
     if (!targetGa) return
 
     setExpandedReviewedId(targetGa.id)
-    hasScrolled.current = true
+    scrolledToAlbumId.current = focusAlbumId
 
     requestAnimationFrame(() => {
       const el = rowRefs.current.get(targetGa.id)
