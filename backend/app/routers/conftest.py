@@ -57,19 +57,23 @@ def make_mock_group(
     id=1,
     name="Bumblebees",
     is_public=True,
+    is_global=False,
     members=None,
     albums=None,
     created_at=None,
     settings=None,
+    bot_sources=None,
 ) -> MagicMock:
     group = MagicMock(spec=Group)
     group.id = id
     group.name = name
     group.is_public = is_public
+    group.is_global = is_global
     group.members = members if members is not None else []
     group.albums = albums if albums is not None else []
     group.created_at = created_at or datetime(2026, 1, 1, tzinfo=timezone.utc)
     group.settings = settings if settings is not None else make_mock_settings()
+    group.bot_sources = bot_sources if bot_sources is not None else []
     return group
 
 

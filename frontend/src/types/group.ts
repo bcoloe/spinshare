@@ -19,6 +19,7 @@ export interface GroupSettings {
 export interface GroupDetailResponse extends GroupResponse {
   is_public: boolean
   is_global: boolean
+  is_bot_group: boolean
   member_count: number
   current_user_role: 'owner' | 'admin' | 'member' | null
   settings: GroupSettings | null
@@ -29,6 +30,9 @@ export interface GroupMemberResponse {
   username: string
   role: 'owner' | 'admin' | 'member'
   joined_at: string
+  first_name: string | null
+  last_name: string | null
+  name_is_public: boolean
 }
 
 export interface AlbumsPerMemberItem {

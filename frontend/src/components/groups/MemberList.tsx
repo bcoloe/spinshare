@@ -39,34 +39,50 @@ export default function MemberList({ group }: Props) {
     )
   }
 
+  const showNames = !group.is_global && !group.is_bot_group
+
   return (
     <Stack gap="xs">
-      {members?.map((m) => (
-        <Group key={m.user_id} justify="space-between">
-          <UnstyledButton onClick={() => navigate(`/users/${m.username}`)}>
-            <Group gap="sm">
-              <Avatar size="sm" radius="xl" color="violet">
-                {m.username[0].toUpperCase()}
-              </Avatar>
-              <Text size="sm">{m.username}</Text>
-              <Badge size="xs" color={ROLE_COLOR[m.role]} variant="light">
-                {m.role}
-              </Badge>
-            </Group>
-          </UnstyledButton>
-          {canManage && m.user_id !== user?.id && m.role !== 'owner' && (
-            <ActionIcon
-              size="sm"
-              variant="subtle"
-              color="red"
-              onClick={() => handleRemove(m.user_id, m.username)}
-              loading={removeMember.isPending}
-            >
-              <IconUserMinus size={14} />
-            </ActionIcon>
-          )}
-        </Group>
-      ))}
+      {members?.map((m) => {
+        const displayName =
+          showNames && m.name_is_public
+            ? [m.first_name, m.last_name].filter(Boolean).join(' ')
+            : null
+
+        return (
+          <Group key={m.user_id} justify="space-between">
+            <UnstyledButton onClick={() => navigate(`/users/${m.username}`)}>
+              <Group gap="sm">
+                <Avatar size="sm" radius="xl" color="violet">
+                  {m.username[0].toUpperCase()}
+                </Avatar>
+                <Stack gap={0}>
+                  <Group gap="xs">
+                    <Text size="sm">{m.username}</Text>
+                    <Badge size="xs" color={ROLE_COLOR[m.role]} variant="light">
+                      {m.role}
+                    </Badge>
+                  </Group>
+                  {displayName && (
+                    <Text size="xs" c="dimmed">{displayName}</Text>
+                  )}
+                </Stack>
+              </Group>
+            </UnstyledButton>
+            {canManage && m.user_id !== user?.id && m.role !== 'owner' && (
+              <ActionIcon
+                size="sm"
+                variant="subtle"
+                color="red"
+                onClick={() => handleRemove(m.user_id, m.username)}
+                loading={removeMember.isPending}
+              >
+                <IconUserMinus size={14} />
+              </ActionIcon>
+            )}
+          </Group>
+        )
+      })}
     </Stack>
   )
 }

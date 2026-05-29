@@ -159,6 +159,7 @@ class GroupDetailResponse(GroupResponse):
 
     is_public: bool
     is_global: bool
+    is_bot_group: bool = False
     member_count: int
     current_user_role: str | None = None
     settings: GroupSettingsResponse | None = None
@@ -171,6 +172,9 @@ class GroupMemberResponse(BaseModel):
     username: str
     role: str
     joined_at: datetime
+    first_name: str | None = None
+    last_name: str | None = None
+    name_is_public: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
