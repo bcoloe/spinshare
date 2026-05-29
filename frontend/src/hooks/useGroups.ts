@@ -33,6 +33,7 @@ export function useGroupMembers(groupId: number) {
     queryKey: ['groups', groupId, 'members'],
     queryFn: () => groupService.getMembers(groupId),
     enabled: !!groupId,
+    staleTime: 2 * 60 * 1000, // 2 minutes — membership changes infrequently
   })
 }
 
@@ -41,6 +42,7 @@ export function useGroupStats(groupId: number) {
     queryKey: ['groups', groupId, 'stats'],
     queryFn: () => groupService.getStats(groupId),
     enabled: !!groupId,
+    staleTime: 2 * 60 * 1000, // 2 minutes — stats are computed and change only on album/review events
   })
 }
 

@@ -17,7 +17,7 @@ from app.services.notification_service import NotificationService
 from fastapi import HTTPException, status
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 
 class GroupService:
@@ -437,54 +437,34 @@ class GroupService:
         Raises:
             HTTPException 404: If group not found.
         """
-        group = self.get_group_by_id(group_id)
-        albums_reviewed = sum(1 for a in group.albums if a.status == "reviewed")
+        # Eager-load albums (with their Album details) and members to avoid N+1
+        # queries when iterating over group.albums and accessing ga.albums.release_date.
+        group = (
+            self.db.query(Group)
+            .options(
+                selectinload(Group.albums).joinedload(GroupAlbum.albums),
+                selectinload(Group.members),
+            )
+            .filter(Group.id == group_id)
+            .first()
+        )
+        if not group:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Unable to find group with id {group_id}",
+            )
 
+        albums_reviewed = sum(1 for a in group.albums if a.status == "reviewed")
         member_ids = {m.id for m in group.members}
 
+        # Collect nominator ID counts from eagerly-loaded albums (no extra query).
         all_nominator_ids = {ga.added_by for ga in group.albums if ga.added_by}
-        if all_nominator_ids:
-            users = self.db.query(User).filter(User.id.in_(all_nominator_ids)).all()
-            username_map = {u.id: u.username for u in users}
-        else:
-            username_map = {}
-
         user_id_counts = Counter(ga.added_by for ga in group.albums if ga.added_by)
-        member_counts: dict[str, int] = {}
-        outside_count = 0
-        for uid, cnt in user_id_counts.items():
-            if uid in member_ids:
-                member_counts[username_map.get(uid, "Unknown")] = (
-                    member_counts.get(username_map.get(uid, "Unknown"), 0) + cnt
-                )
-            else:
-                outside_count += cnt
-        albums_per_member = sorted(
-            [{"username": u, "count": c} for u, c in member_counts.items()],
-            key=lambda x: -x["count"],
-        )
-        if outside_count > 0:
-            albums_per_member.append({"username": "Outside Group", "count": outside_count})
-
         selected_id_counts = Counter(
             ga.added_by for ga in group.albums if ga.added_by and ga.selected_date is not None
         )
-        selected_member_counts: dict[str, int] = {}
-        selected_outside_count = 0
-        for uid, cnt in selected_id_counts.items():
-            if uid in member_ids:
-                selected_member_counts[username_map.get(uid, "Unknown")] = (
-                    selected_member_counts.get(username_map.get(uid, "Unknown"), 0) + cnt
-                )
-            else:
-                selected_outside_count += cnt
-        selected_per_member = sorted(
-            [{"username": u, "count": c} for u, c in selected_member_counts.items()],
-            key=lambda x: -x["count"],
-        )
-        if selected_outside_count > 0:
-            selected_per_member.append({"username": "Outside Group", "count": selected_outside_count})
 
+        # Decade breakdown — uses ga.albums (already eager-loaded, no N+1).
         decade_counts: dict[str, int] = {}
         for ga in group.albums:
             release_date = ga.albums.release_date if ga.albums else None
@@ -520,6 +500,47 @@ class GroupService:
                 album_totals[guess.group_album_id][1] += 1
                 guesser_totals[guess.guessing_user_id][1] += 1
 
+        # Single user lookup for all nominators + guessers combined.
+        all_user_ids = all_nominator_ids | set(guesser_totals.keys())
+        if all_user_ids:
+            users = self.db.query(User).filter(User.id.in_(all_user_ids)).all()
+            username_map = {u.id: u.username for u in users}
+        else:
+            username_map = {}
+
+        # Build nomination / selection counts per member now that username_map is ready.
+        member_counts: dict[str, int] = {}
+        outside_count = 0
+        for uid, cnt in user_id_counts.items():
+            if uid in member_ids:
+                member_counts[username_map.get(uid, "Unknown")] = (
+                    member_counts.get(username_map.get(uid, "Unknown"), 0) + cnt
+                )
+            else:
+                outside_count += cnt
+        albums_per_member = sorted(
+            [{"username": u, "count": c} for u, c in member_counts.items()],
+            key=lambda x: -x["count"],
+        )
+        if outside_count > 0:
+            albums_per_member.append({"username": "Outside Group", "count": outside_count})
+
+        selected_member_counts: dict[str, int] = {}
+        selected_outside_count = 0
+        for uid, cnt in selected_id_counts.items():
+            if uid in member_ids:
+                selected_member_counts[username_map.get(uid, "Unknown")] = (
+                    selected_member_counts.get(username_map.get(uid, "Unknown"), 0) + cnt
+                )
+            else:
+                selected_outside_count += cnt
+        selected_per_member = sorted(
+            [{"username": u, "count": c} for u, c in selected_member_counts.items()],
+            key=lambda x: -x["count"],
+        )
+        if selected_outside_count > 0:
+            selected_per_member.append({"username": "Outside Group", "count": selected_outside_count})
+
         # Build histogram (10 buckets: 0–10%, …, 90–100%) over per-album accuracy.
         BUCKET_LABELS = [
             "0–10%", "10–20%", "20–30%", "30–40%", "40–50%",
@@ -534,15 +555,6 @@ class GroupService:
             GuessHistogramBucket(label=BUCKET_LABELS[i], count=bucket_counts[i])
             for i in range(10)
         ]
-
-        # Per-member guess accuracy — resolve user IDs to usernames.
-        all_guesser_ids = set(guesser_totals.keys())
-        if all_guesser_ids - set(username_map.keys()):
-            extra_users = self.db.query(User).filter(
-                User.id.in_(all_guesser_ids - set(username_map.keys()))
-            ).all()
-            for u in extra_users:
-                username_map[u.id] = u.username
 
         member_guess_accuracy: list[MemberGuessAccuracyItem] = []
         for uid, (total, correct) in guesser_totals.items():
@@ -571,11 +583,14 @@ class GroupService:
     # ==================== MEMBERS ====================
 
     def get_group_members(self, group_id: int) -> list[dict]:
-        """Return members of a group with their role and join date."""
+        """Return members of a group with their role, join date, and public name info."""
         stmt = (
             select(
                 group_members.c.user_id,
                 User.username,
+                User.first_name,
+                User.last_name,
+                User.name_is_public,
                 group_members.c.role,
                 group_members.c.joined_at,
             )
@@ -584,7 +599,15 @@ class GroupService:
         )
         rows = self.db.execute(stmt).all()
         return [
-            {"user_id": r.user_id, "username": r.username, "role": r.role, "joined_at": r.joined_at}
+            {
+                "user_id": r.user_id,
+                "username": r.username,
+                "first_name": r.first_name,
+                "last_name": r.last_name,
+                "name_is_public": r.name_is_public,
+                "role": r.role,
+                "joined_at": r.joined_at,
+            }
             for r in rows
         ]
 

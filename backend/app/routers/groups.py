@@ -51,6 +51,7 @@ def search_groups(
             created_at=g.created_at,
             is_public=g.is_public,
             is_global=g.is_global,
+            is_bot_group=bool(g.bot_sources),
             member_count=len(g.members),
             current_user_role=(
                 role.value if (role := group_service.get_user_role(current_user.id, g.id)) else None
@@ -80,6 +81,7 @@ def get_group_by_name(
         created_at=group.created_at,
         is_public=group.is_public,
         is_global=group.is_global,
+        is_bot_group=bool(group.bot_sources),
         member_count=len(group.members),
         current_user_role=current_role.value if current_role else None,
         settings=GroupSettingsResponse.model_validate(group.settings) if group.settings else None,
@@ -103,6 +105,7 @@ def get_group(
         created_at=group.created_at,
         is_public=group.is_public,
         is_global=group.is_global,
+        is_bot_group=bool(group.bot_sources),
         member_count=len(group.members),
         current_user_role=current_role.value if current_role else None,
         settings=GroupSettingsResponse.model_validate(group.settings) if group.settings else None,
@@ -126,6 +129,7 @@ def update_group(
         created_at=group.created_at,
         is_public=group.is_public,
         is_global=group.is_global,
+        is_bot_group=bool(group.bot_sources),
         member_count=len(group.members),
         current_user_role=current_role.value if current_role else None,
         settings=GroupSettingsResponse.model_validate(group.settings) if group.settings else None,
