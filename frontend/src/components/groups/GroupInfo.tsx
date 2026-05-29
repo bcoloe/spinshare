@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Badge, Button, Divider, Group, SimpleGrid, Skeleton, Stack, Text, Title } from '@mantine/core'
 import { IconListDetails } from '@tabler/icons-react'
@@ -18,9 +19,12 @@ import MemberList from './MemberList'
 import { useGroupStats, useGroupPendingInvitations } from '../../hooks/useGroups'
 import type { GroupDetailResponse, GuessHistogramBucket, MemberGuessAccuracyItem } from '../../types/group'
 
-const DECADE_COLORS = [
+// 20 visually distinct colors — enough headroom for any realistic group size.
+const MEMBER_COLORS = [
   '#7950f2', '#228be6', '#12b886', '#f03e3e', '#fd7e14',
   '#fab005', '#74c0fc', '#63e6be', '#ffa8a8', '#e599f7',
+  '#a9e34b', '#ff6b6b', '#4dabf7', '#38d9a9', '#fcc419',
+  '#f06595', '#845ef7', '#339af0', '#20c997', '#e67700',
 ]
 const OUTSIDE_GROUP_COLOR = '#5c5f66'
 
@@ -31,27 +35,25 @@ const HISTOGRAM_COLORS = [
 
 interface MemberPieProps {
   data: { username: string; count: number }[]
+  colorMap: Record<string, string>
 }
 
-function MemberPieChart({ data }: MemberPieProps) {
+function MemberPieChart({ data, colorMap }: MemberPieProps) {
   return (
-    <ResponsiveContainer width="100%" height={220}>
-      <PieChart>
+    <ResponsiveContainer width="100%" height={260}>
+      <PieChart margin={{ top: 24, right: 24, bottom: 24, left: 24 }}>
         <Pie
           data={data}
           dataKey="count"
           nameKey="username"
           cx="50%"
           cy="50%"
-          outerRadius={85}
+          outerRadius={78}
           label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
-          labelLine={false}
+          labelLine
         >
           {data.map((entry, i) => (
-            <Cell
-              key={i}
-              fill={entry.username === 'Outside Group' ? OUTSIDE_GROUP_COLOR : DECADE_COLORS[i % DECADE_COLORS.length]}
-            />
+            <Cell key={i} fill={colorMap[entry.username] ?? OUTSIDE_GROUP_COLOR} />
           ))}
         </Pie>
         <RechartsTooltip
@@ -180,6 +182,19 @@ export default function GroupInfo({ group }: Props) {
 
   const { data: pendingInvitations = [] } = useGroupPendingInvitations(group.id, canManage)
 
+  // Build a stable username → color map by sorting all member names
+  // alphabetically and assigning palette slots in order. This guarantees:
+  //   • no two members share a color (up to palette size)
+  //   • the same person gets the same color across all charts
+  const memberColorMap = useMemo((): Record<string, string> => {
+    const names = new Set<string>()
+    stats?.albums_per_member.forEach(d => { if (d.username !== 'Outside Group') names.add(d.username) })
+    stats?.selected_per_member.forEach(d => { if (d.username !== 'Outside Group') names.add(d.username) })
+    const map: Record<string, string> = { 'Outside Group': OUTSIDE_GROUP_COLOR }
+    ;[...names].sort().forEach((name, i) => { map[name] = MEMBER_COLORS[i % MEMBER_COLORS.length] })
+    return map
+  }, [stats?.albums_per_member, stats?.selected_per_member])
+
   const canManageCatalog = canManage
 
   return (
@@ -214,14 +229,14 @@ export default function GroupInfo({ group }: Props) {
               loading: statsLoading,
               empty: !stats?.albums_per_member.length,
               emptyMessage: 'No albums added yet.',
-              chart: <MemberPieChart data={stats?.albums_per_member ?? []} />,
+              chart: <MemberPieChart data={stats?.albums_per_member ?? []} colorMap={memberColorMap} />,
             },
             {
               title: 'Selected per Member',
               loading: statsLoading,
               empty: !stats?.selected_per_member.length,
               emptyMessage: 'No albums selected yet.',
-              chart: <MemberPieChart data={stats?.selected_per_member ?? []} />,
+              chart: <MemberPieChart data={stats?.selected_per_member ?? []} colorMap={memberColorMap} />,
             },
             {
               title: 'Albums by Decade',
@@ -243,7 +258,7 @@ export default function GroupInfo({ group }: Props) {
                     />
                     <Bar dataKey="count" radius={[4, 4, 0, 0]}>
                       {(stats?.decade_breakdown ?? []).map((_, i) => (
-                        <Cell key={i} fill={DECADE_COLORS[i % DECADE_COLORS.length]} />
+                        <Cell key={i} fill={MEMBER_COLORS[i % MEMBER_COLORS.length]} />
                       ))}
                     </Bar>
                   </BarChart>

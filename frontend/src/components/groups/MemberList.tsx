@@ -45,7 +45,7 @@ export default function MemberList({ group }: Props) {
     <Stack gap="xs">
       {members?.map((m) => {
         const displayName =
-          showNames && m.name_is_public
+          showNames && (m.first_name || m.last_name)
             ? [m.first_name, m.last_name].filter(Boolean).join(' ')
             : null
 
