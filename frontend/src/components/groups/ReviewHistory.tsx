@@ -47,6 +47,7 @@ import type { MemberGuessResult } from '../../types/stats'
 // ==================== TYPES ====================
 
 type SortField = 'title' | 'artist' | 'date' | 'release' | 'nominator'
+type ReviewedSortField = SortField | 'rating' | 'avg_rating'
 type SortDir = 'asc' | 'desc'
 
 // ==================== HELPERS ====================
@@ -118,17 +119,41 @@ function sortAlbums(
   })
 }
 
-// ==================== SORT BUTTON ====================
-
-interface SortButtonProps {
-  field: SortField
-  label: string
-  active: SortField
-  dir: SortDir
-  onClick: (f: SortField) => void
+function sortReviewedAlbums(
+  albums: GroupAlbumResponse[],
+  members: GroupMemberResponse[],
+  reviewMap: Map<number, ReviewResponse>,
+  field: ReviewedSortField,
+  dir: SortDir,
+): GroupAlbumResponse[] {
+  if (field === 'rating') {
+    return [...albums].sort((a, b) => {
+      const ar = reviewMap.get(a.album_id)?.rating ?? -1
+      const br = reviewMap.get(b.album_id)?.rating ?? -1
+      return dir === 'asc' ? ar - br : br - ar
+    })
+  }
+  if (field === 'avg_rating') {
+    return [...albums].sort((a, b) => {
+      const ar = a.avg_rating ?? -1
+      const br = b.avg_rating ?? -1
+      return dir === 'asc' ? ar - br : br - ar
+    })
+  }
+  return sortAlbums(albums, members, field, dir)
 }
 
-function SortButton({ field, label, active, dir, onClick }: SortButtonProps) {
+// ==================== SORT BUTTON ====================
+
+interface SortButtonProps<F extends string> {
+  field: F
+  label: string
+  active: F
+  dir: SortDir
+  onClick: (f: F) => void
+}
+
+function SortButton<F extends string>({ field, label, active, dir, onClick }: SortButtonProps<F>) {
   const Icon =
     active !== field ? IconSelector : dir === 'asc' ? IconChevronUp : IconChevronDown
   return (
@@ -656,7 +681,7 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
 
   const [unreviewedField, setUnreviewedField] = useState<SortField>('date')
   const [unreviewedDir, setUnreviewedDir] = useState<SortDir>('desc')
-  const [reviewedField, setReviewedField] = useState<SortField>('date')
+  const [reviewedField, setReviewedField] = useState<ReviewedSortField>('date')
   const [reviewedDir, setReviewedDir] = useState<SortDir>('desc')
   const [reviewedFilter, setReviewedFilter] = useState('')
 
@@ -664,9 +689,9 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
     if (unreviewedField === f) setUnreviewedDir((d) => (d === 'asc' ? 'desc' : 'asc'))
     else { setUnreviewedField(f); setUnreviewedDir('asc') }
   }
-  const toggleReviewedSort = (f: SortField) => {
+  const toggleReviewedSort = (f: ReviewedSortField) => {
     if (reviewedField === f) setReviewedDir((d) => (d === 'asc' ? 'desc' : 'asc'))
-    else { setReviewedField(f); setReviewedDir('asc') }
+    else { setReviewedField(f); setReviewedDir('desc') }
   }
 
   const { data: myReviewsList = [], isLoading: myReviewsLoading } = useQuery({
@@ -734,8 +759,8 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
   }, [reviewed, reviewedFilter])
 
   const sortedReviewed = useMemo(
-    () => sortAlbums(filteredReviewed, members, reviewedField, reviewedDir),
-    [filteredReviewed, members, reviewedField, reviewedDir],
+    () => sortReviewedAlbums(filteredReviewed, members, reviewMap, reviewedField, reviewedDir),
+    [filteredReviewed, members, reviewMap, reviewedField, reviewedDir],
   )
 
   const toggleExpand = (id: number) => setExpandedId((prev) => (prev === id ? null : id))
@@ -865,8 +890,12 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
                 <Table.Th>
                   <SortButton field="release" label="Released" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
                 </Table.Th>
-                <Table.Th>Rating</Table.Th>
-                <Table.Th>Group Avg</Table.Th>
+                <Table.Th>
+                  <SortButton field="rating" label="Rating" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
+                </Table.Th>
+                <Table.Th>
+                  <SortButton field="avg_rating" label="Group Avg" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
+                </Table.Th>
                 <Table.Th>
                   <SortButton field="nominator" label="Nominated By" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
                 </Table.Th>
