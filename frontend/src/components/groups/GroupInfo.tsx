@@ -1,7 +1,9 @@
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Badge, Button, Divider, Group, SimpleGrid, Skeleton, Stack, Text, Title } from '@mantine/core'
-import { IconListDetails } from '@tabler/icons-react'
+import { ActionIcon, Badge, Button, Divider, Group, SimpleGrid, Skeleton, Stack, Text, Title, Tooltip } from '@mantine/core'
+import { notifications } from '@mantine/notifications'
+import { IconListDetails, IconX } from '@tabler/icons-react'
+import { ApiError } from '../../services/apiClient'
 import {
   Bar,
   BarChart,
@@ -16,7 +18,7 @@ import {
 } from 'recharts'
 import ChartCarousel from '../profile/ChartCarousel'
 import MemberList from './MemberList'
-import { useGroupStats, useGroupPendingInvitations } from '../../hooks/useGroups'
+import { useGroupStats, useGroupPendingInvitations, useRevokeInvitation } from '../../hooks/useGroups'
 import type { GroupDetailResponse, GuessHistogramBucket, MemberGuessAccuracyItem } from '../../types/group'
 
 // 20 visually distinct colors — enough headroom for any realistic group size.
@@ -181,6 +183,17 @@ export default function GroupInfo({ group }: Props) {
     group.current_user_role === 'owner' || group.current_user_role === 'admin'
 
   const { data: pendingInvitations = [] } = useGroupPendingInvitations(group.id, canManage)
+  const revokeInvitation = useRevokeInvitation(group.id)
+
+  const handleRevokeInvitation = async (invitationId: number, email: string) => {
+    try {
+      await revokeInvitation.mutateAsync(invitationId)
+      notifications.show({ color: 'green', message: `Invitation to ${email} cancelled` })
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Could not cancel invitation'
+      notifications.show({ color: 'red', message })
+    }
+  }
 
   // Build a stable username → color map by sorting all member names
   // alphabetically and assigning palette slots in order. This guarantees:
@@ -300,12 +313,25 @@ export default function GroupInfo({ group }: Props) {
             </Group>
             <Stack gap="xs">
               {pendingInvitations.map((inv) => (
-                <Group key={inv.id} justify="space-between">
+                <Group key={inv.id} justify="space-between" wrap="nowrap">
                   <Text size="sm">{inv.invited_email}</Text>
-                  <Text size="xs" c="dimmed">
-                    invited by {inv.inviter_username} · expires{' '}
-                    {new Date(inv.expires_at).toLocaleDateString()}
-                  </Text>
+                  <Group gap="sm" wrap="nowrap">
+                    <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+                      invited by {inv.inviter_username} · expires{' '}
+                      {new Date(inv.expires_at).toLocaleDateString()}
+                    </Text>
+                    <Tooltip label="Cancel invitation" withArrow position="left">
+                      <ActionIcon
+                        size="sm"
+                        variant="subtle"
+                        color="red"
+                        onClick={() => handleRevokeInvitation(inv.id, inv.invited_email)}
+                        loading={revokeInvitation.isPending}
+                      >
+                        <IconX size={14} />
+                      </ActionIcon>
+                    </Tooltip>
+                  </Group>
                 </Group>
               ))}
             </Stack>

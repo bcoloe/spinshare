@@ -35,6 +35,9 @@ class InvitationService:
     ) -> GroupInvitation:
         """Create and send a group invitation email.
 
+        If a previous invitation for this email has expired, it is deleted and a
+        fresh invitation is issued.  Accepted invitations are never touched.
+
         Raises:
             HTTPException 403: If inviter does not meet the group's min_role_to_add_members requirement
             HTTPException 404: If group not found
@@ -60,6 +63,9 @@ class InvitationService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="A pending invitation already exists for this email",
             )
+
+        # Remove any lingering expired invitations before issuing a fresh one.
+        self._delete_expired_invitations(group_id, email)
 
         now = datetime.now(timezone.utc)
         invitation = GroupInvitation(
@@ -105,7 +111,7 @@ class InvitationService:
     def get_group_invitations(
         self, group_id: int, requester: User, group_service: GroupService
     ) -> list[GroupInvitation]:
-        """List all pending (non-accepted) invitations for a group.
+        """List all active (non-accepted, non-expired) invitations for a group.
 
         Raises:
             HTTPException 403: If requester is not Admin or Owner
@@ -113,12 +119,14 @@ class InvitationService:
         """
         group_service.get_group_by_id(group_id)
         group_service.require_permission(requester.id, group_id, GroupRole.Admin)
+        now = datetime.now(timezone.utc)
         return list(
             self.db.scalars(
                 select(GroupInvitation)
                 .where(
                     GroupInvitation.group_id == group_id,
                     GroupInvitation.accepted_at.is_(None),
+                    GroupInvitation.expires_at > now,
                 )
                 .order_by(GroupInvitation.created_at.desc())
             ).all()
@@ -272,3 +280,21 @@ class InvitationService:
                 GroupInvitation.expires_at > now,
             )
         ).first()
+
+    def _delete_expired_invitations(self, group_id: int, email: str) -> None:
+        """Delete all expired (non-accepted) invitations for this email+group pair."""
+        now = datetime.now(timezone.utc)
+        expired = list(
+            self.db.scalars(
+                select(GroupInvitation).where(
+                    GroupInvitation.group_id == group_id,
+                    GroupInvitation.invited_email == email,
+                    GroupInvitation.accepted_at.is_(None),
+                    GroupInvitation.expires_at <= now,
+                )
+            ).all()
+        )
+        for inv in expired:
+            self.db.delete(inv)
+        if expired:
+            self.db.flush()
