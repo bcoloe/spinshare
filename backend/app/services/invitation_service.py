@@ -36,12 +36,15 @@ class InvitationService:
         """Create and send a group invitation email.
 
         Raises:
-            HTTPException 403: If inviter is not Admin or Owner
+            HTTPException 403: If inviter does not meet the group's min_role_to_add_members requirement
             HTTPException 404: If group not found
             HTTPException 409: If email already has a pending invitation or is already a member
         """
         group = group_service.get_group_by_id(group_id)
-        group_service.require_permission(inviter.id, group_id, GroupRole.Admin)
+        settings = group_service.get_group_settings(group_id)
+        group_service.require_permission(
+            inviter.id, group_id, GroupRole(settings.min_role_to_add_members)
+        )
 
         email = data.email.lower()
 

@@ -24,11 +24,14 @@ class InviteLinkService:
         """Return the active invite link for a group, or None if none exists.
 
         Raises:
-            HTTPException 403: If requester is not Admin or Owner
+            HTTPException 403: If requester does not meet the group's min_role_to_add_members requirement
             HTTPException 404: If group not found
         """
         group_service.get_group_by_id(group_id)
-        group_service.require_permission(requester.id, group_id, GroupRole.Admin)
+        settings = group_service.get_group_settings(group_id)
+        group_service.require_permission(
+            requester.id, group_id, GroupRole(settings.min_role_to_add_members)
+        )
         return self._get_link_for_group(group_id)
 
     def get_link_by_token(self, token: str) -> GroupInviteLink:
@@ -55,11 +58,14 @@ class InviteLinkService:
         """Create a new invite link, or rotate the token if one already exists.
 
         Raises:
-            HTTPException 403: If requester is not Admin or Owner
+            HTTPException 403: If requester does not meet the group's min_role_to_add_members requirement
             HTTPException 404: If group not found
         """
         group_service.get_group_by_id(group_id)
-        group_service.require_permission(requester.id, group_id, GroupRole.Admin)
+        settings = group_service.get_group_settings(group_id)
+        group_service.require_permission(
+            requester.id, group_id, GroupRole(settings.min_role_to_add_members)
+        )
 
         link = self._get_link_for_group(group_id)
         if link:

@@ -71,6 +71,7 @@ class TestCreateInvitation:
     def test_create_invitation_non_admin_raises_403(
         self, db_session, invitation_service, sample_group_service, sample_group, user_factory
     ):
+        """Regular members cannot invite when the group uses the default admin-only setting."""
         member = user_factory(email="member@test.com", username="member")
         sample_group_service.add_user(sample_group.id, member.id)
 
@@ -80,6 +81,24 @@ class TestCreateInvitation:
                 sample_group.id, data, member, sample_group_service
             )
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_create_invitation_member_succeeds_when_setting_allows_members(
+        self, db_session, invitation_service, sample_group_service, sample_group, user_factory
+    ):
+        """Regular members can invite when min_role_to_add_members is set to 'member'."""
+        sample_group.settings.min_role_to_add_members = "member"
+        db_session.commit()
+
+        member = user_factory(email="member@test.com", username="member")
+        sample_group_service.add_user(sample_group.id, member.id)
+
+        data = InvitationCreate(email="other@example.com")
+        with patch("app.services.invitation_service.send_invitation_email") as mock_send:
+            inv = invitation_service.create_invitation(
+                sample_group.id, data, member, sample_group_service
+            )
+        assert inv.invited_email == "other@example.com"
+        mock_send.assert_called_once()
 
     def test_create_invitation_duplicate_pending_raises_409(
         self, db_session, invitation_service, sample_group_service, sample_group, sample_user
