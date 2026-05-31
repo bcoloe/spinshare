@@ -8,6 +8,7 @@ import '@mantine/notifications/styles.css'
 import '@mantine/carousel/styles.css'
 import { AuthProvider } from './context/AuthContext'
 import { FavoriteGroupProvider } from './context/FavoriteGroupContext'
+import { UnseenReviewsProvider } from './context/UnseenReviewsContext'
 import { PlayerProvider } from './context/PlayerContext'
 import App from './App'
 
@@ -32,9 +33,11 @@ createRoot(document.getElementById('root')!).render(
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <FavoriteGroupProvider>
-            <PlayerProvider>
-              <App />
-            </PlayerProvider>
+            <UnseenReviewsProvider>
+              <PlayerProvider>
+                <App />
+              </PlayerProvider>
+            </UnseenReviewsProvider>
           </FavoriteGroupProvider>
         </AuthProvider>
       </QueryClientProvider>

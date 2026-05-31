@@ -37,6 +37,7 @@ import { albumService } from '../../services/albumService'
 import { statsService } from '../../services/statsService'
 import { useAuth } from '../../hooks/useAuth'
 import { useCheckGuess, useGuessOptions, useUpdateReview } from '../../hooks/useDailySpin'
+import { useUnseenReviews } from '../../context/UnseenReviewsContext'
 import { ApiError } from '../../services/apiClient'
 import GuessResult from '../spin/GuessResult'
 import ReviewAndGuessForm from '../spin/ReviewAndGuessForm'
@@ -371,9 +372,10 @@ interface ReviewedRowProps {
   guessResult: CheckGuessResponse | undefined
   currentUserId: number | undefined
   rowRef?: React.RefCallback<HTMLTableRowElement>
+  hasNewReviews?: boolean
 }
 
-function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allowGuessing, guessResult, currentUserId, rowRef }: ReviewedRowProps) {
+function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allowGuessing, guessResult, currentUserId, rowRef, hasNewReviews = false }: ReviewedRowProps) {
   const { album } = ga
   const navigate = useNavigate()
   const [editMode, setEditMode] = useState(false)
@@ -444,7 +446,14 @@ function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allow
 
   return (
     <>
-      <Table.Tr ref={rowRef} style={{ cursor: 'pointer' }} onClick={onToggle}>
+      <Table.Tr
+        ref={rowRef}
+        style={{
+          cursor: 'pointer',
+          boxShadow: hasNewReviews ? 'inset 3px 0 0 var(--mantine-color-violet-5)' : undefined,
+        }}
+        onClick={onToggle}
+      >
         <Table.Td>
           <CoverCell src={album.cover_url} />
         </Table.Td>
@@ -671,6 +680,7 @@ interface Props {
 
 export default function ReviewHistory({ groupId, albums, members, isLoading, allowGuessing = true, focusAlbumId }: Props) {
   const { user } = useAuth()
+  const { isUnseen, markSeen } = useUnseenReviews()
   const [pendingOpen, { toggle: togglePending }] = useDisclosure(true)
   const [inProgressOpen, { toggle: toggleInProgress }] = useDisclosure(true)
   const [expandedId, setExpandedId] = useState<number | null>(null)
@@ -772,13 +782,14 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
     if (!targetGa) return
 
     setExpandedReviewedId(targetGa.id)
+    markSeen(groupId, focusAlbumId)
     scrolledToAlbumId.current = focusAlbumId
 
     requestAnimationFrame(() => {
       const el = rowRefs.current.get(targetGa.id)
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
     })
-  }, [focusAlbumId, reviewed, isLoading, reviewsLoading])
+  }, [focusAlbumId, reviewed, isLoading, reviewsLoading]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (isLoading || reviewsLoading) {
     return (
@@ -913,11 +924,15 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
                   review={reviewMap.get(ga.album_id)!}
                   members={members}
                   isExpanded={expandedReviewedId === ga.id}
-                  onToggle={() => setExpandedReviewedId((prev) => (prev === ga.id ? null : ga.id))}
+                  onToggle={() => {
+                    setExpandedReviewedId((prev) => (prev === ga.id ? null : ga.id))
+                    if (isUnseen(groupId, ga.album_id)) markSeen(groupId, ga.album_id)
+                  }}
                   groupId={groupId}
                   allowGuessing={allowGuessing}
                   guessResult={guessMap.get(ga.id)}
                   currentUserId={user?.id}
+                  hasNewReviews={isUnseen(groupId, ga.album_id)}
                   rowRef={(el) => {
                     if (el) rowRefs.current.set(ga.id, el)
                     else rowRefs.current.delete(ga.id)
