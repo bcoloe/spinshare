@@ -13,6 +13,7 @@ sys.path.insert(0, ".")
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 
 from app.config import get_settings
 from app.models import BotSource, Group, GroupSettings, User  # noqa: F401 — register all models
@@ -28,7 +29,7 @@ BOT_SOURCE_NAME = "pitchfork_best_new"
 
 def main():
     settings = get_settings()
-    engine = create_engine(settings.DATABASE_URL)
+    engine = create_engine(settings.DATABASE_URL, poolclass=NullPool)
     SessionLocal = sessionmaker(bind=engine)
     db = SessionLocal()
     try:

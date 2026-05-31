@@ -29,6 +29,7 @@ sys.path.insert(0, ".")
 from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 
 from app.config import get_settings
 from app.models import BotSource, Group, GroupAlbum, GroupSettings, User  # noqa: F401
@@ -225,7 +226,7 @@ def main() -> None:
     args = parser.parse_args()
 
     settings = get_settings()
-    engine = create_engine(settings.DATABASE_URL)
+    engine = create_engine(settings.DATABASE_URL, poolclass=NullPool)
     SessionLocal = sessionmaker(bind=engine)
     db = SessionLocal()
 
