@@ -76,7 +76,12 @@ class GroupAlbumService:
     # ==================== DAILY SELECTION (cron-driven) ====================
 
     def select_daily_albums(
-        self, group_id: int, n: int = 1, *, bypass_schedule: bool = False
+        self,
+        group_id: int,
+        n: int = 1,
+        *,
+        bypass_schedule: bool = False,
+        predrawn_album_ids: list[int] | None = None,
     ) -> list[GroupAlbum]:
         """Randomly select N unselected albums as today's daily spins for a group.
 
@@ -92,6 +97,10 @@ class GroupAlbumService:
         If the group has chaos_mode enabled, each slot has a 10% chance of being filled
         from the global album pool (any album not already in the group) instead of from
         group nominations.
+
+        If ``predrawn_album_ids`` is provided (from the daily planner cache), those IDs are
+        used in place of a fresh random draw for normal (non-chaos, non-global) groups. If any
+        pre-drawn ID is no longer pending, the method falls back to a fresh random selection.
 
         If fewer than N albums are available (but at least 1), selects all available and
         notifies group members that the pool is exhausted.
@@ -136,6 +145,16 @@ class GroupAlbumService:
 
         chaos_mode = settings.chaos_mode if settings else False
 
+        # Use pre-drawn album IDs for normal groups when the planner has cached a selection.
+        # Chaos groups are excluded: their apply step may create new GroupAlbum records, which
+        # cannot be fully pre-computed without committing.
+        if predrawn_album_ids and not chaos_mode:
+            applied = self._apply_predrawn_albums(group_id, predrawn_album_ids)
+            if applied:
+                self._heal_genres(applied)
+                return applied
+            # One or more pre-drawn IDs are no longer pending; fall through to fresh selection.
+
         available_album_ids = [
             row[0]
             for row in self.db.query(GroupAlbum.album_id)
@@ -155,6 +174,84 @@ class GroupAlbumService:
             selected = self._select_with_chaos(group_id, group, available_album_ids, n)
         self._heal_genres(selected)
         return selected
+
+    def predraw_album_ids(self, group_id: int, n: int) -> list[int]:
+        """Pre-draw N album IDs for a group without committing any changes to the DB.
+
+        Intended to be called by the daily planner so that the hourly applier can use
+        ``predrawn_album_ids`` instead of re-running the random selection query.
+
+        Returns [] for global groups and chaos-mode groups: both require GroupAlbum records
+        to be created at apply time, which cannot be pre-computed without a commit.
+        Also returns [] when no pending albums are available.
+        """
+        group = self.db.query(Group).filter(Group.id == group_id).first()
+        if group and group.is_global:
+            return []
+
+        settings = self.db.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
+        if settings and settings.chaos_mode:
+            return []
+
+        available_album_ids = [
+            row[0]
+            for row in self.db.query(GroupAlbum.album_id)
+            .filter(GroupAlbum.group_id == group_id, GroupAlbum.selected_date.is_(None))
+            .distinct()
+            .all()
+        ]
+        if not available_album_ids:
+            return []
+
+        return random.sample(available_album_ids, min(n, len(available_album_ids)))
+
+    def _apply_predrawn_albums(
+        self, group_id: int, album_ids: list[int]
+    ) -> list[GroupAlbum]:
+        """Apply pre-drawn album IDs as today's selection.
+
+        Validates that every ID in ``album_ids`` is still pending for this group. If any
+        have been removed or already selected since the plan was generated, returns [] so
+        the caller can fall back to a fresh random selection. This avoids a partial
+        application that would leave the group with fewer albums than configured.
+        """
+        pending_album_ids = {
+            row[0]
+            for row in self.db.query(GroupAlbum.album_id)
+            .filter(
+                GroupAlbum.group_id == group_id,
+                GroupAlbum.album_id.in_(album_ids),
+                GroupAlbum.selected_date.is_(None),
+            )
+            .distinct()
+            .all()
+        }
+        if pending_album_ids < set(album_ids):
+            # One or more pre-drawn albums are no longer available.
+            return []
+
+        now = datetime.now(tz=timezone.utc)
+        all_nominations = (
+            self.db.query(GroupAlbum)
+            .filter(
+                GroupAlbum.group_id == group_id,
+                GroupAlbum.album_id.in_(album_ids),
+                GroupAlbum.selected_date.is_(None),
+            )
+            .all()
+        )
+        for ga in all_nominations:
+            ga.selected_date = now
+
+        self.db.commit()
+
+        canonical: dict[int, GroupAlbum] = {}
+        for ga in all_nominations:
+            self.db.refresh(ga)
+            if ga.album_id not in canonical or ga.id < canonical[ga.album_id].id:
+                canonical[ga.album_id] = ga
+
+        return list(canonical.values())
 
     def _select_normal_albums(
         self, group_id: int, group: Group | None, available_album_ids: list[int], n: int

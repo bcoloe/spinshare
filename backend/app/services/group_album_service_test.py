@@ -1168,3 +1168,142 @@ class TestSelectionSchedule:
         """Default selection_days=[0..6] means every day triggers selection."""
         result = group_album_service.select_daily_albums(sample_group.id, n=1)
         assert len(result) == 1
+
+
+# ==================== PRE-DRAW CACHE ====================
+
+
+class TestPredrawAlbumIds:
+    def test_returns_album_ids_for_normal_group(
+        self, group_album_service, sample_group, sample_group_album
+    ):
+        """predraw_album_ids returns the pending album's ID without modifying the DB."""
+        result = group_album_service.predraw_album_ids(sample_group.id, n=1)
+
+        assert result == [sample_group_album.album_id]
+        # No selected_date should have been set
+        from app.models import GroupAlbum
+        ga = group_album_service.db.get(GroupAlbum, sample_group_album.id)
+        assert ga.selected_date is None
+
+    def test_returns_empty_when_pool_empty(self, group_album_service, sample_group):
+        """Returns [] when there are no pending albums instead of raising."""
+        result = group_album_service.predraw_album_ids(sample_group.id, n=1)
+        assert result == []
+
+    def test_capped_to_available_count(
+        self, group_album_service, sample_group, sample_group_album
+    ):
+        """Requesting more albums than available returns however many exist."""
+        result = group_album_service.predraw_album_ids(sample_group.id, n=10)
+        assert len(result) == 1
+
+    def test_returns_empty_for_chaos_group(
+        self, group_album_service, sample_group, sample_group_album, db_session
+    ):
+        """Chaos groups are excluded from pre-draw; they need to create records at apply time."""
+        _enable_chaos(db_session, sample_group)
+        result = group_album_service.predraw_album_ids(sample_group.id, n=1)
+        assert result == []
+
+    def test_returns_empty_for_global_group(
+        self, group_album_service, global_group, sample_group, sample_album, sample_user, db_session
+    ):
+        """Global groups are excluded from pre-draw; they create new GroupAlbum records at apply time."""
+        from app.models import GroupAlbum
+        db_session.add(GroupAlbum(group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id))
+        db_session.commit()
+
+        result = group_album_service.predraw_album_ids(global_group.id, n=1)
+        assert result == []
+
+
+class TestSelectDailyAlbumsPredrawn:
+    def test_uses_predrawn_ids(
+        self, group_album_service, sample_group, sample_group_album
+    ):
+        """select_daily_albums uses the provided album IDs instead of sampling randomly."""
+        result = group_album_service.select_daily_albums(
+            sample_group.id, n=1, predrawn_album_ids=[sample_group_album.album_id]
+        )
+
+        assert len(result) == 1
+        assert result[0].album_id == sample_group_album.album_id
+        assert result[0].selected_date is not None
+
+    def test_falls_back_when_predrawn_stale(
+        self, group_album_service, sample_group, sample_group_album, db_session
+    ):
+        """Falls back to random selection when the pre-drawn album is no longer pending.
+
+        Staleness is simulated by backdating the nomination's selected_date to yesterday.
+        This means the album is no longer in the pending pool but today's idempotency
+        guard does not fire, so the method reaches the pre-draw path and must fall back.
+        """
+        from app.models import Album, GroupAlbum
+
+        # Add a second album so the fallback has something to pick
+        album2 = Album(spotify_album_id="pre_stale_2", title="Fallback Album", artist="Artist")
+        db_session.add(album2)
+        db_session.commit()
+        db_session.refresh(album2)
+        db_session.add(GroupAlbum(group_id=sample_group.id, album_id=album2.id, added_by=sample_group_album.added_by))
+        db_session.commit()
+
+        # Backdate to yesterday: the nomination is no longer pending, but today's
+        # idempotency check does not consider it a "today's selection".
+        yesterday = datetime.now(tz=timezone.utc) - timedelta(days=1)
+        sample_group_album.selected_date = yesterday
+        db_session.commit()
+
+        # Pre-draw references the stale album; service should fall back and pick album2
+        result = group_album_service.select_daily_albums(
+            sample_group.id, n=1, predrawn_album_ids=[sample_group_album.album_id]
+        )
+
+        assert len(result) == 1
+        assert result[0].album_id == album2.id
+
+    def test_predrawn_marks_all_nominations(
+        self, group_album_service, sample_group, sample_group_album,
+        sample_group_service, user_factory, db_session
+    ):
+        """Pre-drawn selection marks ALL nominations for the same album as selected."""
+        from app.models import GroupAlbum
+
+        other = user_factory(email="pre_other@test.com", username="pre_other")
+        sample_group_service.add_user(sample_group.id, other.id)
+        ga2 = GroupAlbum(
+            group_id=sample_group.id,
+            album_id=sample_group_album.album_id,
+            added_by=other.id,
+        )
+        db_session.add(ga2)
+        db_session.commit()
+
+        group_album_service.select_daily_albums(
+            sample_group.id, n=1, predrawn_album_ids=[sample_group_album.album_id]
+        )
+
+        db_session.refresh(sample_group_album)
+        db_session.refresh(ga2)
+        assert sample_group_album.selected_date is not None
+        assert ga2.selected_date is not None
+
+    def test_predrawn_ignored_for_chaos_group(
+        self, group_album_service, sample_group, sample_group_album, db_session
+    ):
+        """Chaos groups ignore predrawn_album_ids and run their own selection logic."""
+        _enable_chaos(db_session, sample_group)
+        chaos_album = _make_unrelated_album(db_session, spotify_id="pre_chaos_1", title="Pre-Chaos")
+
+        with patch("app.services.group_album_service.random.random", return_value=0.0):
+            result = group_album_service.select_daily_albums(
+                sample_group.id, n=1,
+                predrawn_album_ids=[sample_group_album.album_id],
+            )
+
+        # Chaos forced all slots to chaos pool, so the pre-drawn normal album was not used
+        assert len(result) == 1
+        assert result[0].album_id == chaos_album.id
+        assert result[0].is_chaos_selection is True
