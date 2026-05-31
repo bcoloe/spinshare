@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 from sqlalchemy import create_engine, select
+from sqlalchemy.pool import NullPool
 from sqlalchemy.orm import Session
 
 from app.models import GroupAlbum, Review
@@ -74,6 +75,6 @@ if __name__ == "__main__":
         print("ERROR: DATABASE_URL not set in environment or .env file.", file=sys.stderr)
         sys.exit(1)
 
-    engine = create_engine(database_url)
+    engine = create_engine(database_url, poolclass=NullPool)
     with Session(engine) as session:
         backfill(session)

@@ -29,6 +29,7 @@ from app.models import Group, GroupAlbum, GroupSettings  # noqa: F401 — ensure
 from app.services.group_album_service import GroupAlbumService
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -67,7 +68,7 @@ def main() -> None:
     args = parser.parse_args()
 
     settings = get_settings()
-    engine = create_engine(settings.DATABASE_URL)
+    engine = create_engine(settings.DATABASE_URL, poolclass=NullPool)
     SessionLocal = sessionmaker(bind=engine)
     db = SessionLocal()
 
