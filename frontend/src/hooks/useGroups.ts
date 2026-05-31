@@ -161,6 +161,14 @@ export function useGroupPendingInvitations(groupId: number, enabled: boolean) {
   })
 }
 
+export function useRevokeInvitation(groupId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (invitationId: number) => invitationService.revoke(groupId, invitationId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'invitations'] }),
+  })
+}
+
 export function useGroupInviteLink(groupId: number, enabled: boolean) {
   return useQuery({
     queryKey: ['groups', groupId, 'invite-link'],

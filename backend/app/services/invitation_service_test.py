@@ -132,19 +132,24 @@ class TestCreateInvitation:
     def test_create_invitation_expired_allows_reinvite(
         self, db_session, invitation_service, sample_group_service, sample_group, sample_user
     ):
-        _make_invitation(
+        old_inv = _make_invitation(
             db_session,
             group_id=sample_group.id,
             invited_email="reinvite@example.com",
             invited_by=sample_user.id,
             days_until_expiry=-1,
         )
+        old_id = old_inv.id
         data = InvitationCreate(email="reinvite@example.com")
         with patch("app.services.invitation_service.send_invitation_email"):
             inv = invitation_service.create_invitation(
                 sample_group.id, data, sample_user, sample_group_service
             )
         assert inv.invited_email == "reinvite@example.com"
+        # The old expired record must have been removed.
+        assert db_session.get(GroupInvitation, old_id) is None
+        # The new invitation is a distinct record.
+        assert inv.id != old_id
 
     def test_create_invitation_group_not_found_raises_404(
         self, invitation_service, sample_group_service, sample_user
@@ -196,6 +201,28 @@ class TestGetInvitation:
         )
         assert len(results) == 1
         assert results[0].invited_email == "pending@example.com"
+
+    def test_get_group_invitations_excludes_expired(
+        self, db_session, invitation_service, sample_group_service, sample_group, sample_user
+    ):
+        _make_invitation(
+            db_session,
+            group_id=sample_group.id,
+            invited_email="active@example.com",
+            invited_by=sample_user.id,
+        )
+        _make_invitation(
+            db_session,
+            group_id=sample_group.id,
+            invited_email="expired@example.com",
+            invited_by=sample_user.id,
+            days_until_expiry=-1,
+        )
+        results = invitation_service.get_group_invitations(
+            sample_group.id, sample_user, sample_group_service
+        )
+        emails = {r.invited_email for r in results}
+        assert emails == {"active@example.com"}
 
     def test_get_group_invitations_non_admin_raises_403(
         self, db_session, invitation_service, sample_group_service, sample_group, user_factory
