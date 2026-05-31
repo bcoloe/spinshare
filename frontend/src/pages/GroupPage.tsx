@@ -1,6 +1,7 @@
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ActionIcon,
+  Affix,
   Badge,
   Box,
   Group,
@@ -13,7 +14,7 @@ import {
   Tooltip,
 } from '@mantine/core'
 import { useDisclosure, useMediaQuery } from '@mantine/hooks'
-import { IconDoorExit, IconSettings, IconUserPlus } from '@tabler/icons-react'
+import { IconDoorExit, IconPlus, IconSettings, IconStar, IconStarFilled, IconUserPlus } from '@tabler/icons-react'
 import AppShell from '../components/layout/AppShell'
 import TodaysSpin from '../components/spin/TodaysSpin'
 import ReviewHistory from '../components/groups/ReviewHistory'
@@ -21,8 +22,10 @@ import GroupInfo from '../components/groups/GroupInfo'
 import LeaveGroupModal from '../components/groups/LeaveGroupModal'
 import InviteUserModal from '../components/groups/InviteUserModal'
 import MyNominations from '../components/groups/MyNominations'
+import AlbumSearchModal from '../components/albums/AlbumSearchModal'
 import { useGroup, useGroupMembers } from '../hooks/useGroups'
-import { useGroupAlbums } from '../hooks/useAlbums'
+import { useGroupAlbums, useNominationCount } from '../hooks/useAlbums'
+import { useFavoriteGroup } from '../context/FavoriteGroupContext'
 
 type Tab = 'spin' | 'history' | 'info' | 'nominations'
 
@@ -37,12 +40,16 @@ export default function GroupPage() {
   const focusAlbumId = searchParams.get('album') ? Number(searchParams.get('album')) : null
   const [leaveOpened, { open: openLeave, close: closeLeave }] = useDisclosure(false)
   const [inviteOpened, { open: openInvite, close: closeInvite }] = useDisclosure(false)
+  const [nominateOpened, { open: openNominate, close: closeNominate }] = useDisclosure(false)
   const isMobile = useMediaQuery('(max-width: 768px)')
 
   const { data: group, isLoading: groupLoading } = useGroup(gid)
   const { data: members = [], isLoading: membersLoading } = useGroupMembers(gid)
   const { data: allAlbums = [], isLoading: albumsLoading } = useGroupAlbums(gid)
+  const { data: nominationCount } = useNominationCount(gid)
   const reviewedAlbums = allAlbums.filter((ga) => ga.selected_date !== null)
+
+  const { favoriteId, toggleFavorite } = useFavoriteGroup()
 
   const canManage =
     group?.current_user_role === 'owner' || group?.current_user_role === 'admin'
@@ -52,6 +59,22 @@ export default function GroupPage() {
   const canInvite =
     !!group?.current_user_role &&
     (ROLE_RANK[group.current_user_role] ?? 99) <= (ROLE_RANK[minRoleToInvite] ?? 99)
+
+  const minRoleToNominate = group?.settings?.min_role_to_nominate ?? 'member'
+  const dailyLimit = group?.settings?.daily_nomination_limit ?? null
+  const todayCount = nominationCount?.today_count ?? 0
+  const dailyLimitReached = dailyLimit !== null && todayCount >= dailyLimit
+  const canNominate =
+    !!group?.current_user_role &&
+    !group?.is_global &&
+    (ROLE_RANK[group.current_user_role] ?? 99) <= (ROLE_RANK[minRoleToNominate] ?? 99) &&
+    !dailyLimitReached
+
+  const nominateTooltip = group?.is_global
+    ? 'Nominations are not open for the global group'
+    : dailyLimitReached
+      ? `Daily nomination limit of ${dailyLimit} reached — come back tomorrow`
+      : "You don't have permission to nominate albums in this group"
 
   return (
     <AppShell>
@@ -76,6 +99,16 @@ export default function GroupPage() {
             </div>
 
             <Group gap="xs">
+              <Tooltip label={favoriteId === gid ? 'Remove from favorites' : 'Set as favorite group'}>
+                <ActionIcon
+                  variant="subtle"
+                  color={favoriteId === gid ? 'yellow' : 'gray'}
+                  onClick={() => toggleFavorite(gid)}
+                  aria-label={favoriteId === gid ? 'Remove from favorites' : 'Set as favorite group'}
+                >
+                  {favoriteId === gid ? <IconStarFilled size={18} /> : <IconStar size={18} />}
+                </ActionIcon>
+              </Tooltip>
               {canInvite && (
                 <Tooltip label="Invite member">
                   <ActionIcon variant="subtle" onClick={openInvite}>
@@ -161,6 +194,24 @@ export default function GroupPage() {
           )}
         </>
       )}
+
+      <Tooltip label={canNominate ? 'Nominate an album' : nominateTooltip} position="left">
+        <Affix position={{ bottom: 24, right: 24 }}>
+          <ActionIcon
+            size="xl"
+            radius="xl"
+            variant={canNominate ? 'filled' : 'light'}
+            color="violet"
+            onClick={canNominate ? openNominate : undefined}
+            aria-label="Nominate album"
+            style={canNominate ? undefined : { cursor: 'not-allowed', opacity: 0.5 }}
+          >
+            <IconPlus size={22} />
+          </ActionIcon>
+        </Affix>
+      </Tooltip>
+
+      <AlbumSearchModal groupId={gid} opened={nominateOpened} onClose={closeNominate} />
     </AppShell>
   )
 }
