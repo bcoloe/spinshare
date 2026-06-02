@@ -5,7 +5,8 @@ export function useUnreadNotifications() {
   return useQuery({
     queryKey: ['notifications', 'unread'],
     queryFn: () => notificationService.getUnread(),
-    refetchInterval: 60_000,
+    // No polling — fetches on mount and on window focus (tab return).
+    // Polling was removed to allow Neon compute to auto-suspend between requests.
   })
 }
 
