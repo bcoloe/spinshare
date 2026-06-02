@@ -12,17 +12,30 @@ export function configureApiClient(
   onUnauthorized = unauthorizedHandler
 }
 
+// Shared promise so concurrent 401s share one refresh call instead of racing.
+let refreshPromise: Promise<string | null> | null = null
+
 async function refreshAccessToken(): Promise<string | null> {
-  const refreshToken = localStorage.getItem('refresh_token')
-  if (!refreshToken) return null
+  if (refreshPromise) return refreshPromise
 
-  const res = await fetch(`/api/users/refresh?refresh_token=${encodeURIComponent(refreshToken)}`, {
-    method: 'POST',
-  })
-  if (!res.ok) return null
+  refreshPromise = (async () => {
+    try {
+      const refreshToken = localStorage.getItem('refresh_token')
+      if (!refreshToken) return null
 
-  const data = await res.json()
-  return data.access_token ?? null
+      const res = await fetch(`/api/users/refresh?refresh_token=${encodeURIComponent(refreshToken)}`, {
+        method: 'POST',
+      })
+      if (!res.ok) return null
+
+      const data = await res.json()
+      return data.access_token ?? null
+    } finally {
+      refreshPromise = null
+    }
+  })()
+
+  return refreshPromise
 }
 
 export async function apiFetch<T>(
