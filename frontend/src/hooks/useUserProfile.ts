@@ -6,6 +6,7 @@ export function useUserProfile(username: string) {
     queryKey: ['users', username, 'profile'],
     queryFn: () => userService.getProfile(username),
     enabled: !!username,
+    staleTime: 25 * 60 * 1000, // 25 min — backend caches for 30 min; busted on profile update or review events
   })
 }
 

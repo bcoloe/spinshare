@@ -11,6 +11,7 @@ from app.schemas.stats import (
     UserGuessStatsResponse,
 )
 from app.services import group_service as gs
+from app.utils.cache import REVIEW_HISTORY_TTL, _key, cache
 from fastapi import HTTPException, status
 
 
@@ -55,6 +56,11 @@ class StatsService:
         Raises:
             HTTPException 404: If group album not found.
         """
+        ck = _key("groups", group_id, "guesses", group_album_id)
+        cached = cache.get(ck)
+        if cached is not None:
+            return cached
+
         group_album = (
             self.db.query(GroupAlbum)
             .filter(GroupAlbum.id == group_album_id, GroupAlbum.group_id == group_id)
@@ -82,7 +88,7 @@ class StatsService:
         correct = sum(1 for g in guesses if g.correct)
         nominator = group_album.added_by_user
 
-        return AlbumGuessStatsResponse(
+        result = AlbumGuessStatsResponse(
             group_album_id=group_album_id,
             nominator_user_id=nominator.id,
             nominator_username=nominator.username,
@@ -90,6 +96,8 @@ class StatsService:
             correct_guesses=correct,
             guesses=guesses,
         )
+        cache.set(ck, result, REVIEW_HISTORY_TTL)
+        return result
 
     # ==================== REVIEW SCORES ====================
 

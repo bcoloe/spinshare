@@ -4,6 +4,7 @@ from app.models import Album, Group, GroupAlbum, Review, User, group_members
 from app.schemas.album import AlbumReviewItem, AlbumStatsResponse, HistogramBucket, ReviewCreate, ReviewUpdate
 from app.schemas.notification import NotificationType
 from app.services.notification_service import NotificationService
+from app.utils.cache import ALBUM_STATS_TTL, REVIEW_HISTORY_TTL, _key, cache
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -44,7 +45,29 @@ class ReviewService:
         if not data.is_draft:
             self._notify_co_reviewers(album_id, user_id)
         self._refresh_group_album_avgs(album_id)
+        self._bust_review_caches(album_id, user_id)
         return review
+
+    def _bust_review_caches(self, album_id: int, user_id: int) -> None:
+        """Evict all cache entries that change when a review is created, updated, or deleted."""
+        cache.delete(_key("albums", album_id, "stats"))
+        cache.delete(_key("explore", "site_stats"))
+        # Bust group stats, group-scoped reviews, and user's per-group review list
+        ga_group_ids = list(
+            self.db.scalars(
+                select(GroupAlbum.group_id).where(GroupAlbum.album_id == album_id)
+            ).all()
+        )
+        for gid in set(ga_group_ids):
+            cache.delete(_key("groups", gid, "stats"))
+            cache.delete(_key("albums", album_id, "reviews", gid))
+            cache.delete(_key("users", user_id, "group", gid, "reviews"))
+        # Bust global (no-group) view of reviews for this album
+        cache.delete(_key("albums", album_id, "reviews", "global"))
+        # Bust reviewer's public profile (review count / stats change)
+        user = self.db.get(User, user_id)
+        if user:
+            cache.delete(_key("users", user.username, "profile"))
 
     def _refresh_group_album_avgs(self, album_id: int) -> None:
         """Recompute and cache avg_rating / review_count on all group_albums rows for this album.
@@ -154,7 +177,15 @@ class ReviewService:
         Names are shown when:
         - The reviewer has name_is_public=True, OR
         - A group_id is provided, the viewer is a member, and the group is not global.
+
+        Results are cached per (album_id, group_id) — all members of the same group see the
+        same name-visibility setting, so viewer_id is not part of the cache key.
         """
+        ck = _key("albums", album_id, "reviews", group_id if group_id is not None else "global")
+        cached = cache.get(ck)
+        if cached is not None:
+            return cached
+
         show_names_in_group = False
         if group_id is not None and viewer_id is not None:
             group = self.db.query(Group).filter(Group.id == group_id).first()
@@ -173,7 +204,7 @@ class ReviewService:
             .filter(Review.album_id == album_id, Review.is_draft == False)  # noqa: E712
             .all()
         )
-        return [
+        result = [
             AlbumReviewItem(
                 id=r.id,
                 album_id=r.album_id,
@@ -189,6 +220,8 @@ class ReviewService:
             )
             for r, username, first_name, last_name, name_is_public in rows
         ]
+        cache.set(ck, result, REVIEW_HISTORY_TTL)
+        return result
 
     def get_album_stats(self, album_id: int) -> AlbumStatsResponse:
         """Return global rating stats and a 10-bucket histogram for an album.
@@ -196,6 +229,11 @@ class ReviewService:
         Buckets span [0,1), [1,2), ..., [8,9), [9,10] (last bucket is inclusive on both ends).
         Draft reviews and unrated reviews are excluded.
         """
+        ck = _key("albums", album_id, "stats")
+        cached = cache.get(ck)
+        if cached is not None:
+            return cached
+
         reviews = (
             self.db.query(Review)
             .filter(
@@ -216,11 +254,15 @@ class ReviewService:
         ]
 
         if not reviews:
-            return AlbumStatsResponse(average_rating=None, review_count=0, histogram=buckets)
+            result = AlbumStatsResponse(average_rating=None, review_count=0, histogram=buckets)
+            cache.set(ck, result, ALBUM_STATS_TTL)
+            return result
 
         ratings = [r.rating for r in reviews]
         avg = round(sum(ratings) / len(ratings), 2)
-        return AlbumStatsResponse(average_rating=avg, review_count=len(ratings), histogram=buckets)
+        result = AlbumStatsResponse(average_rating=avg, review_count=len(ratings), histogram=buckets)
+        cache.set(ck, result, ALBUM_STATS_TTL)
+        return result
 
     def get_review_by_user_and_album(
         self, album_id: int, user_id: int, *, raise_on_missing: bool = True
@@ -244,6 +286,11 @@ class ReviewService:
 
     def get_my_reviews_for_group(self, group_id: int, user_id: int) -> list[Review]:
         """Return the current user's reviews for all selected albums in a group."""
+        ck = _key("users", user_id, "group", group_id, "reviews")
+        cached = cache.get(ck)
+        if cached is not None:
+            return cached
+
         album_ids = list(
             self.db.scalars(
                 select(GroupAlbum.album_id).where(
@@ -253,8 +300,10 @@ class ReviewService:
             ).all()
         )
         if not album_ids:
-            return []
-        return list(
+            result: list[Review] = []
+            cache.set(ck, result, REVIEW_HISTORY_TTL)
+            return result
+        result = list(
             self.db.scalars(
                 select(Review).where(
                     Review.album_id.in_(album_ids),
@@ -262,6 +311,8 @@ class ReviewService:
                 )
             ).all()
         )
+        cache.set(ck, result, REVIEW_HISTORY_TTL)
+        return result
 
     def get_all_reviews_for_group(self, group_id: int, viewer_id: int) -> list[AlbumReviewItem]:
         """Return all published reviews for all albums in a group.
@@ -355,6 +406,7 @@ class ReviewService:
         if was_draft and not review.is_draft:
             self._notify_co_reviewers(review.album_id, user_id)
         self._refresh_group_album_avgs(review.album_id)
+        self._bust_review_caches(review.album_id, user_id)
 
         return review
 
@@ -377,3 +429,4 @@ class ReviewService:
         self.db.delete(review)
         self.db.commit()
         self._refresh_group_album_avgs(album_id)
+        self._bust_review_caches(album_id, user_id)

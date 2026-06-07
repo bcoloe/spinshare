@@ -6,6 +6,7 @@ from app.models import Group, GroupAlbum, NominationGuess, Review, SpotifyConnec
 from app.models.group import group_members
 from app.schemas.user import LoginRequest, LoginResponse, UserCreate, UserResponse, UserUpdate
 from app.utils import security
+from app.utils.cache import USER_PROFILE_TTL, _key, cache
 from fastapi import HTTPException, status
 from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.exc import IntegrityError
@@ -121,10 +122,15 @@ class UserService:
         Raises:
             HTTPException 404: If user not found
         """
+        ck = _key("users", username.lower(), "profile")
+        cached = cache.get(ck)
+        if cached is not None:
+            return cached
+
         user = self.get_user_by_username(username)
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-        return {
+        result = {
             "id": user.id,
             "username": user.username,
             "first_name": user.first_name if user.name_is_public else None,
@@ -136,6 +142,8 @@ class UserService:
             "total_groups": len(user.groups),
             "albums_nominated": len(user.added_albums),
         }
+        cache.set(ck, result, USER_PROFILE_TTL)
+        return result
 
     def get_user_reviews_for_profile(self, username: str) -> list[dict]:
         """Get all published reviews for a user with flat album metadata.
@@ -317,6 +325,7 @@ class UserService:
             HTTPException 400: If password does not meet strength requirements
         """
         user = self.get_user_by_id(user_id)
+        old_username = user.username  # capture before any mutation for cache invalidation
 
         # Update email if provided
         if user_data.email and user_data.email != user.email:
@@ -357,13 +366,19 @@ class UserService:
         try:
             self.db.commit()
             self.db.refresh(user)
-            return user
         except IntegrityError:
             self.db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Update failed due to constraint violation",
             ) from None
+
+        # Bust caches: profile (by username) and auth user (by id).
+        cache.delete(_key("users", old_username, "profile"))
+        if user.username != old_username:
+            cache.delete(_key("users", user.username, "profile"))
+        cache.delete(_key("users", user_id, "auth"))
+        return user
 
     # ==================== ADMIN ====================
 
@@ -390,6 +405,8 @@ class UserService:
         target_user.is_admin = is_admin
         self.db.commit()
         self.db.refresh(target_user)
+        # Bust immediately so the next request reflects the new is_admin value.
+        cache.delete(_key("users", target_user_id, "auth"))
         return target_user
 
     # ==================== DELETE ====================
@@ -453,6 +470,10 @@ class UserService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Cannot delete user due to existing dependencies",
             ) from None
+
+        # Bust auth cache so a deleted user's token is rejected on next request
+        # (rather than serving the stale cached User for up to 15 min).
+        cache.delete(_key("users", user_id, "auth"))
 
     # ==================== PASSWORD RESET ====================
 

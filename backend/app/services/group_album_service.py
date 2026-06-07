@@ -19,6 +19,15 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models import Album, Group, GroupAlbum, GroupSettings, NominationGuess, User
 from app.models.group import group_members
+from app.utils.cache import (
+    GROUP_STATS_TTL,
+    MEMBERSHIP_TTL,
+    NOMINATION_COUNT_TTL,
+    REVIEW_HISTORY_TTL,
+    TODAYS_ALBUMS_TTL,
+    _key,
+    cache,
+)
 from app.schemas.group_album import (
     CheckGuessResponse,
     GuessOptionUser,
@@ -141,6 +150,7 @@ class GroupAlbumService:
         if group and group.is_global:
             selected = self._select_global_daily_albums(group_id, n)
             self._heal_genres(selected)
+            self._bust_daily_selection_caches(group_id)
             return selected
 
         chaos_mode = settings.chaos_mode if settings else False
@@ -173,6 +183,7 @@ class GroupAlbumService:
         else:
             selected = self._select_with_chaos(group_id, group, available_album_ids, n)
         self._heal_genres(selected)
+        self._bust_daily_selection_caches(group_id)
         return selected
 
     def predraw_album_ids(self, group_id: int, n: int) -> list[int]:
@@ -505,6 +516,7 @@ class GroupAlbumService:
             group = self.db.query(Group).filter(Group.id == group_id).first()
             selected = self._select_full_chaos(group_id, group, n)
             self._heal_genres(selected)
+            self._bust_daily_selection_caches(group_id)
             return selected
 
         if settings.chaos_mode:
@@ -589,8 +601,18 @@ class GroupAlbumService:
         Raises:
             HTTPException 403: If user is not a group member.
         """
-        group_service = gs.GroupService(self.db)
-        group_service.require_membership(user.id, group_id)
+        # Membership check: cached with a short TTL since getting kicked out is an
+        # edge case; always raises 403 on the first miss if user is not a member.
+        membership_ck = _key("memberships", user.id, group_id)
+        if cache.get(membership_ck) is None:
+            group_service = gs.GroupService(self.db)
+            group_service.require_membership(user.id, group_id)  # raises 403 if not member
+            cache.set(membership_ck, True, MEMBERSHIP_TTL)
+
+        ck = _key("groups", group_id, "todays_albums")
+        cached = cache.get(ck)
+        if cached is not None:
+            return cached
 
         settings = self.db.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
         tz_name = (settings.timezone if settings else None) or _DEFAULT_TZ
@@ -631,6 +653,10 @@ class GroupAlbumService:
             if ga.album_id not in seen:
                 seen.add(ga.album_id)
                 canonical.append(ga)
+
+        # Cache after deduplication — all relationships are eagerly loaded via
+        # selectinload so the ORM objects are safe to return from a detached session.
+        cache.set(ck, canonical, TODAYS_ALBUMS_TTL)
         return canonical
 
     # ==================== GUESSING ====================
@@ -711,6 +737,10 @@ class GroupAlbumService:
         self.db.commit()
         self.db.refresh(guess)
 
+        cache.delete(_key("groups", group_id, "stats"))
+        cache.delete(_key("groups", group_id, "guesses", group_album_id))
+        cache.delete(_key("users", user.id, "group", group_id, "guesses"))
+
         nominators = [ga.added_by_user for ga in all_nominations if ga.added_by_user is not None]
 
         return CheckGuessResponse(
@@ -759,13 +789,20 @@ class GroupAlbumService:
         Each response includes the same nominator-reveal context as check_guess.
         Uses 3 queries regardless of group size (no N+1).
         """
+        ck = _key("users", user_id, "group", group_id, "guesses")
+        cached = cache.get(ck)
+        if cached is not None:
+            return cached
+
         group_albums = (
             self.db.query(GroupAlbum)
             .filter(GroupAlbum.group_id == group_id)
             .all()
         )
         if not group_albums:
-            return []
+            empty: list[CheckGuessResponse] = []
+            cache.set(ck, empty, REVIEW_HISTORY_TTL)
+            return empty
 
         ga_ids = [ga.id for ga in group_albums]
         ga_by_id = {ga.id: ga for ga in group_albums}
@@ -779,7 +816,9 @@ class GroupAlbumService:
             .all()
         )
         if not guesses:
-            return []
+            empty = []
+            cache.set(ck, empty, REVIEW_HISTORY_TTL)
+            return empty
 
         nominator_ids = {ga.added_by for ga in group_albums if ga.added_by is not None}
         nominator_map = {
@@ -804,6 +843,7 @@ class GroupAlbumService:
                 nominator_usernames=[n.username for n in nominators],
                 is_chaos_selection=ga.is_chaos_selection,
             ))
+        cache.set(ck, results, REVIEW_HISTORY_TTL)
         return results
 
     def get_guess_options(self, group_id: int, group_album_id: int, user: User) -> GuessOptionsResponse:
@@ -886,6 +926,11 @@ class GroupAlbumService:
         group_service = gs.GroupService(self.db)
         group_service.require_membership(user.id, group_id)
 
+        ck = _key("groups", group_id, "nominations", "pending")
+        cached = cache.get(ck)
+        if cached is not None:
+            return cached
+
         group = self.db.query(Group).filter(Group.id == group_id).first()
         if group and group.is_global:
             already_spun = {
@@ -903,14 +948,18 @@ class GroupAlbumService:
             )
             if already_spun:
                 q = q.filter(GroupAlbum.album_id.notin_(already_spun))
-            return q.count()
+            count = q.count()
+            cache.set(ck, count, NOMINATION_COUNT_TTL)
+            return count
 
-        return (
+        count = (
             self.db.query(GroupAlbum.album_id)
             .filter(GroupAlbum.group_id == group_id, GroupAlbum.selected_date.is_(None))
             .distinct()
             .count()
         )
+        cache.set(ck, count, NOMINATION_COUNT_TTL)
+        return count
 
     def get_today_nomination_count(self, group_id: int, user: User) -> int:
         """Return the number of albums the user has nominated in this group today.
@@ -934,6 +983,13 @@ class GroupAlbumService:
         )
 
     # ==================== HELPERS ====================
+
+    def _bust_daily_selection_caches(self, group_id: int) -> None:
+        """Evict today's-albums, group-stats, catalog, and nomination count after a daily selection draw."""
+        cache.delete(_key("groups", group_id, "todays_albums"))
+        cache.delete(_key("groups", group_id, "stats"))
+        cache.delete_prefix(_key("groups", group_id, "catalog") + ":")
+        cache.delete(_key("groups", group_id, "nominations", "pending"))
 
     def _notify_pool_exhausted(
         self, group_id: int, group_name: str, selected: int, requested: int

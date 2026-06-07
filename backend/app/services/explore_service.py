@@ -3,6 +3,13 @@
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
+from app.utils.cache import (
+    EXPLORE_ALBUMS_TTL,
+    SITE_STATS_TTL,
+    _key,
+    cache,
+)
+
 from app.models.album import Album
 from app.models.group import Group
 from app.models.group_album import GroupAlbum
@@ -112,6 +119,11 @@ class ExploreService:
         Albums with no nominations are excluded (inner join via nomination_subq).
         q filters by case-insensitive partial match on artist or title.
         """
+        ck = _key("explore", "albums", sort_by, min_reviews or 0, offset, limit, q or "")
+        cached = cache.get(ck)
+        if cached is not None:
+            return cached
+
         nomination_subq, review_stats_subq, global_avg = _build_album_subqueries(self.db)
         bayesian_expr = _bayesian_score_expr(review_stats_subq, global_avg)
 
@@ -160,10 +172,12 @@ class ExploreService:
             for row in page_rows
         ]
 
-        return ExploreAlbumsPage(
+        result = ExploreAlbumsPage(
             items=items,
             next_offset=offset + limit if has_more else None,
         )
+        cache.set(ck, result, EXPLORE_ALBUMS_TTL)
+        return result
 
     # ==================== GROUPS ====================
 
@@ -235,6 +249,11 @@ class ExploreService:
             most_nominated_artists — artists by sum of GroupAlbum rows
             most_nominated_albums  — albums by count of GroupAlbum rows
         """
+        ck = _key("explore", "site_stats")
+        cached = cache.get(ck)
+        if cached is not None:
+            return cached
+
         # --- Totals ---
         total_albums_nominated = (
             self.db.query(func.count(func.distinct(GroupAlbum.album_id))).scalar() or 0
@@ -312,7 +331,7 @@ class ExploreService:
             for row in artist_rows
         ]
 
-        return SiteStatsResponse(
+        result = SiteStatsResponse(
             total_albums_nominated=total_albums_nominated,
             total_reviews=total_reviews,
             total_active_groups=total_active_groups,
@@ -322,3 +341,5 @@ class ExploreService:
             most_nominated_artists=most_nominated_artists,
             most_nominated_albums=_to_items(most_nominated_rows),
         )
+        cache.set(ck, result, SITE_STATS_TTL)
+        return result

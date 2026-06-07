@@ -15,6 +15,7 @@ from app.services.review_service import ReviewService
 from app.services.explore_service import ExploreService
 from app.services.stats_service import StatsService
 from app.services.user_service import UserService
+from app.utils.cache import AUTH_USER_TTL, _key, cache
 from app.utils.security import decode_access_token
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="user/login")
@@ -87,16 +88,33 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if payload is None:
         raise credentials_exception
 
-    user_id: str = payload.get("sub")
-    if user_id is None:
+    user_id_str: str = payload.get("sub")
+    if user_id_str is None:
         raise credentials_exception
+
+    user_id = int(user_id_str)
+
+    # Fast path: return the cached detached User without touching the database.
+    # The object is expunged before storage so only scalar columns are accessed
+    # (id, username, email, is_admin, …). Route handlers and services that need
+    # a session-bound user (e.g. to traverse relationships) call get_user_by_id
+    # themselves via their own db dependency.
+    ck = _key("users", user_id, "auth")
+    cached = cache.get(ck)
+    if cached is not None:
+        return cached
 
     user_service = UserService(db)
     try:
-        user = user_service.get_user_by_id(int(user_id))
+        user = user_service.get_user_by_id(user_id)
     except HTTPException as e:
         raise credentials_exception from e
 
+    # Detach from the current session before caching. Scalar columns remain
+    # readable; lazy relationships will raise DetachedInstanceError if accessed,
+    # but get_current_user consumers only read scalars (id, is_admin, etc.).
+    db.expunge(user)
+    cache.set(ck, user, AUTH_USER_TTL)
     return user
 
 

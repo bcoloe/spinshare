@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     # GITHUB_REPO is the target repository in "owner/repo" format.
     GITHUB_TOKEN: str = ""
     GITHUB_REPO: str = ""  # e.g. "myorg/spinshare"
+    # ── Caching ──────────────────────────────────────────────────────────────
+    # Set CACHE_ENABLED=false in .env to disable the in-process cache entirely.
+    # Useful for establishing a no-cache baseline before benchmarking.
+    CACHE_ENABLED: bool = True
+    # Set TRACK_DB_QUERIES=true in .env (dev only) to count raw DB executions.
+    # Exposed via GET /api/admin/cache/stats alongside cache hit/miss metrics.
+    TRACK_DB_QUERIES: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", extra="allow")
 
