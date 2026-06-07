@@ -12,6 +12,7 @@ from app.models import Album, Group, GroupAlbum, User
 from app.models.genre import Genre
 from app.schemas.album import AlbumCreate, AlbumLinksUpdate, GroupAlbumStatus, GroupAlbumStatusUpdate
 from app.services import group_service as gs
+from app.utils.cache import REVIEW_HISTORY_TTL, _key, cache
 from app.utils.ytmusic_client import search_album_browse_id
 from fastapi import HTTPException, status
 from sqlalchemy import func, or_
@@ -298,6 +299,11 @@ class AlbumService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="You have already nominated this album to this group",
             ) from None
+
+        cache.delete(_key("groups", group_id, "stats"))
+        cache.delete(_key("explore", "site_stats"))
+        cache.delete_prefix(_key("groups", group_id, "catalog") + ":")
+        cache.delete(_key("groups", group_id, "nominations", "pending"))
         return group_album
 
     def remove_group_album(self, group_id: int, group_album_id: int, user: User):
@@ -355,6 +361,8 @@ class AlbumService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Cannot remove album due to existing dependencies",
             ) from None
+        cache.delete_prefix(_key("groups", group_id, "catalog") + ":")
+        cache.delete(_key("groups", group_id, "nominations", "pending"))
 
     def update_group_album_status(
         self, group_id: int, group_album_id: int, update: GroupAlbumStatusUpdate, user: User
@@ -558,6 +566,11 @@ class AlbumService:
         Multiple nominations for the same album are collapsed into the earliest
         GroupAlbum row (canonical), with nomination_count and nominator_user_ids attached.
         """
+        ck = _key("groups", group_id, "catalog", status_filter or "all")
+        cached = cache.get(ck)
+        if cached is not None:
+            return cached
+
         subq = (
             self.db.query(
                 GroupAlbum.album_id,
@@ -606,6 +619,7 @@ class AlbumService:
                 ga.album_id, [ga.added_by] if ga.added_by is not None else []
             )
             result.append(ga)
+        cache.set(ck, result, REVIEW_HISTORY_TTL)
         return result
 
     def get_my_nominations(self, user_id: int) -> list[tuple]:

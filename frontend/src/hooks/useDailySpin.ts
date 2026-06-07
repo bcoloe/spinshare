@@ -26,6 +26,7 @@ export function useTodaysAlbums(groupId: number) {
     queryKey: ['groups', groupId, 'albums', 'today'],
     queryFn: () => albumService.getTodaysAlbums(groupId),
     enabled: !!groupId,
+    staleTime: 4 * 60 * 60 * 1000, // 4 hr — daily albums only change on selection draw; useTriggerDailySelection sets data directly
   })
 }
 
@@ -37,6 +38,10 @@ export function useTriggerDailySelection(groupId: number) {
     onSuccess: (albums) => {
       qc.setQueryData(['groups', groupId, 'albums', 'today'], albums)
       qc.invalidateQueries({ queryKey: ['groups', groupId, 'nominations', 'count'] })
+      // Album statuses change from pending → selected; bust all catalog variants except today
+      qc.invalidateQueries({ queryKey: ['groups', groupId, 'albums', 'all'] })
+      qc.invalidateQueries({ queryKey: ['groups', groupId, 'albums', 'selected'] })
+      qc.invalidateQueries({ queryKey: ['groups', groupId, 'albums', 'pending'] })
     },
   })
 }

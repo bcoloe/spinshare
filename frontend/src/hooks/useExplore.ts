@@ -20,6 +20,7 @@ export function useExploreAlbums(params: Omit<ExploreAlbumsParams, 'offset'> = {
       exploreService.getAlbums({ ...params, offset: pageParam }),
     initialPageParam: 0,
     getNextPageParam: (lastPage: ExploreAlbumsPage) => lastPage.next_offset ?? undefined,
+    staleTime: 4 * 60 * 1000, // 4 min — backend caches pages for 5 min
   })
 }
 
@@ -36,6 +37,6 @@ export function useSiteStats() {
   return useQuery({
     queryKey: ['explore', 'stats'],
     queryFn: () => exploreService.getSiteStats(),
-    staleTime: 5 * 60 * 1000, // 5 minutes — stats are expensive to compute
+    staleTime: 55 * 60 * 1000, // 55 min — backend caches for 1 hr; client refetches just before expiry
   })
 }

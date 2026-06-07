@@ -388,12 +388,14 @@ function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allow
     queryKey: ['albums', ga.album_id, 'reviews', groupId],
     queryFn: () => albumService.getAllReviews(ga.album_id, groupId),
     enabled: isExpanded,
+    staleTime: 55 * 60 * 1000, // 55 min — backend caches for 1 hr; busted on review create/update/delete
   })
 
   const { data: guessStats } = useQuery({
     queryKey: ['stats', groupId, 'albums', ga.id, 'guesses'],
     queryFn: () => statsService.getAlbumGuessStats(groupId, ga.id),
     enabled: allowGuessing && isExpanded,
+    staleTime: 55 * 60 * 1000, // 55 min — backend caches for 1 hr; busted on check_guess
   })
 
   const memberGuessLookup = useMemo(() => {
@@ -708,12 +710,14 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
     queryKey: ['groups', groupId, 'reviews', 'me'],
     queryFn: () => albumService.getMyReviewsForGroup(groupId),
     enabled: !!groupId && albums.length > 0,
+    staleTime: 55 * 60 * 1000, // 55 min — backend caches for 1 hr; busted on review create/update/delete
   })
 
   const { data: myGuessesList = [], isLoading: guessesLoading } = useQuery({
     queryKey: ['groups', groupId, 'guesses', 'me'],
     queryFn: () => albumService.getMyGuessesForGroup(groupId),
     enabled: !!groupId && albums.length > 0,
+    staleTime: 55 * 60 * 1000, // 55 min — backend caches for 1 hr; busted on check_guess
   })
 
   const reviewsLoading = myReviewsLoading || guessesLoading

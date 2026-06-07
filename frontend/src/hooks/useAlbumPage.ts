@@ -22,5 +22,6 @@ export function useAlbumStats(albumId: number) {
     queryKey: ['albums', albumId, 'stats'],
     queryFn: () => albumService.getAlbumStats(albumId),
     enabled: !!albumId,
+    staleTime: 25 * 60 * 1000, // 25 min — backend caches for 30 min; busted on review create/update/delete
   })
 }

@@ -23,6 +23,7 @@ export function useGroupAlbums(groupId: number, status?: string) {
     queryKey: ['groups', groupId, 'albums', status ?? 'all'],
     queryFn: () => albumSearchService.getGroupAlbums(groupId, status),
     enabled: !!groupId,
+    staleTime: 55 * 60 * 1000, // 55 min — backend caches for 1 hr; busted on nominate/remove/daily selection
   })
 }
 

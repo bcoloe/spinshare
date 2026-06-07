@@ -14,6 +14,7 @@ from app.schemas.group import (
 from app.schemas.notification import NotificationType
 from app.services import user_service
 from app.services.notification_service import NotificationService
+from app.utils.cache import GROUP_MEMBERS_TTL, GROUP_STATS_TTL, MEMBERSHIP_TTL, NOMINATION_COUNT_TTL, _key, cache
 from fastapi import HTTPException, status
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
@@ -90,6 +91,11 @@ class GroupService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Add user failed due to constraint violation",
             ) from None
+
+        cache.delete(_key("groups", group_id, "stats"))
+        cache.delete(_key("memberships", user_id, group_id))
+        cache.delete(_key("groups", group_id, "members"))
+        cache.delete(_key("groups", group_id, "nominations", "pending"))
 
         if existing_member_ids:
             ns = NotificationService(self.db)
@@ -178,6 +184,11 @@ class GroupService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Cannot remove user due to existing dependencies",
             ) from None
+
+        cache.delete(_key("groups", group_id, "stats"))
+        cache.delete(_key("memberships", user_id, group_id))
+        cache.delete(_key("groups", group_id, "members"))
+        cache.delete(_key("groups", group_id, "nominations", "pending"))
 
         if not group.members and not group.is_global:
             try:
@@ -305,6 +316,7 @@ class GroupService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Cannot update user role due to existing dependencies",
             ) from None
+        cache.delete(_key("groups", group_id, "members"))
 
 
     # ==================== HELPERS ====================
@@ -437,6 +449,11 @@ class GroupService:
         Raises:
             HTTPException 404: If group not found.
         """
+        ck = _key("groups", group_id, "stats")
+        cached = cache.get(ck)
+        if cached is not None:
+            return cached
+
         # Eager-load albums (with their Album details) and members to avoid N+1
         # queries when iterating over group.albums and accessing ga.albums.release_date.
         group = (
@@ -568,7 +585,7 @@ class GroupService:
             )
         member_guess_accuracy.sort(key=lambda x: -x.accuracy)
 
-        return {
+        result = {
             "member_count": len(group.members),
             "albums_added": len(group.albums),
             "albums_reviewed": albums_reviewed,
@@ -579,11 +596,18 @@ class GroupService:
             "guess_histogram": guess_histogram,
             "member_guess_accuracy": member_guess_accuracy,
         }
+        cache.set(ck, result, GROUP_STATS_TTL)
+        return result
 
     # ==================== MEMBERS ====================
 
     def get_group_members(self, group_id: int) -> list[dict]:
         """Return members of a group with their role, join date, and public name info."""
+        ck = _key("groups", group_id, "members")
+        cached = cache.get(ck)
+        if cached is not None:
+            return cached
+
         stmt = (
             select(
                 group_members.c.user_id,
@@ -598,7 +622,7 @@ class GroupService:
             .where(group_members.c.group_id == group_id)
         )
         rows = self.db.execute(stmt).all()
-        return [
+        result = [
             {
                 "user_id": r.user_id,
                 "username": r.username,
@@ -610,6 +634,8 @@ class GroupService:
             }
             for r in rows
         ]
+        cache.set(ck, result, GROUP_MEMBERS_TTL)
+        return result
 
     # ==================== UTILS ====================
     def is_user_in_group(self, user_id: int, group_id: int) -> bool:

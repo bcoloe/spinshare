@@ -54,3 +54,18 @@ def fake_now():
 @pytest.fixture(scope="function")
 def test_password() -> str:
     return "a-Fine-Password123!"
+
+
+@pytest.fixture(autouse=True)
+def clear_app_cache():
+    """Clear the in-process TTL cache before and after every test.
+
+    Prevents a cached value from one test leaking into another. Router tests
+    are unaffected — they mock the service layer and never call real DB queries.
+    Service tests can assert cache state directly by importing `cache` and `_key`.
+    """
+    from app.utils.cache import cache as _app_cache
+
+    _app_cache.clear()
+    yield
+    _app_cache.clear()
