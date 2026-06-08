@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ratingColor } from '../../utils/ratingColor'
 import { Link, useNavigate } from 'react-router-dom'
 import {
@@ -7,9 +7,11 @@ import {
   Avatar,
   Button,
   Collapse,
+  Drawer,
   Group,
   Image,
   Paper,
+  Select,
   Skeleton,
   Slider,
   Stack,
@@ -28,7 +30,6 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconChevronUp,
-  IconHelpCircle,
   IconPencil,
   IconSelector,
   IconX,
@@ -359,41 +360,39 @@ function UnreviewedRow({ ga, groupId, members: _members, isExpanded, onToggle, a
   )
 }
 
-// ==================== REVIEWED ROW ====================
+// ==================== PEER REVIEW PANEL ====================
 
-interface ReviewedRowProps {
+interface PeerReviewPanelProps {
   ga: GroupAlbumResponse
   review: ReviewResponse
   members: GroupMemberResponse[]
-  isExpanded: boolean
-  onToggle: () => void
   groupId: number
   allowGuessing: boolean
   guessResult: CheckGuessResponse | undefined
   currentUserId: number | undefined
-  rowRef?: React.RefCallback<HTMLTableRowElement>
-  hasNewReviews?: boolean
+  startInEditMode?: boolean
 }
 
-function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allowGuessing, guessResult, currentUserId, rowRef, hasNewReviews = false }: ReviewedRowProps) {
-  const { album } = ga
-  const navigate = useNavigate()
+function PeerReviewPanel({ ga, review, members, groupId, allowGuessing, guessResult, currentUserId, startInEditMode = false }: PeerReviewPanelProps) {
   const [editMode, setEditMode] = useState(false)
   const [editRating, setEditRating] = useState<number>(review.rating ?? 0)
   const [editComment, setEditComment] = useState(review.comment ?? '')
   const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set())
   const updateReview = useUpdateReview(ga.album_id)
 
+  useEffect(() => {
+    if (startInEditMode) setEditMode(true)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const { data: allReviews = [], isLoading: reviewsLoading } = useQuery({
     queryKey: ['albums', ga.album_id, 'reviews', groupId],
     queryFn: () => albumService.getAllReviews(ga.album_id, groupId),
-    enabled: isExpanded,
   })
 
   const { data: guessStats } = useQuery({
     queryKey: ['stats', groupId, 'albums', ga.id, 'guesses'],
     queryFn: () => statsService.getAlbumGuessStats(groupId, ga.id),
-    enabled: allowGuessing && isExpanded,
+    enabled: allowGuessing,
   })
 
   const memberGuessLookup = useMemo(() => {
@@ -414,21 +413,10 @@ function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allow
 
   const memberIds = useMemo(() => new Set(members.map((m) => m.user_id)), [members])
   const memberReviews = useMemo(() => allReviews.filter((r) => memberIds.has(r.user_id)), [allReviews, memberIds])
-
-  const groupAvg = ga.avg_rating
-
   const displayReviews = memberReviews.length > 0 ? memberReviews : [review]
 
   const isSelfNominated = currentUserId !== undefined && currentUserId === ga.added_by
   const canGuess = allowGuessing && !isSelfNominated
-
-  const handleEditOpen = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    setEditRating(review.rating ?? 0)
-    setEditComment(review.comment ?? '')
-    setEditMode(true)
-    if (!isExpanded) onToggle()
-  }
 
   const handleSave = async () => {
     try {
@@ -445,224 +433,183 @@ function ReviewedRow({ ga, review, members, isExpanded, onToggle, groupId, allow
   }
 
   return (
-    <>
-      <Table.Tr
-        ref={rowRef}
-        style={{
-          cursor: 'pointer',
-          boxShadow: hasNewReviews ? 'inset 3px 0 0 var(--mantine-color-violet-5)' : undefined,
-        }}
-        onClick={onToggle}
-      >
-        <Table.Td>
-          <CoverCell src={album.cover_url} />
-        </Table.Td>
-        <Table.Td>
-          <Text
-            size="sm"
-            fw={500}
-            lineClamp={1}
-            style={{ cursor: 'pointer' }}
-            onClick={(e) => { e.stopPropagation(); navigate(`/albums/${ga.album_id}`) }}
-            onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline' }}
-            onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none' }}
-          >
-            {album.title}
-          </Text>
-        </Table.Td>
-        <Table.Td>
-          <Text size="sm" c="dimmed" lineClamp={1}>{album.artist}</Text>
-        </Table.Td>
-        <Table.Td>
-          <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{formatReleaseDate(album.release_date)}</Text>
-        </Table.Td>
-        <Table.Td>
-          <Text size="sm" fw={700} c={ratingColor(review.rating ?? 0)}>{review.rating}</Text>
-        </Table.Td>
-        <Table.Td>
-          <Text size="sm" c={groupAvg !== null ? ratingColor(groupAvg) : 'dimmed'} fw={groupAvg !== null ? 600 : undefined}>
-            {groupAvg !== null ? groupAvg : '—'}
-          </Text>
-        </Table.Td>
-        <Table.Td>
-          {canGuess && !guessResult ? (
-            <Tooltip label="Guess who nominated this" withArrow>
-              <ActionIcon
-                size="sm"
-                variant="subtle"
-                color="violet"
-                onClick={(e) => { e.stopPropagation(); if (!isExpanded) onToggle() }}
+    <Stack gap="sm">
+      {canGuess && (
+        guessResult
+          ? <GuessResult result={guessResult} />
+          : <InlineGuessForm groupId={groupId} ga={ga} />
+      )}
+      {reviewsLoading
+        ? <Skeleton h={60} radius="sm" />
+        : displayReviews.map((r) => {
+          const username = ('username' in r ? (r as AlbumReviewItem).username : members.find((m) => m.user_id === r.user_id)?.username) ?? 'Unknown'
+          const fullName = ('first_name' in r ? [(r as AlbumReviewItem).first_name, (r as AlbumReviewItem).last_name].filter(Boolean).join(' ') : '')
+          const memberName = fullName ? `${fullName} (${username})` : username
+          const isMine = r.user_id === review.user_id
+          const isCardExpanded = expandedCards.has(r.id) || (isMine && editMode)
+          const previewLine = r.comment?.split('\n')[0]
+          const memberGuess = allowGuessing ? memberGuessLookup.get(r.user_id) : undefined
+
+          return (
+            <Paper key={r.id} withBorder p="sm" style={{ background: ratingBg(r.rating ?? 0) }}>
+              <Group
+                justify="space-between"
+                wrap="nowrap"
+                mb={isCardExpanded || previewLine ? 6 : 0}
+                style={{ cursor: 'pointer' }}
+                onClick={() => { if (!(isMine && editMode)) toggleCard(r.id) }}
               >
-                <IconHelpCircle size={16} />
-              </ActionIcon>
-            </Tooltip>
-          ) : guessResult && canGuess ? (
-            <Group gap={4} wrap="nowrap" onClick={(e) => e.stopPropagation()}>
-              {guessResult.is_chaos_selection ? (
-                <Text size="sm" c="dimmed">Random</Text>
-              ) : (
-                guessResult.nominator_usernames.map((u, i) => (
-                  <Text key={u} size="sm" c="dimmed">
-                    <Anchor component={Link} to={`/users/${u}`} c="dimmed" size="sm">{u}</Anchor>
-                    {i < guessResult.nominator_usernames.length - 1 ? ', ' : ''}
-                  </Text>
-                ))
-              )}
-              {guessResult.correct
-                ? <IconCheck size={13} color="var(--mantine-color-green-6)" />
-                : <IconX size={13} color="var(--mantine-color-red-6)" />
-              }
-            </Group>
-          ) : (
-            (() => {
-              const nominator = members.find((m) => m.user_id === ga.added_by)
-              return nominator
-                ? <Anchor component={Link} to={`/users/${nominator.username}`} c="dimmed" size="sm" onClick={(e) => e.stopPropagation()}>{nominator.username}</Anchor>
-                : <Text size="sm" c="dimmed">—</Text>
-            })()
-          )}
-        </Table.Td>
-        <Table.Td>
-          <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{formatDate(ga.selected_date)}</Text>
-        </Table.Td>
-        <Table.Td>
-          <Group gap={6} justify="flex-end" wrap="nowrap">
-            <ActionIcon size="sm" variant="subtle" onClick={handleEditOpen}>
-              <IconPencil size={13} />
-            </ActionIcon>
-            {isExpanded ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
-          </Group>
-        </Table.Td>
-      </Table.Tr>
-
-      {isExpanded && (
-        <Table.Tr>
-          <Table.Td
-            colSpan={9}
-            style={{ background: 'var(--mantine-color-dark-7)', padding: '16px 20px' }}
-          >
-            <Stack gap="sm">
-              {canGuess && (
-                guessResult
-                  ? <GuessResult result={guessResult} />
-                  : <InlineGuessForm groupId={groupId} ga={ga} />
-              )}
-              {reviewsLoading
-                ? <Skeleton h={60} radius="sm" />
-                : displayReviews.map((r) => {
-                const username = ('username' in r ? (r as AlbumReviewItem).username : members.find((m) => m.user_id === r.user_id)?.username) ?? 'Unknown'
-                const fullName = ('first_name' in r ? [(r as AlbumReviewItem).first_name, (r as AlbumReviewItem).last_name].filter(Boolean).join(' ') : '')
-                const memberName = fullName ? `${fullName} (${username})` : username
-                const isMine = r.user_id === review.user_id
-                const isCardExpanded = expandedCards.has(r.id) || (isMine && editMode)
-                const previewLine = r.comment?.split('\n')[0]
-
-                const memberGuess = allowGuessing ? memberGuessLookup.get(r.user_id) : undefined
-
-                return (
-                  <Paper key={r.id} withBorder p="sm" style={{ background: ratingBg(r.rating ?? 0) }}>
-                    <Group
-                      justify="space-between"
-                      wrap="nowrap"
-                      mb={isCardExpanded || previewLine ? 6 : 0}
-                      style={{ cursor: 'pointer' }}
+                <Stack gap={2}>
+                  <Group gap={4}>
+                    <Text size="sm" fw={600}>{memberName}</Text>
+                    {isMine && <Text size="xs" c="dimmed">(you)</Text>}
+                  </Group>
+                  {memberGuess && (
+                    <Group gap={3} wrap="nowrap">
+                      <Text size="xs" c="dimmed">guessed:</Text>
+                      {memberGuess.is_chaos
+                        ? <Text size="xs" c="dimmed">random</Text>
+                        : <Anchor component={Link} to={`/users/${memberGuess.guessed_username}`} size="xs" c="dimmed" onClick={(e) => e.stopPropagation()}>{memberGuess.guessed_username}</Anchor>
+                      }
+                      {memberGuess.correct
+                        ? <IconCheck size={10} color="var(--mantine-color-green-6)" />
+                        : <IconX size={10} color="var(--mantine-color-red-6)" />
+                      }
+                    </Group>
+                  )}
+                </Stack>
+                <Group gap={4} wrap="nowrap">
+                  <Text size="sm" fw={700} c={ratingColor(r.rating ?? 0)}>{r.rating}</Text>
+                  {isMine && !editMode && (
+                    <ActionIcon
+                      size="xs"
+                      variant="subtle"
                       onClick={(e) => {
                         e.stopPropagation()
-                        if (!(isMine && editMode)) toggleCard(r.id)
+                        setEditRating(r.rating ?? 0)
+                        setEditComment(r.comment ?? '')
+                        setEditMode(true)
                       }}
                     >
-                      <Stack gap={2}>
-                        <Group gap={4}>
-                          <Text size="sm" fw={600}>{memberName}</Text>
-                          {isMine && <Text size="xs" c="dimmed">(you)</Text>}
-                        </Group>
-                        {memberGuess && (
-                          <Group gap={3} wrap="nowrap">
-                            <Text size="xs" c="dimmed">guessed:</Text>
-                            {memberGuess.is_chaos
-                              ? <Text size="xs" c="dimmed">random</Text>
-                              : <Anchor component={Link} to={`/users/${memberGuess.guessed_username}`} size="xs" c="dimmed" onClick={(e) => e.stopPropagation()}>{memberGuess.guessed_username}</Anchor>
-                            }
-                            {memberGuess.correct
-                              ? <IconCheck size={10} color="var(--mantine-color-green-6)" />
-                              : <IconX size={10} color="var(--mantine-color-red-6)" />
-                            }
-                          </Group>
-                        )}
-                      </Stack>
-                      <Group gap={4} wrap="nowrap">
-                        <Text size="sm" fw={700} c={ratingColor(r.rating ?? 0)}>{r.rating}</Text>
-                        {isMine && !editMode && (
-                          <ActionIcon
-                            size="xs"
-                            variant="subtle"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setEditRating(r.rating ?? 0)
-                              setEditComment(r.comment ?? '')
-                              setEditMode(true)
-                            }}
-                          >
-                            <IconPencil size={11} />
-                          </ActionIcon>
-                        )}
-                        {!(isMine && editMode) && (
-                          isCardExpanded
-                            ? <IconChevronUp size={13} />
-                            : <IconChevronDown size={13} />
-                        )}
+                      <IconPencil size={11} />
+                    </ActionIcon>
+                  )}
+                  {!(isMine && editMode) && (
+                    isCardExpanded
+                      ? <IconChevronUp size={13} />
+                      : <IconChevronDown size={13} />
+                  )}
+                </Group>
+              </Group>
+
+              {!isCardExpanded && previewLine && (
+                <Text size="xs" c="dimmed" fs="italic" lineClamp={1}>
+                  {previewLine}
+                </Text>
+              )}
+
+              {isCardExpanded && (
+                isMine && editMode ? (
+                  <Stack gap="sm">
+                    <div>
+                      <Group justify="space-between" mb={4}>
+                        <Text size="xs">Rating</Text>
+                        <Text size="xs" fw={500} c={ratingColor(editRating)}>{editRating} / 10</Text>
                       </Group>
+                      <Slider
+                        min={0} max={10} step={0.1}
+                        value={editRating} onChange={setEditRating}
+                        marks={[0, 2, 4, 6, 8, 10].map((v) => ({ value: v, label: String(v) }))}
+                        mb="lg"
+                      />
+                    </div>
+                    <Textarea
+                      label="Comment (optional)"
+                      value={editComment}
+                      onChange={(e) => setEditComment(e.currentTarget.value)}
+                      maxLength={5000}
+                      autosize
+                      minRows={2}
+                      size="xs"
+                    />
+                    <Group gap="xs">
+                      <Button size="xs" loading={updateReview.isPending} onClick={handleSave}>Save</Button>
+                      <Button size="xs" variant="default" onClick={() => setEditMode(false)}>Cancel</Button>
                     </Group>
-
-                    {!isCardExpanded && previewLine && (
-                      <Text size="xs" c="dimmed" fs="italic" lineClamp={1}>
-                        {previewLine}
-                      </Text>
-                    )}
-
-                    {isCardExpanded && (
-                      isMine && editMode ? (
-                        <Stack gap="sm">
-                          <div>
-                            <Group justify="space-between" mb={4}>
-                              <Text size="xs">Rating</Text>
-                              <Text size="xs" fw={500} c={ratingColor(editRating)}>{editRating} / 10</Text>
-                            </Group>
-                            <Slider
-                              min={0} max={10} step={0.1}
-                              value={editRating} onChange={setEditRating}
-                              marks={[0, 2, 4, 6, 8, 10].map((v) => ({ value: v, label: String(v) }))}
-                              mb="lg"
-                            />
-                          </div>
-                          <Textarea
-                            label="Comment (optional)"
-                            value={editComment}
-                            onChange={(e) => setEditComment(e.currentTarget.value)}
-                            maxLength={5000}
-                            autosize
-                            minRows={2}
-                            size="xs"
-                          />
-                          <Group gap="xs">
-                            <Button size="xs" loading={updateReview.isPending} onClick={handleSave}>Save</Button>
-                            <Button size="xs" variant="default" onClick={() => setEditMode(false)}>Cancel</Button>
-                          </Group>
-                        </Stack>
-                      ) : (
-                        <Text size="sm" c={r.comment ? undefined : 'dimmed'} fs={r.comment ? 'italic' : undefined} style={{ whiteSpace: 'pre-wrap' }}>
-                          {r.comment ? `"${r.comment}"` : 'No notes left.'}
-                        </Text>
-                      )
-                    )}
-                  </Paper>
+                  </Stack>
+                ) : (
+                  <Text size="sm" c={r.comment ? undefined : 'dimmed'} fs={r.comment ? 'italic' : undefined} style={{ whiteSpace: 'pre-wrap' }}>
+                    {r.comment ? `"${r.comment}"` : 'No notes left.'}
+                  </Text>
                 )
-              })}
-            </Stack>
-          </Table.Td>
-        </Table.Tr>
-      )}
-    </>
+              )}
+            </Paper>
+          )
+        })
+      }
+    </Stack>
+  )
+}
+
+// ==================== REVIEWED CARD ====================
+
+interface ReviewedCardProps {
+  ga: GroupAlbumResponse
+  review: ReviewResponse
+  members: GroupMemberResponse[]
+  allowGuessing: boolean
+  guessResult: CheckGuessResponse | undefined
+  currentUserId: number | undefined
+  hasNewReviews: boolean
+  onClick: () => void
+}
+
+function ReviewedCard({ ga, review, members, allowGuessing, guessResult, currentUserId, hasNewReviews, onClick }: ReviewedCardProps) {
+  const { album } = ga
+  const groupAvg = ga.avg_rating
+  const nominator = getNominator(ga, members)
+  const isSelfNominated = currentUserId !== undefined && currentUserId === ga.added_by
+  const canGuess = allowGuessing && !isSelfNominated
+
+  return (
+    <Paper
+      withBorder
+      p="sm"
+      style={{
+        cursor: 'pointer',
+        boxShadow: hasNewReviews ? 'inset 3px 0 0 var(--mantine-color-violet-5)' : undefined,
+      }}
+      onClick={onClick}
+    >
+      <Group gap="sm" wrap="nowrap">
+        <CoverCell src={album.cover_url} />
+        <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+          <Text size="sm" fw={500} lineClamp={1}>{album.title}</Text>
+          <Text size="xs" c="dimmed" lineClamp={1}>{album.artist}</Text>
+          <Group gap={6}>
+            {groupAvg !== null && (
+              <Text size="xs" c="dimmed">
+                avg: <Text span fw={600} c={ratingColor(groupAvg)} size="xs">{groupAvg}</Text>
+              </Text>
+            )}
+            <Text size="xs" c="dimmed">{formatDate(ga.selected_date)}</Text>
+          </Group>
+        </Stack>
+        <Stack gap={2} align="flex-end" style={{ flexShrink: 0 }}>
+          <Text fw={700} size="md" c={ratingColor(review.rating ?? 0)}>{review.rating}</Text>
+          <Text
+            size="xs"
+            lineClamp={1}
+            c={
+              isSelfNominated ? 'yellow.5'
+              : canGuess && guessResult
+                ? guessResult.correct ? 'green.6' : 'red.6'
+                : 'dimmed'
+            }
+          >{nominator}</Text>
+        </Stack>
+      </Group>
+    </Paper>
   )
 }
 
@@ -686,7 +633,6 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [expandedInProgressId, setExpandedInProgressId] = useState<number | null>(null)
   const [expandedReviewedId, setExpandedReviewedId] = useState<number | null>(null)
-  const rowRefs = useRef<Map<number, HTMLTableRowElement>>(new Map())
   const scrolledToAlbumId = useRef<number | null>(null)
 
   const [unreviewedField, setUnreviewedField] = useState<SortField>('date')
@@ -699,11 +645,6 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
     if (unreviewedField === f) setUnreviewedDir((d) => (d === 'asc' ? 'desc' : 'asc'))
     else { setUnreviewedField(f); setUnreviewedDir('asc') }
   }
-  const toggleReviewedSort = (f: ReviewedSortField) => {
-    if (reviewedField === f) setReviewedDir((d) => (d === 'asc' ? 'desc' : 'asc'))
-    else { setReviewedField(f); setReviewedDir('desc') }
-  }
-
   const { data: myReviewsList = [], isLoading: myReviewsLoading } = useQuery({
     queryKey: ['groups', groupId, 'reviews', 'me'],
     queryFn: () => albumService.getMyReviewsForGroup(groupId),
@@ -784,11 +725,6 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
     setExpandedReviewedId(targetGa.id)
     markSeen(groupId, focusAlbumId)
     scrolledToAlbumId.current = focusAlbumId
-
-    requestAnimationFrame(() => {
-      const el = rowRefs.current.get(targetGa.id)
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    })
   }, [focusAlbumId, reviewed, isLoading, reviewsLoading]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (isLoading || reviewsLoading) {
@@ -806,6 +742,7 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
   }
 
   const unreviewedTable = (rows: GroupAlbumResponse[], expandedRowId: number | null, onToggle: (id: number) => void, hasDraft: boolean) => (
+    <Table.ScrollContainer minWidth={500}>
     <Table highlightOnHover verticalSpacing="sm">
       <Table.Thead>
         <Table.Tr>
@@ -840,6 +777,7 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
         ))}
       </Table.Tbody>
     </Table>
+    </Table.ScrollContainer>
   )
 
   return (
@@ -878,69 +816,114 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
 
       {reviewed.length > 0 && (
         <Stack gap="xs">
-          <Group justify="space-between" align="center">
-            <Text fw={600} size="sm">Review History</Text>
+          <Text fw={600} size="sm">Review History</Text>
+          <Group gap="xs" align="center" wrap="nowrap">
             <TextInput
               placeholder="Filter by album or artist..."
               size="xs"
               value={reviewedFilter}
               onChange={(e) => setReviewedFilter(e.currentTarget.value)}
-              w={220}
+              style={{ flex: 1 }}
             />
+            <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>Sort by</Text>
+            <Select
+              size="xs"
+              value={reviewedField}
+              onChange={(v) => v && setReviewedField(v as ReviewedSortField)}
+              data={[
+                { value: 'date', label: 'Selected Date' },
+                { value: 'title', label: 'Album' },
+                { value: 'artist', label: 'Artist' },
+                { value: 'release', label: 'Released' },
+                { value: 'rating', label: 'My Rating' },
+                { value: 'avg_rating', label: 'Group Avg' },
+                { value: 'nominator', label: 'Nominated By' },
+              ]}
+              w="auto"
+            />
+            <ActionIcon
+              variant="subtle"
+              onClick={() => setReviewedDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+            >
+              {reviewedDir === 'asc' ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+            </ActionIcon>
           </Group>
-          <Table highlightOnHover verticalSpacing="sm">
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th w={52} />
-                <Table.Th>
-                  <SortButton field="title" label="Album" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
-                </Table.Th>
-                <Table.Th>
-                  <SortButton field="artist" label="Artist" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
-                </Table.Th>
-                <Table.Th>
-                  <SortButton field="release" label="Released" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
-                </Table.Th>
-                <Table.Th>
-                  <SortButton field="rating" label="Rating" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
-                </Table.Th>
-                <Table.Th>
-                  <SortButton field="avg_rating" label="Group Avg" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
-                </Table.Th>
-                <Table.Th>
-                  <SortButton field="nominator" label="Nominated By" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
-                </Table.Th>
-                <Table.Th>
-                  <SortButton field="date" label="Selected" active={reviewedField} dir={reviewedDir} onClick={toggleReviewedSort} />
-                </Table.Th>
-                <Table.Th w={56} />
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {sortedReviewed.map((ga) => (
-                <ReviewedRow
-                  key={ga.id}
-                  ga={ga}
-                  review={reviewMap.get(ga.album_id)!}
-                  members={members}
-                  isExpanded={expandedReviewedId === ga.id}
-                  onToggle={() => {
-                    setExpandedReviewedId((prev) => (prev === ga.id ? null : ga.id))
-                    if (isUnseen(groupId, ga.album_id)) markSeen(groupId, ga.album_id)
-                  }}
-                  groupId={groupId}
-                  allowGuessing={allowGuessing}
-                  guessResult={guessMap.get(ga.id)}
-                  currentUserId={user?.id}
-                  hasNewReviews={isUnseen(groupId, ga.album_id)}
-                  rowRef={(el) => {
-                    if (el) rowRefs.current.set(ga.id, el)
-                    else rowRefs.current.delete(ga.id)
-                  }}
-                />
-              ))}
-            </Table.Tbody>
-          </Table>
+          <Stack gap="xs">
+            {sortedReviewed.map((ga) => (
+              <ReviewedCard
+                key={ga.id}
+                ga={ga}
+                review={reviewMap.get(ga.album_id)!}
+                members={members}
+                allowGuessing={allowGuessing}
+                guessResult={guessMap.get(ga.id)}
+                currentUserId={user?.id}
+                hasNewReviews={isUnseen(groupId, ga.album_id)}
+                onClick={() => {
+                  setExpandedReviewedId(ga.id)
+                  if (isUnseen(groupId, ga.album_id)) markSeen(groupId, ga.album_id)
+                }}
+              />
+            ))}
+          </Stack>
+          <Drawer
+            opened={expandedReviewedId !== null}
+            onClose={() => setExpandedReviewedId(null)}
+            position="bottom"
+            size="90%"
+            title={(() => {
+              const ga = sortedReviewed.find((g) => g.id === expandedReviewedId)
+              if (!ga) return null
+              const { album } = ga
+              return (
+                <Group gap="sm" wrap="nowrap" style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
+                  {album.cover_url
+                    ? <Image src={album.cover_url} w={52} h={52} radius="sm" style={{ flexShrink: 0 }} />
+                    : <div style={{ width: 52, height: 52, background: 'var(--mantine-color-dark-5)', borderRadius: 4, flexShrink: 0 }} />
+                  }
+                  <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+                    <Text size="sm" fw={600} lineClamp={1}>{album.title}</Text>
+                    <Text size="xs" c="dimmed" lineClamp={1}>{album.artist}</Text>
+                    <Text size="xs" c="dimmed">{formatReleaseDate(album.release_date)}</Text>
+                  </Stack>
+                  {ga.avg_rating !== null && (
+                    <Text fw={700} size="lg" c={ratingColor(ga.avg_rating)} style={{ flexShrink: 0 }}>{ga.avg_rating}</Text>
+                  )}
+                </Group>
+              )
+            })()}
+          >
+            {expandedReviewedId !== null && (() => {
+              const ga = sortedReviewed.find((g) => g.id === expandedReviewedId)
+              const review = ga ? reviewMap.get(ga.album_id) : undefined
+              if (!ga || !review) return null
+              return (
+                <Stack gap="md">
+                  <Button
+                    component={Link}
+                    to={`/albums/${ga.album_id}`}
+                    variant="subtle"
+                    size="xs"
+                    rightSection={<IconChevronRight size={14} />}
+                    justify="space-between"
+                    fullWidth
+                  >
+                    View album page
+                  </Button>
+                  <PeerReviewPanel
+                    key={expandedReviewedId}
+                    ga={ga}
+                    review={review}
+                    members={members}
+                    groupId={groupId}
+                    allowGuessing={allowGuessing}
+                    guessResult={guessMap.get(ga.id)}
+                    currentUserId={user?.id}
+                  />
+                </Stack>
+              )
+            })()}
+          </Drawer>
         </Stack>
       )}
     </Stack>
