@@ -601,12 +601,12 @@ class UserService:
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
             ) from None
 
-        # Create new access token
         new_access_token = security.create_access_token(data=self._access_token_data(user))
+        new_refresh_token = security.create_refresh_token(data=self._refresh_token_data(user))
 
         return LoginResponse(
             access_token=new_access_token,
-            refresh_token=refresh_token,
+            refresh_token=new_refresh_token,
             token_type="bearer",
             user=UserResponse.model_validate(user),
         )
