@@ -22,12 +22,12 @@ import {
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { IconBrandApple, IconBrandSpotify, IconBrandYoutube, IconCheck, IconClock, IconDice5, IconExternalLink, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
+import { IconBrandApple, IconBrandSpotify, IconBrandYoutube, IconCheck, IconClock, IconDice5, IconExternalLink, IconHistory, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
 import AlbumCard from './AlbumCard'
 import ReviewAndGuessForm from './ReviewAndGuessForm'
 import AlbumSearchModal from '../albums/AlbumSearchModal'
 import { usePlayer } from '../../context/PlayerContext'
-import { useMyReview, useTodaysAlbums, useTriggerDailySelection } from '../../hooks/useDailySpin'
+import { useCatchUpAlbums, useMyReview, useTodaysAlbums, useTriggerDailySelection } from '../../hooks/useDailySpin'
 import { useGroupAlbums, useNominationCount } from '../../hooks/useAlbums'
 import { albumSearchService } from '../../services/albumSearchService'
 import { ApiError } from '../../services/apiClient'
@@ -417,6 +417,58 @@ function AlbumTab({ albumId, title, coverUrl, isPlaying = false }: { albumId: nu
   )
 }
 
+function CatchUpSection({ albums, groupId, allowGuessing }: { albums: GroupAlbumResponse[]; groupId: number; allowGuessing: boolean }) {
+  const [activeId, setActiveId] = useState<number>(albums[0]?.id)
+  const activeAlbum = albums.find((a) => a.id === activeId) ?? albums[0]
+
+  if (!albums.length) return null
+
+  const formatDate = (iso: string) => {
+    const d = new Date(iso)
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
+  return (
+    <Stack gap="md">
+      <Tabs
+        value={String(activeId)}
+        onChange={(v) => v && setActiveId(Number(v))}
+        color="teal"
+      >
+        <Tabs.List>
+          {albums.map((a) => (
+            <Tabs.Tab key={a.id} value={String(a.id)}>
+              <Group gap={6} wrap="nowrap">
+                <Image
+                  src={a.album.cover_url ?? undefined}
+                  w={20}
+                  h={20}
+                  radius="xs"
+                  fallbackSrc="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Crect width='20' height='20' fill='%23373A40'/%3E%3C/svg%3E"
+                />
+                <Stack gap={0}>
+                  <Text size="sm" lineClamp={1} style={{ maxWidth: 110 }}>{a.album.title}</Text>
+                  {a.selected_date && (
+                    <Text size="xs" c="dimmed">{formatDate(a.selected_date)}</Text>
+                  )}
+                </Stack>
+              </Group>
+            </Tabs.Tab>
+          ))}
+        </Tabs.List>
+      </Tabs>
+      {activeAlbum && (
+        <SpinSlide
+          key={activeAlbum.id}
+          groupAlbum={activeAlbum}
+          groupId={groupId}
+          allowGuessing={allowGuessing}
+        />
+      )}
+    </Stack>
+  )
+}
+
 function SelectTodayPanel({ groupId }: { groupId: number }) {
   const qc = useQueryClient()
   const { data: pending, isLoading } = useGroupAlbums(groupId, 'pending')
@@ -482,6 +534,9 @@ interface Props {
 
 export default function TodaysSpin({ groupId, group }: Props) {
   const { data: albums, isLoading, isError } = useTodaysAlbums(groupId)
+  const catchUpEnabled = group?.settings?.catch_up_enabled ?? false
+  const { data: catchUpAlbums = [] } = useCatchUpAlbums(groupId, catchUpEnabled)
+  const [spinView, setSpinView] = useState<string>('today')
   const { data: nominationCountData } = useNominationCount(groupId)
   const [nominateOpened, { open: openNominate, close: closeNominate }] = useDisclosure()
   const [chaosConfirmOpen, { open: openChaosConfirm, close: closeChaosConfirm }] = useDisclosure()
@@ -647,11 +702,17 @@ export default function TodaysSpin({ groupId, group }: Props) {
     )
   }
 
-  if (albums?.length === 1) {
+  const hasCatchUp = catchUpEnabled && catchUpAlbums.length > 0
+
+  const todayContent = albums?.length === 1
+    ? <SpinSlide key={albums[0].album_id} groupAlbum={albums[0]} groupId={groupId} allowGuessing={allowGuessing} />
+    : <MultiAlbumSpin albums={albums!} groupId={groupId} allowGuessing={allowGuessing} />
+
+  if (!hasCatchUp) {
     return (
       <Stack gap="md">
         {poolBadge}
-        <SpinSlide key={albums[0].album_id} groupAlbum={albums[0]} groupId={groupId} allowGuessing={allowGuessing} />
+        {todayContent}
       </Stack>
     )
   }
@@ -659,7 +720,22 @@ export default function TodaysSpin({ groupId, group }: Props) {
   return (
     <Stack gap="md">
       {poolBadge}
-      <MultiAlbumSpin albums={albums!} groupId={groupId} allowGuessing={allowGuessing} />
+      <Tabs value={spinView} onChange={(v) => v && setSpinView(v)}>
+        <Tabs.List>
+          <Tabs.Tab value="today" color="yellow" leftSection={<IconClock size={14} />}>
+            Today's Spin
+          </Tabs.Tab>
+          <Tabs.Tab value="catchup" color="teal" leftSection={<IconHistory size={14} />}>
+            Catch Up
+            <Badge ml={6} size="xs" color="teal" variant="light" circle>
+              {catchUpAlbums.length}
+            </Badge>
+          </Tabs.Tab>
+        </Tabs.List>
+      </Tabs>
+      {spinView === 'today' ? todayContent : (
+        <CatchUpSection albums={catchUpAlbums} groupId={groupId} allowGuessing={allowGuessing} />
+      )}
     </Stack>
   )
 }

@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import Album, Group, GroupAlbum, GroupSettings, NominationGuess, User
+from app.models import Album, Group, GroupAlbum, GroupSettings, NominationGuess, Review, User
 from app.models.group import group_members
 from app.schemas.group_album import (
     CheckGuessResponse,
@@ -477,6 +477,63 @@ class GroupAlbumService:
             self._notify_pool_exhausted(group_id, group.name, actual_n, n)
 
         return result
+
+    def get_catchup_albums(self, group_id: int, user: User, limit: int = 10) -> list[GroupAlbum]:
+        """Return up to `limit` most-recently-selected albums the user has not submitted a review for.
+
+        Albums with in-progress (draft) reviews are included. Excludes albums that were selected
+        on the most recent draw date (today's spin).
+        Requires catch_up_enabled on the group's settings. Returns [] immediately when
+        catch_up_enabled is False.
+
+        Raises:
+            HTTPException 403: If user is not a group member.
+        """
+        group_service = gs.GroupService(self.db)
+        group_service.require_membership(user.id, group_id)
+
+        settings = self.db.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
+        if settings is None or not settings.catch_up_enabled:
+            return []
+
+        tz_name = (settings.timezone if settings else None) or _DEFAULT_TZ
+        today = _group_today(tz_name)
+
+        # Subquery: album_ids the user has submitted (non-draft) reviews for
+        reviewed_subq = (
+            self.db.query(Review.album_id)
+            .filter(Review.user_id == user.id, Review.is_draft == False)  # noqa: E712
+            .subquery()
+        )
+
+        # One canonical GroupAlbum row per album_id (lowest id), most recently selected first,
+        # excluding today and albums the user has already submitted a review for.
+        canonical_id_subq = (
+            self.db.query(func.min(GroupAlbum.id))
+            .filter(
+                GroupAlbum.group_id == group_id,
+                GroupAlbum.selected_date.isnot(None),
+                _date_in_tz(GroupAlbum.selected_date, tz_name) != today,
+                GroupAlbum.album_id.notin_(reviewed_subq),
+            )
+            .group_by(GroupAlbum.album_id)
+            .order_by(func.max(GroupAlbum.selected_date).desc())
+            .limit(limit)
+            .subquery()
+        )
+
+        results = (
+            self.db.query(GroupAlbum)
+            .filter(GroupAlbum.id.in_(canonical_id_subq))
+            .options(
+                selectinload(GroupAlbum.albums).selectinload(Album.genres),
+                selectinload(GroupAlbum.albums).selectinload(Album.reviews),
+            )
+            .order_by(GroupAlbum.selected_date.desc(), GroupAlbum.id)
+            .all()
+        )
+
+        return results
 
     def get_todays_albums(self, group_id: int, user: User) -> list[GroupAlbum]:
         """Return albums from the most recent scheduled draw for a group. Requires membership.

@@ -33,5 +33,6 @@ class GroupSettings(Base):
         default=_ALL_DAYS,
         server_default="{0,1,2,3,4,5,6}",
     )
+    catch_up_enabled = Column(Boolean, nullable=False, default=False, server_default="false")
 
     group = relationship("Group", back_populates="settings")

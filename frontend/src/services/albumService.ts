@@ -18,6 +18,10 @@ export const albumService = {
     return apiFetch(`/groups/${groupId}/albums/today`)
   },
 
+  getCatchUpAlbums(groupId: number): Promise<GroupAlbumResponse[]> {
+    return apiFetch(`/groups/${groupId}/albums/catchup`)
+  },
+
   triggerDailySelection(groupId: number, forceChaos = false): Promise<GroupAlbumResponse[]> {
     const url = forceChaos
       ? `/groups/${groupId}/albums/select-today?force_chaos=true`
