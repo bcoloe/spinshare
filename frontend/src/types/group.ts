@@ -14,6 +14,7 @@ export interface GroupSettings {
   daily_nomination_limit: number | null
   timezone: string
   selection_days: number[]
+  catch_up_enabled: boolean
 }
 
 export interface GroupDetailResponse extends GroupResponse {
@@ -87,6 +88,7 @@ export interface GroupModify {
     daily_nomination_limit?: number | null
     timezone?: string
     selection_days?: number[]
+    catch_up_enabled?: boolean
   }
 }
 

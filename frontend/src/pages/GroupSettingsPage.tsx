@@ -93,6 +93,7 @@ export default function GroupSettingsPage() {
   const [allowGuessing, setAllowGuessing] = useState<boolean | null>(null)
   const [guessUserCap, setGuessUserCap] = useState<number | string | null>(null)
   const [chaosMode, setChaosMode] = useState<boolean | null>(null)
+  const [catchUpEnabled, setCatchUpEnabled] = useState<boolean | null>(null)
   const [dailyNominationLimit, setDailyNominationLimit] = useState<number | string | null | undefined>(undefined)
   const [timezone, setTimezone] = useState<string | null>(null)
   const [selectionDays, setSelectionDays] = useState<number[] | null>(null)
@@ -107,6 +108,7 @@ export default function GroupSettingsPage() {
   const currentAllowGuessing = allowGuessing ?? group?.settings?.allow_guessing ?? true
   const currentGuessUserCap = guessUserCap ?? group?.settings?.guess_user_cap ?? 5
   const currentChaosMode = chaosMode ?? group?.settings?.chaos_mode ?? false
+  const currentCatchUpEnabled = catchUpEnabled ?? group?.settings?.catch_up_enabled ?? false
   const currentDailyNominationLimit: string | number = (() => {
     const raw = dailyNominationLimit === undefined
       ? group?.settings?.daily_nomination_limit
@@ -132,6 +134,7 @@ export default function GroupSettingsPage() {
           allow_guessing: currentAllowGuessing,
           guess_user_cap: typeof currentGuessUserCap === 'number' ? currentGuessUserCap : undefined,
           chaos_mode: currentChaosMode,
+          catch_up_enabled: currentCatchUpEnabled,
           daily_nomination_limit: typeof currentDailyNominationLimit === 'number'
             ? currentDailyNominationLimit
             : currentDailyNominationLimit === ''
@@ -297,6 +300,12 @@ export default function GroupSettingsPage() {
             description="Each daily spin has a small chance of pulling a random album from outside the group's nominations."
             checked={currentChaosMode}
             onChange={(e) => setChaosMode(e.currentTarget.checked)}
+          />
+          <Switch
+            label="Catch-up mode"
+            description="On the Today's Spin tab, show up to 10 recent unreviewed albums alongside today's spin so members can catch up on missed reviews."
+            checked={currentCatchUpEnabled}
+            onChange={(e) => setCatchUpEnabled(e.currentTarget.checked)}
           />
           <Select
             label="Timezone"

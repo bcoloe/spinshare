@@ -29,6 +29,14 @@ export function useTodaysAlbums(groupId: number) {
   })
 }
 
+export function useCatchUpAlbums(groupId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['groups', groupId, 'albums', 'catchup'],
+    queryFn: () => albumService.getCatchUpAlbums(groupId),
+    enabled: !!groupId && enabled,
+  })
+}
+
 export function useTriggerDailySelection(groupId: number) {
   const qc = useQueryClient()
   return useMutation({

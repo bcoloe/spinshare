@@ -36,6 +36,21 @@ def get_todays_albums(
     return [GroupAlbumResponse.from_orm(ga) for ga in gas]
 
 
+@router.get("/{group_id}/albums/catchup", response_model=list[GroupAlbumResponse])
+def get_catchup_albums(
+    group_id: int,
+    current_user: User = Depends(get_current_user),
+    svc: GroupAlbumService = Depends(get_group_album_service),
+):
+    """Return up to 10 most-recently-selected albums the user has not yet reviewed (catch-up mode).
+
+    Excludes today's spin. Returns [] when catch_up_enabled is False on the group's settings.
+    Requires membership.
+    """
+    gas = svc.get_catchup_albums(group_id, current_user)
+    return [GroupAlbumResponse.from_orm(ga) for ga in gas]
+
+
 @router.post("/{group_id}/albums/select-today", response_model=list[GroupAlbumResponse])
 def trigger_daily_selection(
     group_id: int,

@@ -22,12 +22,12 @@ import {
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { IconBrandApple, IconBrandSpotify, IconBrandYoutube, IconCheck, IconClock, IconDice5, IconExternalLink, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
+import { IconBrandApple, IconBrandSpotify, IconBrandYoutube, IconCheck, IconClock, IconDice5, IconExternalLink, IconHistory, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
 import AlbumCard from './AlbumCard'
 import ReviewAndGuessForm from './ReviewAndGuessForm'
 import AlbumSearchModal from '../albums/AlbumSearchModal'
 import { usePlayer } from '../../context/PlayerContext'
-import { useMyReview, useTodaysAlbums, useTriggerDailySelection } from '../../hooks/useDailySpin'
+import { useCatchUpAlbums, useMyReview, useTodaysAlbums, useTriggerDailySelection } from '../../hooks/useDailySpin'
 import { useGroupAlbums, useNominationCount } from '../../hooks/useAlbums'
 import { albumSearchService } from '../../services/albumSearchService'
 import { ApiError } from '../../services/apiClient'
@@ -417,6 +417,58 @@ function AlbumTab({ albumId, title, coverUrl, isPlaying = false }: { albumId: nu
   )
 }
 
+function CatchUpSection({ albums, groupId, allowGuessing }: { albums: GroupAlbumResponse[]; groupId: number; allowGuessing: boolean }) {
+  const [activeId, setActiveId] = useState<number>(albums[0]?.id)
+  const activeAlbum = albums.find((a) => a.id === activeId) ?? albums[0]
+
+  if (!albums.length) return null
+
+  const formatDate = (iso: string) => {
+    const d = new Date(iso)
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
+  return (
+    <Stack gap="md">
+      <Tabs
+        value={String(activeId)}
+        onChange={(v) => v && setActiveId(Number(v))}
+        color="teal"
+      >
+        <Tabs.List>
+          {albums.map((a) => (
+            <Tabs.Tab key={a.id} value={String(a.id)}>
+              <Group gap={6} wrap="nowrap">
+                <Image
+                  src={a.album.cover_url ?? undefined}
+                  w={20}
+                  h={20}
+                  radius="xs"
+                  fallbackSrc="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Crect width='20' height='20' fill='%23373A40'/%3E%3C/svg%3E"
+                />
+                <Stack gap={0}>
+                  <Text size="sm" lineClamp={1} style={{ maxWidth: 110 }}>{a.album.title}</Text>
+                  {a.selected_date && (
+                    <Text size="xs" c="dimmed">{formatDate(a.selected_date)}</Text>
+                  )}
+                </Stack>
+              </Group>
+            </Tabs.Tab>
+          ))}
+        </Tabs.List>
+      </Tabs>
+      {activeAlbum && (
+        <SpinSlide
+          key={activeAlbum.id}
+          groupAlbum={activeAlbum}
+          groupId={groupId}
+          allowGuessing={allowGuessing}
+        />
+      )}
+    </Stack>
+  )
+}
+
 function SelectTodayPanel({ groupId }: { groupId: number }) {
   const qc = useQueryClient()
   const { data: pending, isLoading } = useGroupAlbums(groupId, 'pending')
@@ -482,6 +534,9 @@ interface Props {
 
 export default function TodaysSpin({ groupId, group }: Props) {
   const { data: albums, isLoading, isError } = useTodaysAlbums(groupId)
+  const catchUpEnabled = group?.settings?.catch_up_enabled ?? false
+  const { data: catchUpAlbums = [] } = useCatchUpAlbums(groupId, catchUpEnabled)
+  const [spinView, setSpinView] = useState<string>('today')
   const { data: nominationCountData } = useNominationCount(groupId)
   const [nominateOpened, { open: openNominate, close: closeNominate }] = useDisclosure()
   const [chaosConfirmOpen, { open: openChaosConfirm, close: closeChaosConfirm }] = useDisclosure()
@@ -572,94 +627,101 @@ export default function TodaysSpin({ groupId, group }: Props) {
     )
   }
 
-  if (isEmpty) {
-    return (
-      <>
-        <Stack gap="md">
-          {poolBadge}
-          <Alert
-            icon={<IconInfoCircle size={16} />}
-            color="blue"
-            title="No spin selected yet"
-          >
-            No album has been selected yet. Roll a random spin or nominate a new one.
-          </Alert>
-          <Center>
-            <Group gap="sm">
-              <Button
-                variant="filled"
-                leftSection={<IconDice5 size={16} />}
-                loading={triggerSelection.isPending}
-                onClick={handleRollSpin}
-              >
-                Roll today&apos;s spin
-              </Button>
-              <Tooltip
-                label="You don't have permission to nominate albums in this group"
-                disabled={canNominate}
-              >
-                <Box component="span" style={canNominate ? undefined : { cursor: 'not-allowed' }}>
-                  <Button
-                    variant="light"
-                    leftSection={<IconPlus size={16} />}
-                    onClick={openNominate}
-                    disabled={!canNominate}
-                    style={canNominate ? undefined : { pointerEvents: 'none' }}
-                  >
-                    Nominate an album
-                  </Button>
-                </Box>
-              </Tooltip>
-            </Group>
-          </Center>
-          {canSelect && (
-            <Center>
-              <Stack gap="md" w="100%" maw={560}>
-                <SelectTodayPanel groupId={groupId} />
-              </Stack>
-            </Center>
-          )}
-        </Stack>
-        <AlbumSearchModal groupId={groupId} opened={nominateOpened} onClose={closeNominate} />
-        <Modal opened={chaosConfirmOpen} onClose={closeChaosConfirm} title="⚡ Full Chaos Mode">
-          <Stack gap="md">
-            <Text size="sm">
-              There are no active nominations in the pool. Since chaos mode is enabled, today&apos;s
-              spin can be pulled entirely from random albums outside the group.
-            </Text>
-            <Text size="sm" c="dimmed">
-              Are you ready to embrace the chaos?
-            </Text>
-            <Group justify="flex-end">
-              <Button variant="default" onClick={closeChaosConfirm}>Cancel</Button>
-              <Button
-                color="orange"
-                leftSection={<IconDice5 size={16} />}
-                loading={triggerSelection.isPending}
-                onClick={handleFullChaosConfirm}
-              >
-                Go full chaos
-              </Button>
-            </Group>
-          </Stack>
-        </Modal>
-      </>
-    )
-  }
+  const hasCatchUp = catchUpEnabled && catchUpAlbums.length > 0
 
-  if (albums?.length === 1) {
-    return (
-      <Stack gap="md">
-        {poolBadge}
-        <SpinSlide key={albums[0].album_id} groupAlbum={albums[0]} groupId={groupId} allowGuessing={allowGuessing} />
-      </Stack>
-    )
-  }
+  const todayContent = isEmpty ? (
+    <Stack gap="md">
+      <Alert icon={<IconInfoCircle size={16} />} color="blue" title="No spin selected yet">
+        No album has been selected yet. Roll a random spin or nominate a new one.
+      </Alert>
+      <Center>
+        <Group gap="sm">
+          <Button
+            variant="filled"
+            leftSection={<IconDice5 size={16} />}
+            loading={triggerSelection.isPending}
+            onClick={handleRollSpin}
+          >
+            Roll today&apos;s spin
+          </Button>
+          <Tooltip
+            label="You don't have permission to nominate albums in this group"
+            disabled={canNominate}
+          >
+            <Box component="span" style={canNominate ? undefined : { cursor: 'not-allowed' }}>
+              <Button
+                variant="light"
+                leftSection={<IconPlus size={16} />}
+                onClick={openNominate}
+                disabled={!canNominate}
+                style={canNominate ? undefined : { pointerEvents: 'none' }}
+              >
+                Nominate an album
+              </Button>
+            </Box>
+          </Tooltip>
+        </Group>
+      </Center>
+      {canSelect && (
+        <Center>
+          <Stack gap="md" w="100%" maw={560}>
+            <SelectTodayPanel groupId={groupId} />
+          </Stack>
+        </Center>
+      )}
+    </Stack>
+  ) : albums?.length === 1
+    ? <SpinSlide key={albums[0].album_id} groupAlbum={albums[0]} groupId={groupId} allowGuessing={allowGuessing} />
+    : <MultiAlbumSpin albums={albums!} groupId={groupId} allowGuessing={allowGuessing} />
 
   return (
-    <Stack gap="md">
-      {poolBadge}
-      <MultiAlbumSpin albums={albums!} groupId={groupId} allowGuessing={allowGuessing} />
-    </Stack>
+    <>
+      <Stack gap="md">
+        {poolBadge}
+        {hasCatchUp ? (
+          <>
+            <Tabs value={spinView} onChange={(v) => v && setSpinView(v)}>
+              <Tabs.List>
+                <Tabs.Tab value="today" color="yellow" leftSection={<IconClock size={14} />}>
+                  Today's Spin
+                </Tabs.Tab>
+                <Tabs.Tab value="catchup" color="teal" leftSection={<IconHistory size={14} />}>
+                  Catch Up
+                  <Badge ml={6} size="xs" color="teal" variant="light" circle>
+                    {catchUpAlbums.length}
+                  </Badge>
+                </Tabs.Tab>
+              </Tabs.List>
+            </Tabs>
+            {spinView === 'today' ? todayContent : (
+              <CatchUpSection albums={catchUpAlbums} groupId={groupId} allowGuessing={allowGuessing} />
+            )}
+          </>
+        ) : todayContent}
+      </Stack>
+      <AlbumSearchModal groupId={groupId} opened={nominateOpened} onClose={closeNominate} />
+      <Modal opened={chaosConfirmOpen} onClose={closeChaosConfirm} title="⚡ Full Chaos Mode">
+        <Stack gap="md">
+          <Text size="sm">
+            There are no active nominations in the pool. Since chaos mode is enabled, today&apos;s
+            spin can be pulled entirely from random albums outside the group.
+          </Text>
+          <Text size="sm" c="dimmed">
+            Are you ready to embrace the chaos?
+          </Text>
+          <Group justify="flex-end">
+            <Button variant="default" onClick={closeChaosConfirm}>Cancel</Button>
+            <Button
+              color="orange"
+              leftSection={<IconDice5 size={16} />}
+              loading={triggerSelection.isPending}
+              onClick={handleFullChaosConfirm}
+            >
+              Go full chaos
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+    </>
   )
 }

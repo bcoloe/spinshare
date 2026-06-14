@@ -376,6 +376,8 @@ class GroupService:
                 gs.timezone = update_data.settings.timezone
             if update_data.settings.selection_days is not None:
                 gs.selection_days = update_data.settings.selection_days
+            if update_data.settings.catch_up_enabled is not None:
+                gs.catch_up_enabled = update_data.settings.catch_up_enabled
 
         try:
             self.db.commit()

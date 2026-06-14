@@ -55,6 +55,7 @@ class GroupSettingsResponse(BaseModel):
     daily_nomination_limit: int | None
     timezone: str
     selection_days: list[int]
+    catch_up_enabled: bool
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -71,6 +72,7 @@ class GroupSettingsUpdate(BaseModel):
     daily_nomination_limit: int | None = None
     timezone: str | None = None
     selection_days: list[int] | None = None
+    catch_up_enabled: bool | None = None
 
     @field_validator("min_role_to_add_members", "min_role_to_nominate")
     @classmethod
