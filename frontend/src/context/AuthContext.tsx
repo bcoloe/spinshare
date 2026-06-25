@@ -1,6 +1,6 @@
 import { createContext, useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { configureApiClient } from '../services/apiClient'
+import { configureApiClient, refreshAccessToken, RefreshAuthError } from '../services/apiClient'
 import { authService } from '../services/authService'
 import type { LoginRequest, UserResponse } from '../types/auth'
 
@@ -43,24 +43,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('token:refreshed', handler)
   }, [])
 
-  // Silent re-auth on mount using stored refresh token
+  // Silent re-auth on mount using stored refresh token.
+  // Uses the shared refreshAccessToken() from apiClient so this call and any
+  // concurrent 401 retries deduplicate into a single refresh request.
   useEffect(() => {
-    const stored = localStorage.getItem('refresh_token')
-    if (!stored) {
+    if (!localStorage.getItem('refresh_token')) {
       setIsInitializing(false)
       return
     }
 
-    authService
-      .refresh(stored)
-      .then((res) => {
-        accessTokenRef.current = res.access_token
-        localStorage.setItem('refresh_token', res.refresh_token)
+    refreshAccessToken()
+      .then((newToken) => {
+        if (!newToken) return undefined  // transient failure: keep token, don't set user
+        accessTokenRef.current = newToken
         return authService.getMe()
       })
-      .then(setUser)
-      .catch(() => {
-        localStorage.removeItem('refresh_token')
+      .then((me) => { if (me) setUser(me) })
+      .catch((err) => {
+        if (err instanceof RefreshAuthError) {
+          // Token is genuinely invalid — clear it so the login page is shown.
+          localStorage.removeItem('refresh_token')
+        }
+        // Any other error (5xx, network, getMe failure) is transient: keep the
+        // refresh token so the next page load can try again without forcing re-login.
       })
       .finally(() => setIsInitializing(false))
   }, [])

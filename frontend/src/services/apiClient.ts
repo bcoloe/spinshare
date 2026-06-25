@@ -12,10 +12,20 @@ export function configureApiClient(
   onUnauthorized = unauthorizedHandler
 }
 
+// Thrown when the refresh endpoint returns 401 — the token is genuinely invalid.
+// Distinct from transient server/network failures, which return null instead.
+export class RefreshAuthError extends Error {
+  constructor() {
+    super('Refresh token rejected')
+    this.name = 'RefreshAuthError'
+  }
+}
+
 // Shared promise so concurrent 401s share one refresh call instead of racing.
+// Also used by AuthContext startup so both paths deduplicate against each other.
 let refreshPromise: Promise<string | null> | null = null
 
-async function refreshAccessToken(): Promise<string | null> {
+export async function refreshAccessToken(): Promise<string | null> {
   if (refreshPromise) return refreshPromise
 
   refreshPromise = (async () => {
@@ -26,6 +36,7 @@ async function refreshAccessToken(): Promise<string | null> {
       const res = await fetch(`/api/users/refresh?refresh_token=${encodeURIComponent(refreshToken)}`, {
         method: 'POST',
       })
+      if (res.status === 401) throw new RefreshAuthError()
       if (!res.ok) return null
 
       const data = await res.json()
@@ -56,16 +67,33 @@ export async function apiFetch<T>(
   let res = await fetch(`/api${path}`, { ...options, headers })
 
   if (res.status === 401) {
-    const newToken = await refreshAccessToken()
+    let newToken: string | null = null
+    try {
+      newToken = await refreshAccessToken()
+    } catch (err) {
+      if (err instanceof RefreshAuthError) {
+        onUnauthorized()
+        throw new Error('Unauthorized')
+      }
+      throw err
+    }
+
     if (newToken) {
       // Notify context of the new token via a custom event
       window.dispatchEvent(new CustomEvent('token:refreshed', { detail: newToken }))
       headers.set('Authorization', `Bearer ${newToken}`)
       res = await fetch(`/api${path}`, { ...options, headers })
+    } else {
+      // Transient failure (DB down, network error): fail this request without
+      // logging the user out so they can retry once the service recovers.
+      const body = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new ApiError(res.status, body.detail ?? res.statusText, body)
     }
   }
 
   if (res.status === 401) {
+    // Refresh succeeded but the freshly-issued token was immediately rejected —
+    // something is genuinely wrong with the session.
     onUnauthorized()
     throw new Error('Unauthorized')
   }

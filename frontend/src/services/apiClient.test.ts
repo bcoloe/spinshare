@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { apiFetch, configureApiClient } from './apiClient'
+import { apiFetch, configureApiClient, refreshAccessToken, RefreshAuthError } from './apiClient'
 
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
@@ -51,18 +51,42 @@ describe('apiFetch', () => {
     expect(mockFetch).toHaveBeenCalledTimes(3)
   })
 
-  it('calls onUnauthorized and throws when refresh fails', async () => {
+  it('calls onUnauthorized and throws when refresh endpoint returns 401', async () => {
     const onUnauthorized = vi.fn()
     configureApiClient(() => 'expired-token', onUnauthorized)
     localStorage.setItem('refresh_token', 'bad-refresh')
 
     mockFetch
-      .mockResolvedValueOnce(new Response(null, { status: 401 }))
-      .mockResolvedValueOnce(new Response(null, { status: 401 })) // refresh fails
-      .mockResolvedValueOnce(new Response(null, { status: 401 })) // retry also 401
+      .mockResolvedValueOnce(new Response(null, { status: 401 })) // original request
+      .mockResolvedValueOnce(new Response(null, { status: 401 })) // refresh rejects token
 
     await expect(apiFetch('/users/me')).rejects.toThrow('Unauthorized')
     expect(onUnauthorized).toHaveBeenCalled()
+  })
+
+  it('does not call onUnauthorized when refresh endpoint returns 5xx', async () => {
+    const onUnauthorized = vi.fn()
+    configureApiClient(() => 'expired-token', onUnauthorized)
+    localStorage.setItem('refresh_token', 'valid-refresh')
+
+    mockFetch
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))  // original request
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))  // transient DB failure
+
+    await expect(apiFetch('/users/me')).rejects.toMatchObject({ status: 401 })
+    expect(onUnauthorized).not.toHaveBeenCalled()
+  })
+
+  it('refreshAccessToken throws RefreshAuthError on 401 from refresh endpoint', async () => {
+    localStorage.setItem('refresh_token', 'bad-refresh')
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 401 }))
+    await expect(refreshAccessToken()).rejects.toBeInstanceOf(RefreshAuthError)
+  })
+
+  it('refreshAccessToken returns null on 5xx from refresh endpoint', async () => {
+    localStorage.setItem('refresh_token', 'valid-refresh')
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 503 }))
+    await expect(refreshAccessToken()).resolves.toBeNull()
   })
 
   it('sends refresh token as query param, not body', async () => {
