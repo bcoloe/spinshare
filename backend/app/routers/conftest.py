@@ -13,11 +13,12 @@ from app.utils.security import create_access_token
 
 # ==================== USER HELPERS ====================
 
-def make_mock_user(id=1, email="user@test.com", username="test_user") -> MagicMock:
+def make_mock_user(id=1, email="user@test.com", username="test_user", is_admin=False) -> MagicMock:
     user = MagicMock(spec=User)
     user.id = id
     user.email = email
     user.username = username
+    user.is_admin = is_admin
     return user
 
 

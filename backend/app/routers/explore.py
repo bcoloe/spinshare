@@ -2,7 +2,7 @@
 
 from app.dependencies import get_current_user, get_explore_service
 from app.models import User
-from app.schemas.explore import ExploreAlbumsPage, ExploreGroupsPage, SiteStatsResponse
+from app.schemas.explore import ExploreAlbumsPage, ExploreGroupsPage, ExploreUsersPage, SiteStatsResponse
 from app.services.explore_service import ExploreService
 from fastapi import APIRouter, Depends, Query
 
@@ -44,17 +44,35 @@ def explore_groups(
     current_user: User = Depends(get_current_user),
     svc: ExploreService = Depends(get_explore_service),
 ):
-    """Browse all public groups on the platform (human and bot groups).
+    """Browse groups on the platform (human and bot groups).
 
     q filters by partial name match (case-insensitive).
     group_type: all | human | bot
+    Admins see all groups including private ones.
     Results are ordered alphabetically and paginated for infinite scroll.
     """
     if group_type not in _VALID_GROUP_TYPES:
         group_type = "all"
     return svc.get_explore_groups(
-        offset=offset, limit=limit, q=q or None, group_type=group_type
+        offset=offset, limit=limit, q=q or None, group_type=group_type,
+        include_private=current_user.is_admin,
     )
+
+
+@router.get("/users", response_model=ExploreUsersPage)
+def explore_users(
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=100),
+    q: str | None = Query(default=None),
+    current_user: User = Depends(get_current_user),
+    svc: ExploreService = Depends(get_explore_service),
+):
+    """Browse all users on the platform.
+
+    q filters by partial username match (case-insensitive).
+    Results are ordered alphabetically and paginated for infinite scroll.
+    """
+    return svc.get_explore_users(offset=offset, limit=limit, q=q or None)
 
 
 @router.get("/stats", response_model=SiteStatsResponse)

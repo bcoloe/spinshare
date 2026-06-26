@@ -68,11 +68,11 @@ def get_group_by_name(
     current_user: User = Depends(get_current_user),
     group_service: GroupService = Depends(get_group_service),
 ):
-    """Get group by name (case-insensitive). Private groups require membership."""
+    """Get group by name (case-insensitive). Private groups require membership (admins exempt)."""
     group = group_service.get_group_by_name(group_name)
     if group is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
-    if not group.is_public and not group_service.is_user_in_group(current_user.id, group.id):
+    if not group.is_public and not current_user.is_admin and not group_service.is_user_in_group(current_user.id, group.id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     current_role = group_service.get_user_role(current_user.id, group.id)
     return GroupDetailResponse(
@@ -94,9 +94,9 @@ def get_group(
     current_user: User = Depends(get_current_user),
     group_service: GroupService = Depends(get_group_service),
 ):
-    """Get group by ID. Private groups require membership."""
+    """Get group by ID. Private groups require membership (admins exempt)."""
     group = group_service.get_group_by_id(group_id)
-    if not group.is_public and not group_service.is_user_in_group(current_user.id, group_id):
+    if not group.is_public and not current_user.is_admin and not group_service.is_user_in_group(current_user.id, group_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     current_role = group_service.get_user_role(current_user.id, group_id)
     return GroupDetailResponse(
@@ -155,8 +155,9 @@ def get_group_stats(
     current_user: User = Depends(get_current_user),
     group_service: GroupService = Depends(get_group_service),
 ):
-    """Get aggregate statistics for a group. Requires membership."""
-    group_service.require_membership(current_user.id, group_id)
+    """Get aggregate statistics for a group. Requires membership (admins exempt)."""
+    if not current_user.is_admin:
+        group_service.require_membership(current_user.id, group_id)
     return group_service.get_group_stats(group_id)
 
 
@@ -213,8 +214,9 @@ def list_members(
     current_user: User = Depends(get_current_user),
     group_service: GroupService = Depends(get_group_service),
 ):
-    """List all members of a group. Requires membership."""
-    group_service.require_membership(current_user.id, group_id)
+    """List all members of a group. Requires membership (admins exempt)."""
+    if not current_user.is_admin:
+        group_service.require_membership(current_user.id, group_id)
     return group_service.get_group_members(group_id)
 
 
@@ -225,8 +227,9 @@ def get_member(
     current_user: User = Depends(get_current_user),
     group_service: GroupService = Depends(get_group_service),
 ):
-    """Get a specific member's info (role, join date). Requires membership."""
-    group_service.require_membership(current_user.id, group_id)
+    """Get a specific member's info (role, join date). Requires membership (admins exempt)."""
+    if not current_user.is_admin:
+        group_service.require_membership(current_user.id, group_id)
     members = group_service.get_group_members(group_id)
     member = next((m for m in members if m["user_id"] == user_id), None)
     if member is None:

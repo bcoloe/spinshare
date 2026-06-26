@@ -4,6 +4,8 @@ import type {
   ExploreAlbumsParams,
   ExploreGroupsPage,
   ExploreGroupsParams,
+  ExploreUsersPage,
+  ExploreUsersParams,
   SiteStatsResponse,
 } from '../types/explore'
 
@@ -27,6 +29,15 @@ export const exploreService = {
     if (q) qs.set('q', q)
     if (group_type) qs.set('group_type', group_type)
     return apiFetch(`/explore/groups?${qs}`)
+  },
+
+  getUsers(params: ExploreUsersParams = {}): Promise<ExploreUsersPage> {
+    const { offset = 0, limit = 20, q } = params
+    const qs = new URLSearchParams()
+    qs.set('offset', String(offset))
+    qs.set('limit', String(limit))
+    if (q) qs.set('q', q)
+    return apiFetch(`/explore/users?${qs}`)
   },
 
   getSiteStats(): Promise<SiteStatsResponse> {

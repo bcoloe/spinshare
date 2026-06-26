@@ -1,18 +1,21 @@
-"""Explore service: platform-wide album/group browsing and site statistics."""
+"""Explore service: platform-wide album/group/user browsing and site statistics."""
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.album import Album
-from app.models.group import Group
+from app.models.group import Group, group_members
 from app.models.group_album import GroupAlbum
 from app.models.review import Review
+from app.models.user import User
 from app.schemas.explore import (
     ArtistNominationItem,
     ExploreAlbumItem,
     ExploreAlbumsPage,
     ExploreGroupItem,
     ExploreGroupsPage,
+    ExploreUserItem,
+    ExploreUsersPage,
     SiteStatsResponse,
 )
 
@@ -173,20 +176,24 @@ class ExploreService:
         limit: int = _PAGE_SIZE,
         q: str | None = None,
         group_type: str = "all",
+        include_private: bool = False,
     ) -> ExploreGroupsPage:
-        """Return a paginated page of public groups ordered alphabetically.
+        """Return a paginated page of groups ordered alphabetically.
 
         q filters by case-insensitive partial name match.
         group_type: 'all' | 'human' | 'bot'
             bot   — is_global=True
             human — is_global=False
+        include_private: when True (admin-only), private groups are included.
         """
         db_q = (
             self.db.query(Group)
             .options(selectinload(Group.members))
-            .filter(Group.is_public == True)  # noqa: E712
             .order_by(func.lower(Group.name))
         )
+
+        if not include_private:
+            db_q = db_q.filter(Group.is_public == True)  # noqa: E712
 
         if q:
             db_q = db_q.filter(Group.name.ilike(f"%{q}%"))
@@ -214,6 +221,73 @@ class ExploreService:
         ]
 
         return ExploreGroupsPage(
+            items=items,
+            next_offset=offset + limit if has_more else None,
+        )
+
+    # ==================== USERS ====================
+
+    def get_explore_users(
+        self,
+        offset: int = 0,
+        limit: int = _PAGE_SIZE,
+        q: str | None = None,
+    ) -> ExploreUsersPage:
+        """Return a paginated page of non-bot users ordered alphabetically by username.
+
+        q filters by case-insensitive partial username match.
+        """
+        review_count_subq = (
+            self.db.query(
+                Review.user_id,
+                func.count(Review.id).label("review_count"),
+            )
+            .filter(Review.is_draft == False)  # noqa: E712
+            .group_by(Review.user_id)
+            .subquery()
+        )
+
+        group_count_subq = (
+            self.db.query(
+                group_members.c.user_id,
+                func.count(group_members.c.group_id).label("group_count"),
+            )
+            .group_by(group_members.c.user_id)
+            .subquery()
+        )
+
+        db_q = (
+            self.db.query(
+                User,
+                func.coalesce(review_count_subq.c.review_count, 0).label("review_count"),
+                func.coalesce(group_count_subq.c.group_count, 0).label("total_groups"),
+            )
+            .outerjoin(review_count_subq, User.id == review_count_subq.c.user_id)
+            .outerjoin(group_count_subq, User.id == group_count_subq.c.user_id)
+            .filter(User.is_bot == False)  # noqa: E712
+            .order_by(func.lower(User.username))
+        )
+
+        if q:
+            db_q = db_q.filter(User.username.ilike(f"%{q}%"))
+
+        rows = db_q.offset(offset).limit(limit + 1).all()
+
+        has_more = len(rows) > limit
+        page_rows = rows[:limit]
+
+        items = [
+            ExploreUserItem(
+                id=row[0].id,
+                username=row[0].username,
+                member_since=row[0].created_at,
+                review_count=int(row[1]),
+                total_groups=int(row[2]),
+            )
+            for row in page_rows
+        ]
+
+        return ExploreUsersPage(
             items=items,
             next_offset=offset + limit if has_more else None,
         )

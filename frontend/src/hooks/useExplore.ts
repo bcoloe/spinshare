@@ -5,6 +5,8 @@ import type {
   ExploreAlbumsParams,
   ExploreGroupsPage,
   ExploreGroupsParams,
+  ExploreUsersPage,
+  ExploreUsersParams,
 } from '../types/explore'
 
 export function useExploreAlbums(params: Omit<ExploreAlbumsParams, 'offset'> = {}) {
@@ -29,6 +31,15 @@ export function useExploreGroups(params: Omit<ExploreGroupsParams, 'offset'> = {
     queryFn: ({ pageParam }) => exploreService.getGroups({ ...params, offset: pageParam }),
     initialPageParam: 0,
     getNextPageParam: (lastPage: ExploreGroupsPage) => lastPage.next_offset ?? undefined,
+  })
+}
+
+export function useExploreUsers(params: Omit<ExploreUsersParams, 'offset'> = {}) {
+  return useInfiniteQuery({
+    queryKey: ['explore', 'users', params.q ?? null],
+    queryFn: ({ pageParam }) => exploreService.getUsers({ ...params, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage: ExploreUsersPage) => lastPage.next_offset ?? undefined,
   })
 }
 
