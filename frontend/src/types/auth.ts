@@ -30,6 +30,12 @@ export interface LoginResponse {
   user: UserResponse
 }
 
+export interface RefreshResponse {
+  access_token: string
+  refresh_token: string
+  token_type: string
+}
+
 export interface RegisterRequest {
   email: string
   username: string

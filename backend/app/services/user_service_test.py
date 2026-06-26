@@ -439,6 +439,51 @@ class TestUserServiceAuthentication:
         assert exc_info.value.detail == "Incorrect password"
 
 
+class TestUserServiceRefresh:
+    """Tests for the token refresh flow."""
+
+    def test_refresh_with_email_in_token_skips_db(self, sample_user_service, hashed_user):
+        """New-format tokens (email embedded) complete without a DB lookup."""
+        from app.utils.security import create_refresh_token
+        from unittest.mock import patch
+
+        token = create_refresh_token({"sub": str(hashed_user.id), "email": hashed_user.email})
+
+        with patch.object(sample_user_service, "get_user_by_id") as mock_get:
+            result = sample_user_service.refresh(token)
+
+        mock_get.assert_not_called()
+        assert result.access_token is not None
+        assert result.refresh_token is not None
+        assert result.token_type == "bearer"
+
+    def test_refresh_legacy_token_falls_back_to_db(self, sample_user_service, hashed_user):
+        """Legacy tokens without email embedded still work via DB fallback."""
+        from app.utils.security import create_refresh_token
+
+        token = create_refresh_token({"sub": str(hashed_user.id)})
+        result = sample_user_service.refresh(token)
+
+        assert result.access_token is not None
+        assert result.refresh_token is not None
+
+    def test_refresh_invalid_token_raises_401(self, sample_user_service):
+        with pytest.raises(HTTPException) as exc_info:
+            sample_user_service.refresh("not.a.valid.token")
+        assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_refresh_new_token_embeds_email(self, sample_user_service, hashed_user):
+        """Tokens issued by refresh should carry email so future refreshes skip the DB."""
+        from app.utils.security import create_refresh_token, decode_refresh_token
+
+        token = create_refresh_token({"sub": str(hashed_user.id), "email": hashed_user.email})
+        result = sample_user_service.refresh(token)
+
+        new_payload = decode_refresh_token(result.refresh_token)
+        assert new_payload is not None
+        assert new_payload.get("email") == hashed_user.email
+
+
 class TestUserServiceAdmin:
     """Tests for admin status management in UserService."""
 

@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 from app.models import Group, GroupAlbum, NominationGuess, Review, SpotifyConnection, User
 from app.models.group import group_members
-from app.schemas.user import LoginRequest, LoginResponse, UserCreate, UserResponse, UserUpdate
+from app.schemas.user import LoginRequest, LoginResponse, RefreshResponse, UserCreate, UserResponse, UserUpdate
 from app.utils import security
 from fastapi import HTTPException, status
 from sqlalchemy import delete as sa_delete, select
@@ -552,7 +552,7 @@ class UserService:
 
     @staticmethod
     def _refresh_token_data(user: User) -> dict:
-        return {"sub": str(user.id)}
+        return {"sub": str(user.id), "email": user.email}
 
     def login(self, request: LoginRequest) -> LoginResponse:
         """
@@ -581,7 +581,7 @@ class UserService:
             user=UserResponse.model_validate(user),
         )
 
-    def refresh(self, refresh_token: str) -> LoginResponse:
+    def refresh(self, refresh_token: str) -> RefreshResponse:
         payload = security.decode_refresh_token(refresh_token)
         if payload is None:
             raise HTTPException(
@@ -593,22 +593,22 @@ class UserService:
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload"
             )
 
-        # Verify user existence
-        try:
-            user = self.get_user_by_id(int(user_id))
-        except HTTPException:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
-            ) from None
+        email = payload.get("email")
+        if email is None:
+            # Legacy token issued before email was embedded — fall back to DB lookup.
+            try:
+                user = self.get_user_by_id(int(user_id))
+                email = user.email
+            except HTTPException:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+                ) from None
 
-        new_access_token = security.create_access_token(data=self._access_token_data(user))
-        new_refresh_token = security.create_refresh_token(data=self._refresh_token_data(user))
-
-        return LoginResponse(
-            access_token=new_access_token,
-            refresh_token=new_refresh_token,
+        token_data = {"sub": user_id, "email": email}
+        return RefreshResponse(
+            access_token=security.create_access_token(data=token_data),
+            refresh_token=security.create_refresh_token(data=token_data),
             token_type="bearer",
-            user=UserResponse.model_validate(user),
         )
 
     # ==================== USER RELATIONSHIPS ====================
