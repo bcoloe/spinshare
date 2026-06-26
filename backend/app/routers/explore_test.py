@@ -147,21 +147,21 @@ class TestExploreGroups:
         mock_explore_service.get_explore_groups.return_value = ExploreGroupsPage(items=[], next_offset=None)
         client.get("/explore/groups?offset=20&limit=5")
         mock_explore_service.get_explore_groups.assert_called_once_with(
-            offset=20, limit=5, q=None, group_type="all"
+            offset=20, limit=5, q=None, group_type="all", include_private=False
         )
 
     def test_q_and_group_type_forwarded(self, client, mock_explore_service):
         mock_explore_service.get_explore_groups.return_value = ExploreGroupsPage(items=[], next_offset=None)
         client.get("/explore/groups?q=jazz&group_type=human")
         mock_explore_service.get_explore_groups.assert_called_once_with(
-            offset=0, limit=20, q="jazz", group_type="human"
+            offset=0, limit=20, q="jazz", group_type="human", include_private=False
         )
 
     def test_invalid_group_type_falls_back_to_all(self, client, mock_explore_service):
         mock_explore_service.get_explore_groups.return_value = ExploreGroupsPage(items=[], next_offset=None)
         client.get("/explore/groups?group_type=nonsense")
         mock_explore_service.get_explore_groups.assert_called_once_with(
-            offset=0, limit=20, q=None, group_type="all"
+            offset=0, limit=20, q=None, group_type="all", include_private=False
         )
 
     def test_requires_authentication(self, unauthed_client):

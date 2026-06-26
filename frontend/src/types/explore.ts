@@ -46,6 +46,25 @@ export interface ExploreGroupsPage {
   next_offset: number | null
 }
 
+export interface ExploreUserItem {
+  id: number
+  username: string
+  member_since: string
+  review_count: number
+  total_groups: number
+}
+
+export interface ExploreUsersParams {
+  offset?: number
+  limit?: number
+  q?: string | null
+}
+
+export interface ExploreUsersPage {
+  items: ExploreUserItem[]
+  next_offset: number | null
+}
+
 export interface ArtistNominationItem {
   artist: string
   artist_url: string | null

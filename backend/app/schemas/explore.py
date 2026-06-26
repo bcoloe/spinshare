@@ -5,6 +5,22 @@ from datetime import datetime
 from pydantic import BaseModel
 
 
+# ==================== USERS ====================
+
+
+class ExploreUserItem(BaseModel):
+    id: int
+    username: str
+    member_since: datetime
+    review_count: int
+    total_groups: int
+
+
+class ExploreUsersPage(BaseModel):
+    items: list[ExploreUserItem]
+    next_offset: int | None = None
+
+
 # ==================== ALBUMS ====================
 
 
