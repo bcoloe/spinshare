@@ -28,6 +28,7 @@ class CheckGuessResponse(BaseModel):
     nominator_user_ids: list[int]
     nominator_usernames: list[str]
     is_chaos_selection: bool
+    guessed_username: str | None = None  # None for chaos guesses
 
 
 class NominationCountResponse(BaseModel):

@@ -100,6 +100,7 @@ export interface CheckGuessResponse {
   nominator_user_ids: number[]
   nominator_usernames: string[]
   is_chaos_selection: boolean
+  guessed_username: string | null
 }
 
 export interface NominationCountResponse {

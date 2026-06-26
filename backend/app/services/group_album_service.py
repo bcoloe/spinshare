@@ -679,6 +679,7 @@ class GroupAlbumService:
             nominator_user_ids=[n.id for n in nominators],
             nominator_usernames=[n.username for n in nominators],
             is_chaos_selection=group_album.is_chaos_selection,
+            guessed_username=guess.guessed_user.username if guess.guessed_user_id is not None else None,
         )
 
     def get_my_guess(self, group_id: int, group_album_id: int, user: User) -> CheckGuessResponse:
@@ -711,6 +712,7 @@ class GroupAlbumService:
             nominator_user_ids=[n.id for n in nominators],
             nominator_usernames=[n.username for n in nominators],
             is_chaos_selection=group_album.is_chaos_selection,
+            guessed_username=guess.guessed_user.username if guess.guessed_user_id is not None else None,
         )
 
     def get_my_guesses_for_group(self, group_id: int, user_id: int) -> list[CheckGuessResponse]:
@@ -742,10 +744,13 @@ class GroupAlbumService:
             return []
 
         nominator_ids = {ga.added_by for ga in group_albums if ga.added_by is not None}
-        nominator_map = {
+        guessed_user_ids = {g.guessed_user_id for g in guesses if g.guessed_user_id is not None}
+        all_user_ids = nominator_ids | guessed_user_ids
+        user_map = {
             u.id: u
-            for u in self.db.query(User).filter(User.id.in_(nominator_ids)).all()
-        } if nominator_ids else {}
+            for u in self.db.query(User).filter(User.id.in_(all_user_ids)).all()
+        } if all_user_ids else {}
+        nominator_map = {uid: user_map[uid] for uid in nominator_ids if uid in user_map}
 
         album_nominators: dict[int, list[User]] = {}
         for ga in group_albums:
@@ -757,12 +762,14 @@ class GroupAlbumService:
         for guess in guesses:
             ga = ga_by_id[guess.group_album_id]
             nominators = album_nominators.get(ga.album_id, [])
+            guessed_username = user_map[guess.guessed_user_id].username if guess.guessed_user_id and guess.guessed_user_id in user_map else None
             results.append(CheckGuessResponse(
                 guess=NominationGuessResponse.model_validate(guess),
                 correct=guess.correct,
                 nominator_user_ids=[n.id for n in nominators],
                 nominator_usernames=[n.username for n in nominators],
                 is_chaos_selection=ga.is_chaos_selection,
+                guessed_username=guessed_username,
             ))
         return results
 
