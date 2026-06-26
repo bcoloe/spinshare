@@ -5,6 +5,7 @@ import {
   ActionIcon,
   Anchor,
   Avatar,
+  Badge,
   Button,
   Collapse,
   Drawer,
@@ -597,16 +598,20 @@ function ReviewedCard({ ga, review, members, allowGuessing, guessResult, current
         </Stack>
         <Stack gap={2} align="flex-end" style={{ flexShrink: 0 }}>
           <Text fw={700} size="md" c={ratingColor(review.rating ?? 0)}>{review.rating}</Text>
-          <Text
-            size="xs"
-            lineClamp={1}
-            c={
-              isSelfNominated ? 'yellow.5'
-              : canGuess && guessResult
-                ? guessResult.correct ? 'green.6' : 'red.6'
-                : 'dimmed'
-            }
-          >{canGuess && !guessResult ? '?' : nominator}</Text>
+          {canGuess && !guessResult ? (
+            <Badge variant="light" color="violet" size="xs">Guess?</Badge>
+          ) : (
+            <Text
+              size="xs"
+              lineClamp={1}
+              c={
+                isSelfNominated ? 'yellow.5'
+                : canGuess && guessResult
+                  ? guessResult.correct ? 'green.6' : 'red.6'
+                  : 'dimmed'
+              }
+            >{nominator}</Text>
+          )}
         </Stack>
       </Group>
     </Paper>
