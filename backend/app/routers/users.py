@@ -13,6 +13,7 @@ from app.schemas.user import (
     PasswordResetConfirm,
     PasswordResetRequest,
     PublicProfileResponse,
+    RefreshResponse,
     ReviewStatsResponse,
     SpotifyConnectUrlResponse,
     SpotifyTokenResponse,
@@ -45,7 +46,7 @@ def login(credentials: LoginRequest, user_service: UserService = Depends(get_use
     return user_service.login(credentials)
 
 
-@router.post("/refresh", response_model=LoginResponse)
+@router.post("/refresh", response_model=RefreshResponse)
 def refresh_access_token(refresh_token: str, user_service: UserService = Depends(get_user_service)):
     """Exchange a valid REFRESH token for a new ACCESS token."""
     return user_service.refresh(refresh_token)

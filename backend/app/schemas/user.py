@@ -125,6 +125,14 @@ class LoginResponse(BaseModel):
     user: UserResponse
 
 
+class RefreshResponse(BaseModel):
+    """Schema for token refresh response — no user payload, tokens only."""
+
+    access_token: str
+    refresh_token: str
+    token_type: str
+
+
 class SpotifyConnectUrlResponse(BaseModel):
     url: str
 

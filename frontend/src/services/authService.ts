@@ -1,5 +1,5 @@
 import { apiFetch } from './apiClient'
-import type { LoginRequest, LoginResponse, RegisterRequest, UserResponse } from '../types/auth'
+import type { LoginRequest, LoginResponse, RefreshResponse, RegisterRequest, UserResponse } from '../types/auth'
 
 export const authService = {
   login(credentials: LoginRequest): Promise<LoginResponse> {
@@ -16,7 +16,7 @@ export const authService = {
     })
   },
 
-  refresh(refreshToken: string): Promise<LoginResponse> {
+  refresh(refreshToken: string): Promise<RefreshResponse> {
     return apiFetch(`/users/refresh?refresh_token=${encodeURIComponent(refreshToken)}`, {
       method: 'POST',
     })
