@@ -251,13 +251,14 @@ class TestGetMyGroupGuesses:
 
 class TestGetMyGuess:
     def test_success(self, client, mock_svc):
-        guess = MagicMock()
-        guess.id = 1
-        guess.group_album_id = 1
-        guess.guessing_user_id = 1
-        guess.guessed_user_id = 2
-        guess.created_at = _NOW
-        mock_svc.get_my_guess.return_value = guess
+        mock_svc.get_my_guess.return_value = CheckGuessResponse(
+            guess=make_mock_guess_response(guessing_user_id=1, guessed_user_id=2),
+            correct=False,
+            nominator_user_ids=[3],
+            nominator_usernames=["other_user"],
+            is_chaos_selection=False,
+            guessed_username="guessed_user",
+        )
         resp = client.get("/groups/1/albums/1/guess/me")
         assert resp.status_code == status.HTTP_200_OK
 

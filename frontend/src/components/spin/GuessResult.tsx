@@ -1,4 +1,4 @@
-import { Alert, Anchor, Stack, Text } from '@mantine/core'
+import { Alert, Anchor, Group, Stack, Text } from '@mantine/core'
 import { IconCheck, IconX } from '@tabler/icons-react'
 import { Link } from 'react-router-dom'
 import type { CheckGuessResponse } from '../../types/album'
@@ -19,6 +19,10 @@ function NominatorLinks({ usernames }: { usernames: string[] }) {
 }
 
 export default function GuessResult({ result }: Props) {
+  const guessedText = result.guess.guessed_user_id === null
+    ? 'random (outside the group)'
+    : result.guessed_username ?? 'Unknown'
+
   const revealText = result.is_chaos_selection
     ? 'This album was randomly added from outside the group.'
     : <>This album was nominated by <NominatorLinks usernames={result.nominator_usernames} />.</>
@@ -31,7 +35,13 @@ export default function GuessResult({ result }: Props) {
         icon={result.correct ? <IconCheck size={16} /> : <IconX size={16} />}
         title={result.correct ? 'Correct!' : 'Not quite'}
       >
-        {revealText}
+        <Stack gap={4}>
+          <Group gap={4}>
+            <Text size="sm">You guessed:</Text>
+            <Text size="sm" fw={600}>{guessedText}</Text>
+          </Group>
+          <Text size="sm">{revealText}</Text>
+        </Stack>
       </Alert>
     </Stack>
   )
