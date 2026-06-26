@@ -606,7 +606,7 @@ function ReviewedCard({ ga, review, members, allowGuessing, guessResult, current
                 ? guessResult.correct ? 'green.6' : 'red.6'
                 : 'dimmed'
             }
-          >{nominator}</Text>
+          >{canGuess && !guessResult ? '?' : nominator}</Text>
         </Stack>
       </Group>
     </Paper>
