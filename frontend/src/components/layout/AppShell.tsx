@@ -46,7 +46,7 @@ import { useEffect } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { useMyGroups, useMyPendingInvitations, useAcceptInvitation, useDeclineInvitation } from '../../hooks/useGroups'
 import { useFavoriteGroup } from '../../context/FavoriteGroupContext'
-import { useUnreadNotifications, useMarkAllNotificationsRead, useNotificationHistory } from '../../hooks/useNotifications'
+import { useUnreadNotifications, useMarkNotificationRead, useNotificationHistory } from '../../hooks/useNotifications'
 import { usePlayer } from '../../context/PlayerContext'
 import { ApiError } from '../../services/apiClient'
 import CreateGroupModal from '../groups/CreateGroupModal'
@@ -78,25 +78,16 @@ export default function AppShell({ children }: AppShellProps) {
   const { data: unreadNotifications = [] } = useUnreadNotifications()
   const acceptInvitation = useAcceptInvitation()
   const declineInvitation = useDeclineInvitation()
-  const markAllRead = useMarkAllNotificationsRead()
+  const markNotificationRead = useMarkNotificationRead()
   const [bellOpened, { toggle: toggleBell, close: closeBell }] = useDisclosure()
   const [showHistory, setShowHistory] = useState(false)
   const { data: historyNotifications, isLoading: historyLoading } = useNotificationHistory(showHistory && bellOpened)
 
   const totalUnread = pendingInvitations.length + unreadNotifications.length
 
-  // Snapshot notifications when the bell opens so the list stays visible
-  // while markAllRead fires and the query refetches to empty in the background.
-  const [notificationSnapshot, setNotificationSnapshot] = useState(unreadNotifications)
-
   useEffect(() => {
-    if (bellOpened) {
-      setNotificationSnapshot(unreadNotifications)
-      if (unreadNotifications.length > 0) markAllRead.mutate()
-    } else {
-      setShowHistory(false)
-    }
-  }, [bellOpened]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!bellOpened) setShowHistory(false)
+  }, [bellOpened])
 
   useEffect(() => {
     if (groups) clearIfStale(groups.map((g) => g.id))
@@ -180,7 +171,7 @@ export default function AppShell({ children }: AppShellProps) {
               </Popover.Target>
               <Popover.Dropdown p="sm">
                 <Stack gap="md">
-                  {pendingInvitations.length === 0 && notificationSnapshot.length === 0 && (
+                  {pendingInvitations.length === 0 && unreadNotifications.length === 0 && (
                     <Text size="sm" c="dimmed">No new notifications</Text>
                   )}
 
@@ -224,13 +215,13 @@ export default function AppShell({ children }: AppShellProps) {
                     </div>
                   )}
 
-                  {notificationSnapshot.length > 0 && (
+                  {unreadNotifications.length > 0 && (
                     <div>
                       <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb="xs">
                         New Activity
                       </Text>
                       <Stack gap={0}>
-                        {notificationSnapshot.map((n, i) => (
+                        {unreadNotifications.map((n, i) => (
                           <Fragment key={n.id}>
                             {i > 0 && <Divider />}
                             <Text
@@ -239,6 +230,7 @@ export default function AppShell({ children }: AppShellProps) {
                               style={{ cursor: n.group_id ? 'pointer' : 'default' }}
                               onClick={() => {
                                 if (n.group_id) {
+                                  markNotificationRead.mutate(n.id)
                                   closeBell()
                                   if (n.type === 'member_reviewed_album') {
                                     const params = new URLSearchParams({ tab: 'history' })
