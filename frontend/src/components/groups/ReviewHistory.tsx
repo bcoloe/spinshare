@@ -413,7 +413,17 @@ function PeerReviewPanel({ ga, review, members, groupId, allowGuessing, guessRes
     })
 
   const memberIds = useMemo(() => new Set(members.map((m) => m.user_id)), [members])
-  const memberReviews = useMemo(() => allReviews.filter((r) => memberIds.has(r.user_id)), [allReviews, memberIds])
+  const memberReviews = useMemo(
+    () =>
+      allReviews
+        .filter((r) => memberIds.has(r.user_id))
+        .sort((a, b) => {
+          const aTime = new Date(a.updated_at ?? a.reviewed_at).getTime()
+          const bTime = new Date(b.updated_at ?? b.reviewed_at).getTime()
+          return bTime - aTime
+        }),
+    [allReviews, memberIds],
+  )
   const displayReviews = memberReviews.length > 0 ? memberReviews : [review]
 
   const isSelfNominated = currentUserId !== undefined && currentUserId === ga.added_by
