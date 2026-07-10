@@ -367,9 +367,17 @@ class AlbumService:
         Raises:
             HTTPException 403: If user is not an admin/owner.
             HTTPException 404: If group album not found.
+            HTTPException 409: If the group is in dealer mode (no shared selection).
         """
         group_service = gs.GroupService(self.db)
         group_service.require_permission(user.id, group_id, gs.GroupRole.Admin)
+
+        settings = group_service.get_group_settings(group_id)
+        if settings.dealer_mode:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Manual selection is disabled while dealer mode is enabled",
+            )
 
         canonical_ga = self.get_group_album(group_id, group_album_id)
         all_nominations = (

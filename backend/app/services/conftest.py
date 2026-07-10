@@ -7,6 +7,7 @@ from app.schemas.group import GroupCreate
 from app.schemas.user import UserCreate
 from app.services import group_service, user_service
 from app.services.album_service import AlbumService
+from app.services.dealer_service import DealerService
 from app.services.group_album_service import GroupAlbumService
 from app.services.review_service import ReviewService
 from app.services.stats_service import StatsService
@@ -115,6 +116,11 @@ def review_service(db_session) -> ReviewService:
 @pytest.fixture(scope="function")
 def group_album_service(db_session) -> GroupAlbumService:
     return GroupAlbumService(db_session)
+
+
+@pytest.fixture(scope="function")
+def dealer_service(db_session) -> DealerService:
+    return DealerService(db_session)
 
 
 @pytest.fixture(scope="function")

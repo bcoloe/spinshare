@@ -154,6 +154,7 @@ class GroupAlbumResponse(BaseModel):
     status: str
     added_at: datetime
     selected_date: datetime | None = None
+    dealt_at: datetime | None = None  # when the album was dealt to the caller (dealer groups)
     album: AlbumResponse
     nomination_count: int = 1
     nominator_user_ids: list[int] = []

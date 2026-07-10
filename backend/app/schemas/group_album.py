@@ -1,8 +1,10 @@
-"""Schemas for the GroupAlbum workflow: daily selection, guessing, and instant reveal."""
+"""Schemas for the GroupAlbum workflow: daily selection, dealing, guessing, and instant reveal."""
 
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
+
+from app.schemas.album import GroupAlbumResponse
 
 
 class NominationGuessCreate(BaseModel):
@@ -48,3 +50,21 @@ class GuessOptionsResponse(BaseModel):
 
     options: list[GuessOptionUser]
     has_chaos_option: bool
+
+
+class DealRollResponse(BaseModel):
+    """Result of rolling the dice in a dealer-mode group."""
+
+    deal: GroupAlbumResponse
+    rolls_used_today: int
+    rolls_per_day: int
+    pool_remaining: int
+
+
+class DealsTodayResponse(BaseModel):
+    """The caller's deals revealed today plus roll accounting."""
+
+    deals: list[GroupAlbumResponse]
+    rolls_used_today: int
+    rolls_per_day: int
+    pool_remaining: int

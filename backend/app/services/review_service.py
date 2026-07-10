@@ -1,6 +1,6 @@
 """Review service."""
 
-from app.models import Album, Group, GroupAlbum, Review, User, group_members
+from app.models import Album, AlbumDeal, Group, GroupAlbum, Review, User, group_members
 from app.schemas.album import AlbumReviewItem, AlbumStatsResponse, HistogramBucket, ReviewCreate, ReviewUpdate
 from app.schemas.notification import NotificationType
 from app.services.notification_service import NotificationService
@@ -243,12 +243,24 @@ class ReviewService:
         return review
 
     def get_my_reviews_for_group(self, group_id: int, user_id: int) -> list[Review]:
-        """Return the current user's reviews for all selected albums in a group."""
-        album_ids = list(
+        """Return the current user's reviews for the group's history albums.
+
+        History albums are the union of shared selections and albums dealt to
+        the user (dealer mode).
+        """
+        album_ids = set(
             self.db.scalars(
                 select(GroupAlbum.album_id).where(
                     GroupAlbum.group_id == group_id,
                     GroupAlbum.selected_date.isnot(None),
+                )
+            ).all()
+        ) | set(
+            self.db.scalars(
+                select(AlbumDeal.album_id).where(
+                    AlbumDeal.group_id == group_id,
+                    AlbumDeal.user_id == user_id,
+                    AlbumDeal.revealed_at.isnot(None),
                 )
             ).all()
         )
@@ -264,7 +276,10 @@ class ReviewService:
         )
 
     def get_all_reviews_for_group(self, group_id: int, viewer_id: int) -> list[AlbumReviewItem]:
-        """Return all published reviews for all albums in a group.
+        """Return all published reviews for all history albums in a group.
+
+        History albums are the union of shared selections and albums dealt to
+        any member (dealer mode).
 
         Applies the same privacy rules as get_reviews_for_album: names are
         shown when reviewer has name_is_public=True, or the viewer is a
@@ -281,11 +296,18 @@ class ReviewService:
             ).first()
             show_names_in_group = is_member is not None
 
-        album_ids = list(
+        album_ids = set(
             self.db.scalars(
                 select(GroupAlbum.album_id).where(
                     GroupAlbum.group_id == group_id,
                     GroupAlbum.selected_date.isnot(None),
+                )
+            ).all()
+        ) | set(
+            self.db.scalars(
+                select(AlbumDeal.album_id).where(
+                    AlbumDeal.group_id == group_id,
+                    AlbumDeal.revealed_at.isnot(None),
                 )
             ).all()
         )
