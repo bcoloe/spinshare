@@ -733,6 +733,34 @@ class TestGroupServiceSearch:
         results = sample_group_service.search_groups(query="open")
         assert any(g.id == public_group.id for g in results)
 
+    def test_search_orders_newest_first(
+        self, sample_group_service, sample_user, group_factory
+    ):
+        """Results come back newest-first so limit truncation is deterministic."""
+        groups = [group_factory(name=f"Order-Test-{i}") for i in range(3)]
+        results = sample_group_service.search_groups(username=sample_user.username)
+        result_ids = [g.id for g in results]
+        # The most recently created group must be first
+        assert result_ids[0] == groups[-1].id
+        assert result_ids == sorted(result_ids, reverse=True)
+
+    def test_search_by_username_beyond_default_limit_keeps_newest(
+        self, sample_group_service, sample_user, group_factory
+    ):
+        """A member of >10 groups still sees their newest group within the default
+        limit, and a raised limit returns all memberships (regression: 'my groups'
+        silently dropped new groups once a user exceeded 10)."""
+        groups = [group_factory(name=f"Many-Groups-{i}") for i in range(12)]
+
+        default_results = sample_group_service.search_groups(username=sample_user.username)
+        assert len(default_results) == 10
+        assert default_results[0].id == groups[-1].id
+
+        all_results = sample_group_service.search_groups(
+            username=sample_user.username, limit=100
+        )
+        assert {g.id for g in groups} <= {g.id for g in all_results}
+
 
 class TestGroupJoinNotifications:
     def test_existing_members_notified_when_user_joins(

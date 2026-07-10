@@ -417,10 +417,11 @@ class GroupService:
     def search_groups(
         self, query: str | None = None, username: str | None = None, limit: int = 10
     ) -> list[Group]:
-        """Search groups by partial name and/or member username.
+        """Search groups by partial name and/or member username, newest first.
 
         Public groups are always searchable. When filtering by username, private
-        groups belonging to that user are also included.
+        groups belonging to that user are also included. Results are ordered by
+        creation date (newest first) so truncation by ``limit`` is deterministic.
         """
         q = self.db.query(Group)
         if not username:
@@ -429,7 +430,7 @@ class GroupService:
             q = q.filter(Group.name_uniform.contains(query.lower()))
         if username:
             q = q.join(Group.members).filter(func.lower(User.username) == username.lower())
-        return q.limit(limit).all()
+        return q.order_by(Group.created_at.desc(), Group.id.desc()).limit(limit).all()
 
     # ==================== STATS ====================
 

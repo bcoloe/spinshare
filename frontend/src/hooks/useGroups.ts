@@ -28,11 +28,11 @@ export function useGroup(groupId: number) {
   })
 }
 
-export function useGroupMembers(groupId: number) {
+export function useGroupMembers(groupId: number, enabled = true) {
   return useQuery({
     queryKey: ['groups', groupId, 'members'],
     queryFn: () => groupService.getMembers(groupId),
-    enabled: !!groupId,
+    enabled: enabled && !!groupId,
     staleTime: 2 * 60 * 1000, // 2 minutes — membership changes infrequently
   })
 }
@@ -58,7 +58,11 @@ export function useJoinGroup() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (groupId: number) => groupService.join(groupId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', 'mine'] }),
+    onSuccess: (_data, groupId) => {
+      qc.invalidateQueries({ queryKey: ['groups', 'mine'] })
+      // Refresh the joined group (role, members, albums) so pages update in place
+      qc.invalidateQueries({ queryKey: ['groups', groupId] })
+    },
   })
 }
 
