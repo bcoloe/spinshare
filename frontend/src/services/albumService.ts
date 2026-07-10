@@ -4,6 +4,8 @@ import type {
   AlbumReviewItem,
   AlbumStatsResponse,
   CheckGuessResponse,
+  DealRollResponse,
+  DealsTodayResponse,
   GroupAlbumResponse,
   GuessOptionsResponse,
   NominationCountResponse,
@@ -27,6 +29,18 @@ export const albumService = {
       ? `/groups/${groupId}/albums/select-today?force_chaos=true`
       : `/groups/${groupId}/albums/select-today`
     return apiFetch(url, { method: 'POST' })
+  },
+
+  rollDeal(groupId: number): Promise<DealRollResponse> {
+    return apiFetch(`/groups/${groupId}/deals/roll`, { method: 'POST' })
+  },
+
+  getTodaysDeals(groupId: number): Promise<DealsTodayResponse> {
+    return apiFetch(`/groups/${groupId}/deals/today`)
+  },
+
+  getGroupHistory(groupId: number): Promise<GroupAlbumResponse[]> {
+    return apiFetch(`/groups/${groupId}/albums/history`)
   },
 
   getMyReview(albumId: number): Promise<ReviewResponse | null> {

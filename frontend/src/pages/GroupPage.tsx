@@ -28,7 +28,7 @@ import InviteUserModal from '../components/groups/InviteUserModal'
 import MyNominations from '../components/groups/MyNominations'
 import AlbumSearchModal from '../components/albums/AlbumSearchModal'
 import { useGroup, useGroupMembers, useJoinGroup } from '../hooks/useGroups'
-import { useGroupAlbums, useNominationCount } from '../hooks/useAlbums'
+import { useGroupHistory, useNominationCount } from '../hooks/useAlbums'
 import { useFavoriteGroup } from '../context/FavoriteGroupContext'
 import { ApiError } from '../services/apiClient'
 
@@ -51,9 +51,8 @@ export default function GroupPage() {
   const { data: group, isLoading: groupLoading } = useGroup(gid)
   const isMember = !!group?.current_user_role
   const { data: members = [], isLoading: membersLoading } = useGroupMembers(gid, isMember)
-  const { data: allAlbums = [], isLoading: albumsLoading } = useGroupAlbums(gid, undefined, isMember)
+  const { data: historyAlbums = [], isLoading: albumsLoading } = useGroupHistory(gid, isMember)
   const { data: nominationCount } = useNominationCount(gid, isMember)
-  const reviewedAlbums = allAlbums.filter((ga) => ga.selected_date !== null)
   const joinGroup = useJoinGroup()
 
   const { favoriteId, toggleFavorite } = useFavoriteGroup()
@@ -223,7 +222,7 @@ export default function GroupPage() {
               <ScrollArea>
                 <ReviewHistory
                   groupId={gid}
-                  albums={reviewedAlbums}
+                  albums={historyAlbums}
                   members={members}
                   isLoading={albumsLoading || membersLoading}
                   allowGuessing={group?.settings?.allow_guessing ?? true}

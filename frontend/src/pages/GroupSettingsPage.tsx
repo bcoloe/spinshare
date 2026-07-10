@@ -94,6 +94,8 @@ export default function GroupSettingsPage() {
   const [guessUserCap, setGuessUserCap] = useState<number | string | null>(null)
   const [chaosMode, setChaosMode] = useState<boolean | null>(null)
   const [catchUpEnabled, setCatchUpEnabled] = useState<boolean | null>(null)
+  const [dealerMode, setDealerMode] = useState<boolean | null>(null)
+  const [dealerRollsPerDay, setDealerRollsPerDay] = useState<number | string | null>(null)
   const [dailyNominationLimit, setDailyNominationLimit] = useState<number | string | null | undefined>(undefined)
   const [timezone, setTimezone] = useState<string | null>(null)
   const [selectionDays, setSelectionDays] = useState<number[] | null>(null)
@@ -109,6 +111,8 @@ export default function GroupSettingsPage() {
   const currentGuessUserCap = guessUserCap ?? group?.settings?.guess_user_cap ?? 5
   const currentChaosMode = chaosMode ?? group?.settings?.chaos_mode ?? false
   const currentCatchUpEnabled = catchUpEnabled ?? group?.settings?.catch_up_enabled ?? false
+  const currentDealerMode = dealerMode ?? group?.settings?.dealer_mode ?? false
+  const currentDealerRollsPerDay = dealerRollsPerDay ?? group?.settings?.dealer_rolls_per_day ?? 1
   const currentDailyNominationLimit: string | number = (() => {
     const raw = dailyNominationLimit === undefined
       ? group?.settings?.daily_nomination_limit
@@ -135,6 +139,8 @@ export default function GroupSettingsPage() {
           guess_user_cap: typeof currentGuessUserCap === 'number' ? currentGuessUserCap : undefined,
           chaos_mode: currentChaosMode,
           catch_up_enabled: currentCatchUpEnabled,
+          dealer_mode: currentDealerMode,
+          dealer_rolls_per_day: typeof currentDealerRollsPerDay === 'number' ? currentDealerRollsPerDay : undefined,
           daily_nomination_limit: typeof currentDailyNominationLimit === 'number'
             ? currentDailyNominationLimit
             : currentDailyNominationLimit === ''
@@ -268,6 +274,7 @@ export default function GroupSettingsPage() {
             min={1}
             max={10}
             w={120}
+            disabled={currentDealerMode}
           />
           <NumberInput
             label="Guess options shown"
@@ -300,13 +307,32 @@ export default function GroupSettingsPage() {
             description="Each daily spin has a small chance of pulling a random album from outside the group's nominations."
             checked={currentChaosMode}
             onChange={(e) => setChaosMode(e.currentTarget.checked)}
+            disabled={currentDealerMode}
           />
           <Switch
             label="Catch-up mode"
             description="On the Today's Spin tab, show up to 10 recent unreviewed albums alongside today's spin so members can catch up on missed reviews."
             checked={currentCatchUpEnabled}
             onChange={(e) => setCatchUpEnabled(e.currentTarget.checked)}
+            disabled={currentDealerMode}
           />
+          <Switch
+            label="Dealer mode"
+            description="Instead of a shared daily spin, each member rolls the dice to draw albums from the pool at their own pace. Replaces the shared selection settings while enabled."
+            checked={currentDealerMode}
+            onChange={(e) => setDealerMode(e.currentTarget.checked)}
+          />
+          {currentDealerMode && (
+            <NumberInput
+              label="Rolls per day"
+              description="How many albums each member can draw per day (max 10)."
+              value={currentDealerRollsPerDay}
+              onChange={setDealerRollsPerDay}
+              min={1}
+              max={10}
+              w={120}
+            />
+          )}
           <Select
             label="Timezone"
             description="When midnight resets the daily spin for this group."
@@ -326,7 +352,7 @@ export default function GroupSettingsPage() {
             >
               <Group gap="xs">
                 {DAY_OPTIONS.map((d) => (
-                  <Chip key={d.value} value={d.value} size="sm">
+                  <Chip key={d.value} value={d.value} size="sm" disabled={currentDealerMode}>
                     {d.label}
                   </Chip>
                 ))}

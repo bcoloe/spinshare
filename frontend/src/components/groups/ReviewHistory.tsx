@@ -68,6 +68,11 @@ function getNominator(ga: GroupAlbumResponse, members: GroupMemberResponse[]): s
   return members.find((m) => m.user_id === ga.added_by)?.username ?? '—'
 }
 
+// The date an album entered the member's history: dealt (dealer groups) or selected
+function spunDate(ga: GroupAlbumResponse): string | null {
+  return ga.dealt_at ?? ga.selected_date
+}
+
 function ratingBg(rating: number): string {
   if (rating < 3) return 'color-mix(in srgb, var(--mantine-color-red-7) 12%, transparent)'
   if (rating < 5) return 'color-mix(in srgb, #6b4226 12%, transparent)'
@@ -106,8 +111,8 @@ function sortAlbums(
         bv = b.album.artist
         break
       case 'date':
-        av = a.selected_date ?? ''
-        bv = b.selected_date ?? ''
+        av = spunDate(a) ?? ''
+        bv = spunDate(b) ?? ''
         break
       case 'release':
         av = a.album.release_date ?? ''
@@ -325,7 +330,7 @@ function UnreviewedRow({ ga, groupId, members: _members, isExpanded, onToggle, a
         </Table.Td>
         <Table.Td>
           <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-            {formatDate(ga.selected_date)}
+            {formatDate(spunDate(ga))}
           </Text>
         </Table.Td>
         <Table.Td>
@@ -603,7 +608,7 @@ function ReviewedCard({ ga, review, members, allowGuessing, guessResult, current
                 avg: <Text span fw={600} c={ratingColor(groupAvg)} size="xs">{groupAvg}</Text>
               </Text>
             )}
-            <Text size="xs" c="dimmed">{formatDate(ga.selected_date)}</Text>
+            <Text size="xs" c="dimmed">{formatDate(spunDate(ga))}</Text>
           </Group>
         </Stack>
         <Stack gap={2} align="flex-end" style={{ flexShrink: 0 }}>

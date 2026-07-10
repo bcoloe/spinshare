@@ -15,6 +15,8 @@ export interface GroupSettings {
   timezone: string
   selection_days: number[]
   catch_up_enabled: boolean
+  dealer_mode: boolean
+  dealer_rolls_per_day: number
 }
 
 export interface GroupDetailResponse extends GroupResponse {
@@ -89,6 +91,8 @@ export interface GroupModify {
     timezone?: string
     selection_days?: number[]
     catch_up_enabled?: boolean
+    dealer_mode?: boolean
+    dealer_rolls_per_day?: number
   }
 }
 
