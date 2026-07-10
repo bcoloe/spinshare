@@ -378,6 +378,10 @@ class GroupService:
                 gs.selection_days = update_data.settings.selection_days
             if update_data.settings.catch_up_enabled is not None:
                 gs.catch_up_enabled = update_data.settings.catch_up_enabled
+            if update_data.settings.dealer_mode is not None:
+                gs.dealer_mode = update_data.settings.dealer_mode
+            if update_data.settings.dealer_rolls_per_day is not None:
+                gs.dealer_rolls_per_day = update_data.settings.dealer_rolls_per_day
 
         try:
             self.db.commit()

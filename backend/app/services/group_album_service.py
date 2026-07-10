@@ -9,8 +9,7 @@ Guess lifecycle (per-user, instant feedback):
 """
 
 import random
-from datetime import date, datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+from datetime import date, datetime, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
@@ -29,42 +28,15 @@ from app.schemas.group_album import (
 from app.schemas.notification import NotificationType
 from app.services import group_service as gs
 from app.services.notification_service import NotificationService
-
+from app.utils.time_helpers import (
+    DEFAULT_TZ,
+    date_in_tz,
+    group_today,
+    most_recent_scheduled_date,
+    utc_today_range,
+)
 
 _CHAOS_PROBABILITY = 0.10
-_DEFAULT_TZ = "America/New_York"
-
-
-def _utc_today_range() -> tuple[datetime, datetime]:
-    """Return [today_start, tomorrow_start) in UTC for date-boundary queries."""
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    return today_start, today_start + timedelta(days=1)
-
-
-def _group_today(tz_name: str) -> date:
-    """Return the current calendar date in the given IANA timezone."""
-    return datetime.now(tz=ZoneInfo(tz_name)).date()
-
-
-def _date_in_tz(col, tz_name: str):
-    """SQLAlchemy expression: extract the calendar date of a UTC timestamp in a given timezone."""
-    return func.date(func.timezone(tz_name, col))
-
-
-def _most_recent_scheduled_date(today: date, selection_days: list[int]) -> date | None:
-    """Return the most recent calendar date (≤ today) that falls on a scheduled draw weekday.
-
-    Looks back up to 7 days. Returns None if selection_days is empty.
-    Used so non-draw days show the previous draw's albums rather than an empty state.
-    """
-    if not selection_days:
-        return None
-    today_weekday = today.isoweekday() - 1  # isoweekday: 1=Mon…7=Sun → 0=Mon…6=Sun
-    for days_back in range(7):
-        candidate_weekday = (today_weekday - days_back) % 7
-        if candidate_weekday in selection_days:
-            return today - timedelta(days=days_back)
-    return None
 
 
 class GroupAlbumService:
@@ -100,9 +72,9 @@ class GroupAlbumService:
             HTTPException 409: If no eligible distinct albums are available.
         """
         settings = self.db.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
-        tz_name = (settings.timezone if settings else None) or _DEFAULT_TZ
+        tz_name = (settings.timezone if settings else None) or DEFAULT_TZ
 
-        today = _group_today(tz_name)
+        today = group_today(tz_name)
 
         # Skip selection on unscheduled days (cron path only; manual triggers bypass this)
         if not bypass_schedule and settings is not None:
@@ -114,7 +86,7 @@ class GroupAlbumService:
             self.db.query(GroupAlbum)
             .filter(
                 GroupAlbum.group_id == group_id,
-                _date_in_tz(GroupAlbum.selected_date, tz_name) == today,
+                date_in_tz(GroupAlbum.selected_date, tz_name) == today,
             )
             .order_by(GroupAlbum.id)
             .all()
@@ -376,13 +348,13 @@ class GroupAlbumService:
                 detail="Group settings not found",
             )
 
-        tz_name = (settings.timezone if settings else None) or _DEFAULT_TZ
-        today = _group_today(tz_name)
+        tz_name = (settings.timezone if settings else None) or DEFAULT_TZ
+        today = group_today(tz_name)
         existing = (
             self.db.query(GroupAlbum)
             .filter(
                 GroupAlbum.group_id == group_id,
-                _date_in_tz(GroupAlbum.selected_date, tz_name) == today,
+                date_in_tz(GroupAlbum.selected_date, tz_name) == today,
             )
             .order_by(GroupAlbum.id)
             .all()
@@ -496,8 +468,8 @@ class GroupAlbumService:
         if settings is None or not settings.catch_up_enabled:
             return []
 
-        tz_name = (settings.timezone if settings else None) or _DEFAULT_TZ
-        today = _group_today(tz_name)
+        tz_name = (settings.timezone if settings else None) or DEFAULT_TZ
+        today = group_today(tz_name)
 
         # Subquery: album_ids the user has submitted (non-draft) reviews for
         reviewed_subq = (
@@ -513,7 +485,7 @@ class GroupAlbumService:
             .filter(
                 GroupAlbum.group_id == group_id,
                 GroupAlbum.selected_date.isnot(None),
-                _date_in_tz(GroupAlbum.selected_date, tz_name) != today,
+                date_in_tz(GroupAlbum.selected_date, tz_name) != today,
                 GroupAlbum.album_id.notin_(reviewed_subq),
             )
             .group_by(GroupAlbum.album_id)
@@ -553,20 +525,20 @@ class GroupAlbumService:
         group_service.require_membership(user.id, group_id)
 
         settings = self.db.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
-        tz_name = (settings.timezone if settings else None) or _DEFAULT_TZ
-        today = _group_today(tz_name)
+        tz_name = (settings.timezone if settings else None) or DEFAULT_TZ
+        today = group_today(tz_name)
 
         selection_days = list(settings.selection_days) if settings and settings.selection_days else list(range(7))
 
         # Most recent date with an actual draw (schedule-agnostic — handles post-schedule-change state)
         raw = (
-            self.db.query(func.max(_date_in_tz(GroupAlbum.selected_date, tz_name)))
+            self.db.query(func.max(date_in_tz(GroupAlbum.selected_date, tz_name)))
             .filter(GroupAlbum.group_id == group_id, GroupAlbum.selected_date.isnot(None))
             .scalar()
         )
         most_recent_drawn = date.fromisoformat(raw) if isinstance(raw, str) else raw
 
-        scheduled = _most_recent_scheduled_date(today, selection_days)
+        scheduled = most_recent_scheduled_date(today, selection_days)
         candidates = [d for d in [most_recent_drawn, scheduled] if d is not None]
         target_date = max(candidates) if candidates else today
 
@@ -574,7 +546,7 @@ class GroupAlbumService:
             self.db.query(GroupAlbum)
             .filter(
                 GroupAlbum.group_id == group_id,
-                _date_in_tz(GroupAlbum.selected_date, tz_name) == target_date,
+                date_in_tz(GroupAlbum.selected_date, tz_name) == target_date,
             )
             .options(
                 selectinload(GroupAlbum.albums).selectinload(Album.genres),
@@ -888,7 +860,7 @@ class GroupAlbumService:
         group_service = gs.GroupService(self.db)
         group_service.require_membership(user.id, group_id)
 
-        today_start, tomorrow_start = _utc_today_range()
+        today_start, tomorrow_start = utc_today_range()
         return (
             self.db.query(GroupAlbum)
             .filter(

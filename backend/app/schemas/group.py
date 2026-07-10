@@ -12,6 +12,7 @@ MAX_DAILY_ALBUM_COUNT = 10
 MIN_GUESS_USER_CAP = 3
 MAX_GUESS_USER_CAP = 10
 MAX_DAILY_NOMINATION_LIMIT = 50
+MAX_DEALER_ROLLS_PER_DAY = 10
 
 
 class GroupBase(BaseModel):
@@ -56,6 +57,8 @@ class GroupSettingsResponse(BaseModel):
     timezone: str
     selection_days: list[int]
     catch_up_enabled: bool
+    dealer_mode: bool
+    dealer_rolls_per_day: int
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -73,6 +76,8 @@ class GroupSettingsUpdate(BaseModel):
     timezone: str | None = None
     selection_days: list[int] | None = None
     catch_up_enabled: bool | None = None
+    dealer_mode: bool | None = None
+    dealer_rolls_per_day: int | None = None
 
     @field_validator("min_role_to_add_members", "min_role_to_nominate")
     @classmethod
@@ -109,6 +114,15 @@ class GroupSettingsUpdate(BaseModel):
             return v
         if v < 1 or v > MAX_DAILY_NOMINATION_LIMIT:
             raise ValueError(f"Must be between 1 and {MAX_DAILY_NOMINATION_LIMIT}")
+        return v
+
+    @field_validator("dealer_rolls_per_day")
+    @classmethod
+    def validate_dealer_rolls_per_day(cls, v):
+        if v is None:
+            return v
+        if v < 1 or v > MAX_DEALER_ROLLS_PER_DAY:
+            raise ValueError(f"Must be between 1 and {MAX_DEALER_ROLLS_PER_DAY}")
         return v
 
     @field_validator("timezone")
