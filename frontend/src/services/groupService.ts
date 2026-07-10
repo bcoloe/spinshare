@@ -14,7 +14,8 @@ export const groupService = {
   },
 
   searchByUsername(username: string): Promise<GroupDetailResponse[]> {
-    return apiFetch(`/groups/search?username=${encodeURIComponent(username)}`)
+    // High limit: this backs "my groups" listings, which should show everything
+    return apiFetch(`/groups/search?username=${encodeURIComponent(username)}&limit=100`)
   },
 
   getById(groupId: number): Promise<GroupDetailResponse> {

@@ -18,11 +18,11 @@ export function useAlbumSearch(params: AlbumSearchParams) {
   })
 }
 
-export function useGroupAlbums(groupId: number, status?: string) {
+export function useGroupAlbums(groupId: number, status?: string, enabled = true) {
   return useQuery({
     queryKey: ['groups', groupId, 'albums', status ?? 'all'],
     queryFn: () => albumSearchService.getGroupAlbums(groupId, status),
-    enabled: !!groupId,
+    enabled: enabled && !!groupId,
   })
 }
 
@@ -73,10 +73,10 @@ export function useRemoveGroupAlbum(groupId: number) {
   })
 }
 
-export function useNominationCount(groupId: number) {
+export function useNominationCount(groupId: number, enabled = true) {
   return useQuery({
     queryKey: ['groups', groupId, 'nominations', 'count'],
     queryFn: () => albumService.getNominationCount(groupId),
-    enabled: !!groupId,
+    enabled: enabled && !!groupId,
   })
 }
