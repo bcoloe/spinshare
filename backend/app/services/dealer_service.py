@@ -13,7 +13,7 @@ import random
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import Album, AlbumDeal, GroupAlbum, GroupSettings, Review, User
@@ -77,6 +77,26 @@ class DealerService:
             AlbumDeal.user_id == user.id,
             AlbumDeal.revealed_at.is_(None),
             date_in_tz(AlbumDeal.dealt_at, tz_name) != today,
+        ).delete(synchronize_session="fetch")
+
+        # Drop queued rows that became ineligible after they were drawn: albums
+        # selected for the whole group (dealer mode was toggled off and a shared
+        # draw ran) or since reviewed by the user. Revealing them would waste a
+        # roll on an album that is already in the user's history.
+        selected_subq = select(GroupAlbum.album_id).where(
+            GroupAlbum.group_id == group_id, GroupAlbum.selected_date.isnot(None)
+        )
+        reviewed_subq = select(Review.album_id).where(
+            Review.user_id == user.id, Review.is_draft == False  # noqa: E712
+        )
+        self.db.query(AlbumDeal).filter(
+            AlbumDeal.group_id == group_id,
+            AlbumDeal.user_id == user.id,
+            AlbumDeal.revealed_at.is_(None),
+            or_(
+                AlbumDeal.album_id.in_(selected_subq),
+                AlbumDeal.album_id.in_(reviewed_subq),
+            ),
         ).delete(synchronize_session="fetch")
 
         rolls_used = self._rolls_used_today(group_id, user.id, tz_name, today)

@@ -187,6 +187,51 @@ class TestDealerRoll:
         assert first.deal.album_id == nominated[0].album_id
         assert second.deal.album_id == nominated[0].album_id
 
+    def test_queued_album_selected_by_shared_draw_is_discarded(
+        self, db_session, dealer_service, dealer_group, sample_user, nominate_albums
+    ):
+        """A queued album that gets selected group-wide (mode toggled off, shared draw
+        runs, mode toggled back on) must not be revealed — the roll draws a fresh album."""
+        nominated = nominate_albums(dealer_group, 2)
+        queued = AlbumDeal(
+            group_id=dealer_group.id,
+            user_id=sample_user.id,
+            album_id=nominated[0].album_id,
+        )
+        db_session.add(queued)
+        db_session.commit()
+        queued_id = queued.id
+
+        # Shared draw selects the queued album while dealer mode was off
+        nominated[0].selected_date = datetime.now(tz=timezone.utc)
+        db_session.commit()
+
+        result = dealer_service.roll(dealer_group.id, sample_user)
+
+        assert result.deal.album_id == nominated[1].album_id
+        assert db_session.query(AlbumDeal).filter(AlbumDeal.id == queued_id).first() is None
+
+    def test_queued_album_reviewed_meanwhile_is_discarded(
+        self, db_session, dealer_service, dealer_group, sample_user, nominate_albums
+    ):
+        """A queued album the user has since reviewed (e.g. via another group) is
+        discarded instead of revealed."""
+        nominated = nominate_albums(dealer_group, 2)
+        queued = AlbumDeal(
+            group_id=dealer_group.id,
+            user_id=sample_user.id,
+            album_id=nominated[0].album_id,
+        )
+        db_session.add(queued)
+        db_session.add(Review(album_id=nominated[0].album_id, user_id=sample_user.id, rating=9.0))
+        db_session.commit()
+        queued_id = queued.id
+
+        result = dealer_service.roll(dealer_group.id, sample_user)
+
+        assert result.deal.album_id == nominated[1].album_id
+        assert db_session.query(AlbumDeal).filter(AlbumDeal.id == queued_id).first() is None
+
     def test_stale_queue_purged_on_roll(
         self, db_session, dealer_service, dealer_group, sample_user, nominate_albums
     ):
