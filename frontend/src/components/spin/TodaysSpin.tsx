@@ -22,7 +22,7 @@ import {
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { IconBrandApple, IconBrandSpotify, IconBrandYoutube, IconCheck, IconClock, IconDice5, IconExternalLink, IconHistory, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
+import { IconBrandApple, IconBrandSpotify, IconBrandYoutube, IconCheck, IconClock, IconDice1, IconDice2, IconDice3, IconDice4, IconDice5, IconDice6, IconExternalLink, IconHistory, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
 import AlbumCard from './AlbumCard'
 import ReviewAndGuessForm from './ReviewAndGuessForm'
 import AlbumSearchModal from '../albums/AlbumSearchModal'
@@ -529,14 +529,31 @@ function SelectTodayPanel({ groupId }: { groupId: number }) {
 
 // ==================== DEALER MODE ====================
 
+const DICE_ICONS = [IconDice1, IconDice2, IconDice3, IconDice4, IconDice5, IconDice6]
+
 function DealerSpin({ groupId, group }: { groupId: number; group: GroupDetailResponse }) {
   const { data, isLoading, isError } = useTodaysDeals(groupId, true)
   const rollDeal = useRollDeal(groupId)
   const allowGuessing = group.settings?.allow_guessing ?? true
+  const [isRolling, setIsRolling] = useState(false)
+  const [diceFace, setDiceFace] = useState(4)
+
+  // Tumble through random dice faces while a roll is in flight
+  useEffect(() => {
+    if (!isRolling) return
+    const id = setInterval(
+      () => setDiceFace((face) => (face + 1 + Math.floor(Math.random() * 4)) % DICE_ICONS.length),
+      120,
+    )
+    return () => clearInterval(id)
+  }, [isRolling])
 
   const handleRoll = async () => {
+    setIsRolling(true)
+    // Let the dice tumble for a beat even when the API answers instantly
+    const minRollTime = new Promise((resolve) => setTimeout(resolve, 900))
     try {
-      await rollDeal.mutateAsync()
+      await Promise.all([rollDeal.mutateAsync(), minRollTime])
     } catch (err) {
       const message = err instanceof ApiError
         ? err.message === 'dealer_pool_empty'
@@ -546,6 +563,8 @@ function DealerSpin({ groupId, group }: { groupId: number; group: GroupDetailRes
             : err.message
         : 'Could not roll a deal'
       notifications.show({ color: 'red', message })
+    } finally {
+      setIsRolling(false)
     }
   }
 
@@ -565,18 +584,36 @@ function DealerSpin({ groupId, group }: { groupId: number; group: GroupDetailRes
   const poolTooltip = data.pool_remaining === 0
     ? 'Your pool is empty — nominate more albums to keep rolling!'
     : 'Albums in the pool you have not been dealt yet'
+  const rollDisabledTooltip = rollsRemaining === 0
+    ? 'No rolls left today — come back tomorrow!'
+    : 'Your pool is empty — nominate more albums to keep rolling!'
+
+  const DiceIcon = DICE_ICONS[diceFace]
 
   return (
     <Stack gap="md">
       <Group justify="space-between" align="center">
-        <Group gap={4} c="dimmed">
-          <IconDice5 size={12} />
-          <Text size="xs">
-            {rollsRemaining > 0
-              ? `${rollsRemaining} roll${rollsRemaining !== 1 ? 's' : ''} left today`
-              : 'No rolls left today'}
-          </Text>
-        </Group>
+        <Tooltip label={rollDisabledTooltip} disabled={canRoll || isRolling}>
+          <Button
+            size="xs"
+            variant="filled"
+            leftSection={
+              <DiceIcon
+                size={16}
+                style={isRolling ? { animation: 'dice-roll 0.45s linear infinite' } : undefined}
+              />
+            }
+            disabled={!canRoll && !isRolling}
+            onClick={handleRoll}
+            style={isRolling ? { pointerEvents: 'none' } : undefined}
+          >
+            {isRolling
+              ? 'Rolling…'
+              : rollsRemaining > 0
+                ? `Roll the bones (${rollsRemaining} left)`
+                : 'No rolls left today'}
+          </Button>
+        </Tooltip>
         <Tooltip label={poolTooltip}>
           <Badge size="sm" color={poolColor} variant="light" style={{ cursor: 'default' }}>
             {data.pool_remaining} album{data.pool_remaining !== 1 ? 's' : ''} in your pool
@@ -585,41 +622,13 @@ function DealerSpin({ groupId, group }: { groupId: number; group: GroupDetailRes
       </Group>
 
       {data.deals.length === 0 ? (
-        <Stack gap="md">
-          <Alert icon={<IconInfoCircle size={16} />} color="blue" title="Nothing dealt yet today">
-            Roll the dice to draw an album from the group pool — just for you.
-          </Alert>
-          <Center>
-            <Button
-              variant="filled"
-              leftSection={<IconDice5 size={16} />}
-              loading={rollDeal.isPending}
-              disabled={!canRoll}
-              onClick={handleRoll}
-            >
-              Roll the dice
-            </Button>
-          </Center>
-        </Stack>
+        <Alert icon={<IconInfoCircle size={16} />} color="blue" title="Nothing dealt yet today">
+          Roll the bones to draw an album from the group pool — just for you.
+        </Alert>
+      ) : data.deals.length === 1 ? (
+        <SpinSlide key={data.deals[0].id} groupAlbum={data.deals[0]} groupId={groupId} allowGuessing={allowGuessing} />
       ) : (
-        <>
-          {data.deals.length === 1
-            ? <SpinSlide key={data.deals[0].id} groupAlbum={data.deals[0]} groupId={groupId} allowGuessing={allowGuessing} />
-            : <MultiAlbumSpin albums={data.deals} groupId={groupId} allowGuessing={allowGuessing} />}
-          {rollsRemaining > 0 && (
-            <Center>
-              <Button
-                variant="light"
-                leftSection={<IconDice5 size={16} />}
-                loading={rollDeal.isPending}
-                disabled={!canRoll}
-                onClick={handleRoll}
-              >
-                Roll again ({rollsRemaining} left)
-              </Button>
-            </Center>
-          )}
-        </>
+        <MultiAlbumSpin albums={data.deals} groupId={groupId} allowGuessing={allowGuessing} />
       )}
     </Stack>
   )
