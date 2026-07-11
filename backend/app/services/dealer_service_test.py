@@ -187,6 +187,30 @@ class TestDealerRoll:
         assert first.deal.album_id == nominated[0].album_id
         assert second.deal.album_id == nominated[0].album_id
 
+    def test_pool_remaining_counts_queued_albums(
+        self, db_session, dealer_service, dealer_group, sample_user, nominate_albums
+    ):
+        """The user-facing pool count treats pre-drawn queued albums as still available.
+
+        Regression: with rolls_per_day covering the whole pool, the first roll queued
+        every album and pool_remaining reported 0, blocking the remaining rolls even
+        though the user's own queue was full."""
+        nominate_albums(dealer_group, 3)
+        _set_rolls_per_day(db_session, dealer_group, 3)
+
+        first = dealer_service.roll(dealer_group.id, sample_user)
+        # 1 revealed, 2 pre-drawn in the queue — still the user's to draw
+        assert first.pool_remaining == 2
+        assert dealer_service.get_pool_count(dealer_group.id, sample_user.id) == 2
+
+        second = dealer_service.roll(dealer_group.id, sample_user)
+        assert second.pool_remaining == 1
+
+        third = dealer_service.roll(dealer_group.id, sample_user)
+        assert third.pool_remaining == 0
+        # All three distinct albums were revealed
+        assert len({first.deal.album_id, second.deal.album_id, third.deal.album_id}) == 3
+
     def test_queued_album_selected_by_shared_draw_is_discarded(
         self, db_session, dealer_service, dealer_group, sample_user, nominate_albums
     ):

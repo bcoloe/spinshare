@@ -144,7 +144,7 @@ class DealerService:
             deal=self._deal_response(canonical[deal.album_id], deal),
             rolls_used_today=rolls_used + 1,
             rolls_per_day=settings.dealer_rolls_per_day,
-            pool_remaining=len(self._eligible_album_ids(group_id, user.id)),
+            pool_remaining=self.get_pool_count(group_id, user.id),
         )
 
     # ==================== READS ====================
@@ -189,7 +189,7 @@ class DealerService:
             ],
             rolls_used_today=len(deals),
             rolls_per_day=settings.dealer_rolls_per_day,
-            pool_remaining=len(self._eligible_album_ids(group_id, user.id)),
+            pool_remaining=self.get_pool_count(group_id, user.id),
         )
 
     def get_member_history(self, group_id: int, user: User) -> list[GroupAlbumResponse]:
@@ -235,18 +235,31 @@ class DealerService:
         return responses
 
     def get_pool_count(self, group_id: int, user_id: int) -> int:
-        """Return the number of albums still dealable to this user in this group."""
-        return len(self._eligible_album_ids(group_id, user_id))
+        """Return the number of albums still available for this user to draw.
+
+        Queued (pre-drawn, unrevealed) albums count as available: they will be
+        revealed by the user's next rolls, or purged back to the pool.
+        """
+        return len(self._eligible_album_ids(group_id, user_id, exclude_queued=False))
 
     # ==================== HELPERS ====================
 
-    def _eligible_album_ids(self, group_id: int, user_id: int) -> list[int]:
+    def _eligible_album_ids(
+        self, group_id: int, user_id: int, *, exclude_queued: bool = True
+    ) -> list[int]:
         """Distinct albums still dealable to this user: pending nominations in the
-        group, minus albums already dealt (queued or revealed) to the user, minus
-        albums the user has a published review for."""
-        dealt_subq = select(AlbumDeal.album_id).where(
-            AlbumDeal.group_id == group_id, AlbumDeal.user_id == user_id
-        )
+        group, minus albums already dealt to the user, minus albums the user has a
+        published review for.
+
+        With exclude_queued=True (the sampling pool), queued rows also exclude their
+        album so a new draw can never duplicate the pre-drawn allotment. Pass
+        exclude_queued=False for the user-facing availability count, where queued
+        albums are still theirs to draw.
+        """
+        deal_filters = [AlbumDeal.group_id == group_id, AlbumDeal.user_id == user_id]
+        if not exclude_queued:
+            deal_filters.append(AlbumDeal.revealed_at.isnot(None))
+        dealt_subq = select(AlbumDeal.album_id).where(*deal_filters)
         reviewed_subq = select(Review.album_id).where(
             Review.user_id == user_id, Review.is_draft == False  # noqa: E712
         )
