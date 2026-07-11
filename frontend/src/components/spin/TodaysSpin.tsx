@@ -537,6 +537,7 @@ function DealerSpin({ groupId, group }: { groupId: number; group: GroupDetailRes
   const allowGuessing = group.settings?.allow_guessing ?? true
   const [isRolling, setIsRolling] = useState(false)
   const [diceFace, setDiceFace] = useState(4)
+  const [, setSearchParams] = useSearchParams()
 
   // Tumble through random dice faces while a roll is in flight
   useEffect(() => {
@@ -553,7 +554,13 @@ function DealerSpin({ groupId, group }: { groupId: number; group: GroupDetailRes
     // Let the dice tumble for a beat even when the API answers instantly
     const minRollTime = new Promise((resolve) => setTimeout(resolve, 900))
     try {
-      await Promise.all([rollDeal.mutateAsync(), minRollTime])
+      const [result] = await Promise.all([rollDeal.mutateAsync(), minRollTime])
+      // Focus the freshly dealt album (MultiAlbumSpin follows the `album` param)
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.set('album', String(result.deal.id))
+        return next
+      }, { replace: true })
     } catch (err) {
       const message = err instanceof ApiError
         ? err.message === 'dealer_pool_empty'

@@ -100,6 +100,9 @@ export function useUpdateGroup(groupId: number) {
     onSuccess: (updated) => {
       qc.setQueryData(['groups', groupId], updated)
       qc.invalidateQueries({ queryKey: ['groups', 'mine'] })
+      // Settings changes can flip mode-dependent data (shared spin vs deals,
+      // pool count semantics) — refresh everything scoped to this group
+      qc.invalidateQueries({ queryKey: ['groups', groupId] })
     },
   })
 }
