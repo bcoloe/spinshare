@@ -30,6 +30,7 @@ import AlbumSearchModal from '../components/albums/AlbumSearchModal'
 import { useGroup, useGroupMembers, useJoinGroup } from '../hooks/useGroups'
 import { useGroupHistory, useNominationCount } from '../hooks/useAlbums'
 import { useFavoriteGroup } from '../context/FavoriteGroupContext'
+import { useAuth } from '../hooks/useAuth'
 import { ApiError } from '../services/apiClient'
 
 type Tab = 'spin' | 'history' | 'info' | 'nominations'
@@ -56,6 +57,7 @@ export default function GroupPage() {
   const joinGroup = useJoinGroup()
 
   const { favoriteId, toggleFavorite } = useFavoriteGroup()
+  const { user } = useAuth()
 
   const handleJoin = async () => {
     if (!group) return
@@ -69,7 +71,11 @@ export default function GroupPage() {
   }
 
   const canManage =
-    group?.current_user_role === 'owner' || group?.current_user_role === 'admin'
+    group?.current_user_role === 'owner' ||
+    group?.current_user_role === 'admin' ||
+    // Site admins can access the global group's settings page to toggle dealer
+    // mode — its own owner/admin roles don't apply since it has no privileged tier
+    (!!group?.is_global && !!user?.is_admin)
 
   const ROLE_RANK: Record<string, number> = { owner: 0, admin: 1, member: 2 }
   const minRoleToInvite = group?.settings?.min_role_to_add_members ?? 'admin'

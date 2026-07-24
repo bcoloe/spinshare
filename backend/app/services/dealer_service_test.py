@@ -637,3 +637,122 @@ class TestDealerReviewHistory:
 
         reviews = review_service.get_all_reviews_for_group(dealer_group.id, sample_user.id)
         assert [r.album_id for r in reviews] == [rolled.deal.album_id]
+
+
+class TestDealerGlobalGroup:
+    """Global-group dealer mode: pool draws from every non-global group's
+    nominations, and each dealt album gets one canonical GroupAlbum row shared
+    across all members who roll it (per plans/dealer-groups.md §2.8)."""
+
+    def test_pool_draws_from_other_groups_nominations(
+        self, db_session, dealer_service, global_group, sample_group, sample_user,
+        sample_group_service, nominate_albums,
+    ):
+        global_group.settings.dealer_mode = True
+        db_session.commit()
+        sample_group_service.add_user(global_group.id, sample_user.id)
+        nominated = nominate_albums(sample_group, 1)
+
+        result = dealer_service.roll(global_group.id, sample_user)
+
+        assert result.deal.album_id == nominated[0].album_id
+        assert result.deal.group_id == global_group.id
+
+        canonical = (
+            db_session.query(GroupAlbum)
+            .filter(GroupAlbum.group_id == global_group.id, GroupAlbum.album_id == nominated[0].album_id)
+            .all()
+        )
+        assert len(canonical) == 1
+        assert canonical[0].added_by == sample_user.id
+        assert canonical[0].selected_date is None
+
+    def test_canonical_row_shared_across_users(
+        self, db_session, dealer_service, global_group, sample_group, sample_user,
+        user_factory, sample_group_service, nominate_albums,
+    ):
+        global_group.settings.dealer_mode = True
+        db_session.commit()
+        other = user_factory(email="other@test.com", username="other_member")
+        sample_group_service.add_user(global_group.id, sample_user.id)
+        sample_group_service.add_user(global_group.id, other.id)
+        nominated = nominate_albums(sample_group, 1)
+
+        first = dealer_service.roll(global_group.id, sample_user)
+        second = dealer_service.roll(global_group.id, other)
+
+        assert first.deal.album_id == nominated[0].album_id
+        assert second.deal.album_id == nominated[0].album_id
+        # One canonical row, two independent per-user deals
+        canonical = (
+            db_session.query(GroupAlbum)
+            .filter(GroupAlbum.group_id == global_group.id, GroupAlbum.album_id == nominated[0].album_id)
+            .all()
+        )
+        assert len(canonical) == 1
+        deals = (
+            db_session.query(AlbumDeal)
+            .filter(AlbumDeal.group_id == global_group.id, AlbumDeal.album_id == nominated[0].album_id)
+            .all()
+        )
+        assert {d.user_id for d in deals} == {sample_user.id, other.id}
+
+    def test_pool_pools_across_multiple_groups(
+        self, db_session, dealer_service, global_group, sample_group, sample_user,
+        sample_group_service, group_factory, nominate_albums,
+    ):
+        global_group.settings.dealer_mode = True
+        _set_rolls_per_day(db_session, global_group, 2)
+        sample_group_service.add_user(global_group.id, sample_user.id)
+        other_group = group_factory(name="other-group")
+        ga1 = nominate_albums(sample_group, 1, prefix="a")
+        ga2 = nominate_albums(other_group, 1, prefix="b")
+
+        first = dealer_service.roll(global_group.id, sample_user)
+        second = dealer_service.roll(global_group.id, sample_user)
+
+        drawn = {first.deal.album_id, second.deal.album_id}
+        assert drawn == {ga1[0].album_id, ga2[0].album_id}
+
+    def test_pool_excludes_albums_already_dealt_to_user(
+        self, db_session, dealer_service, global_group, sample_group, sample_user,
+        sample_group_service, nominate_albums,
+    ):
+        global_group.settings.dealer_mode = True
+        _set_rolls_per_day(db_session, global_group, 2)
+        sample_group_service.add_user(global_group.id, sample_user.id)
+        nominate_albums(sample_group, 1)
+
+        dealer_service.roll(global_group.id, sample_user)
+
+        with pytest.raises(HTTPException) as exc_info:
+            dealer_service.roll(global_group.id, sample_user)
+        assert exc_info.value.status_code == status.HTTP_409_CONFLICT
+        assert exc_info.value.detail == "dealer_pool_empty"
+
+    def test_pool_excludes_legacy_shared_selection(
+        self, db_session, dealer_service, global_group, sample_group, sample_user,
+        sample_group_service, nominate_albums,
+    ):
+        """Albums already spun via the pre-dealer-mode shared draw are already part
+        of every member's history and should not be re-dealt."""
+        nominated = nominate_albums(sample_group, 1)
+        # Simulate a legacy shared selection that ran before dealer mode was enabled
+        db_session.add(
+            GroupAlbum(
+                group_id=global_group.id,
+                album_id=nominated[0].album_id,
+                added_by=sample_user.id,
+                selected_date=datetime.now(tz=timezone.utc),
+            )
+        )
+        db_session.commit()
+
+        global_group.settings.dealer_mode = True
+        db_session.commit()
+        sample_group_service.add_user(global_group.id, sample_user.id)
+
+        with pytest.raises(HTTPException) as exc_info:
+            dealer_service.roll(global_group.id, sample_user)
+        assert exc_info.value.status_code == status.HTTP_409_CONFLICT
+        assert exc_info.value.detail == "dealer_pool_empty"
