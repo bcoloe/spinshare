@@ -26,6 +26,14 @@ export function useGroupAlbums(groupId: number, status?: string, enabled = true)
   })
 }
 
+export function useGroupHistory(groupId: number, enabled = true) {
+  return useQuery({
+    queryKey: ['groups', groupId, 'albums', 'history'],
+    queryFn: () => albumService.getGroupHistory(groupId),
+    enabled: enabled && !!groupId,
+  })
+}
+
 export function useMyNominations() {
   return useQuery<UserNominationResponse[]>({
     queryKey: ['users', 'me', 'nominations'],

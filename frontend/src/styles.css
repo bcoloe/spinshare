@@ -1,0 +1,20 @@
+/* Global app styles (Mantine styles are imported separately in main.tsx). */
+
+/* Dice tumble used by the dealer-mode roll button while a roll is in flight. */
+@keyframes dice-roll {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+  25% {
+    transform: rotate(90deg) scale(1.25);
+  }
+  50% {
+    transform: rotate(180deg) scale(1);
+  }
+  75% {
+    transform: rotate(270deg) scale(1.25);
+  }
+  100% {
+    transform: rotate(360deg) scale(1);
+  }
+}

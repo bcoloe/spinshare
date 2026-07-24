@@ -49,6 +49,26 @@ export function useTriggerDailySelection(groupId: number) {
   })
 }
 
+export function useTodaysDeals(groupId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['groups', groupId, 'deals', 'today'],
+    queryFn: () => albumService.getTodaysDeals(groupId),
+    enabled: !!groupId && enabled,
+  })
+}
+
+export function useRollDeal(groupId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => albumService.rollDeal(groupId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['groups', groupId, 'deals', 'today'] })
+      qc.invalidateQueries({ queryKey: ['groups', groupId, 'albums', 'history'] })
+      qc.invalidateQueries({ queryKey: ['groups', groupId, 'nominations', 'count'] })
+    },
+  })
+}
+
 export function useMyReview(albumId: number) {
   return useQuery({
     queryKey: ['reviews', albumId, 'me'],

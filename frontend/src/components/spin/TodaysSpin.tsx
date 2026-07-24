@@ -22,12 +22,12 @@ import {
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { IconBrandApple, IconBrandSpotify, IconBrandYoutube, IconCheck, IconClock, IconDice5, IconExternalLink, IconHistory, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
+import { IconBrandApple, IconBrandSpotify, IconBrandYoutube, IconCheck, IconClock, IconDice1, IconDice2, IconDice3, IconDice4, IconDice5, IconDice6, IconExternalLink, IconHistory, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
 import AlbumCard from './AlbumCard'
 import ReviewAndGuessForm from './ReviewAndGuessForm'
 import AlbumSearchModal from '../albums/AlbumSearchModal'
 import { usePlayer } from '../../context/PlayerContext'
-import { useCatchUpAlbums, useMyReview, useTodaysAlbums, useTriggerDailySelection } from '../../hooks/useDailySpin'
+import { useCatchUpAlbums, useMyReview, useRollDeal, useTodaysAlbums, useTodaysDeals, useTriggerDailySelection } from '../../hooks/useDailySpin'
 import { useGroupAlbums, useNominationCount } from '../../hooks/useAlbums'
 import { albumSearchService } from '../../services/albumSearchService'
 import { ApiError } from '../../services/apiClient'
@@ -527,12 +527,133 @@ function SelectTodayPanel({ groupId }: { groupId: number }) {
   )
 }
 
+// ==================== DEALER MODE ====================
+
+const DICE_ICONS = [IconDice1, IconDice2, IconDice3, IconDice4, IconDice5, IconDice6]
+
+function DealerSpin({ groupId, group }: { groupId: number; group: GroupDetailResponse }) {
+  const { data, isLoading, isError } = useTodaysDeals(groupId, true)
+  const rollDeal = useRollDeal(groupId)
+  const allowGuessing = group.settings?.allow_guessing ?? true
+  const [isRolling, setIsRolling] = useState(false)
+  const [diceFace, setDiceFace] = useState(4)
+  const [, setSearchParams] = useSearchParams()
+
+  // Tumble through random dice faces while a roll is in flight
+  useEffect(() => {
+    if (!isRolling) return
+    const id = setInterval(
+      () => setDiceFace((face) => (face + 1 + Math.floor(Math.random() * 4)) % DICE_ICONS.length),
+      120,
+    )
+    return () => clearInterval(id)
+  }, [isRolling])
+
+  const handleRoll = async () => {
+    setIsRolling(true)
+    // Let the dice tumble for a beat even when the API answers instantly
+    const minRollTime = new Promise((resolve) => setTimeout(resolve, 900))
+    try {
+      const [result] = await Promise.all([rollDeal.mutateAsync(), minRollTime])
+      // Focus the freshly dealt album (MultiAlbumSpin follows the `album` param)
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.set('album', String(result.deal.id))
+        return next
+      }, { replace: true })
+    } catch (err) {
+      const message = err instanceof ApiError
+        ? err.message === 'dealer_pool_empty'
+          ? 'Your pool is empty — nominate more albums to keep rolling!'
+          : err.message === 'no_rolls_remaining'
+            ? 'No rolls left today — come back tomorrow!'
+            : err.message
+        : 'Could not roll a deal'
+      notifications.show({ color: 'red', message })
+    } finally {
+      setIsRolling(false)
+    }
+  }
+
+  if (isLoading) return <Skeleton h={400} radius="md" />
+
+  if (isError || !data) {
+    return (
+      <Alert color="red" title="Could not load your deals">
+        Something went wrong fetching your dealt albums. Try refreshing.
+      </Alert>
+    )
+  }
+
+  const rollsRemaining = Math.max(data.rolls_per_day - data.rolls_used_today, 0)
+  const canRoll = rollsRemaining > 0 && data.pool_remaining > 0
+  const poolColor = data.pool_remaining >= 10 ? 'green' : data.pool_remaining >= 5 ? 'yellow' : data.pool_remaining >= 2 ? 'orange' : 'red'
+  const poolTooltip = data.pool_remaining === 0
+    ? 'Your pool is empty — nominate more albums to keep rolling!'
+    : 'Albums in the pool you have not been dealt yet'
+  const rollDisabledTooltip = rollsRemaining === 0
+    ? 'No rolls left today — come back tomorrow!'
+    : 'Your pool is empty — nominate more albums to keep rolling!'
+
+  const DiceIcon = DICE_ICONS[diceFace]
+
+  return (
+    <Stack gap="md">
+      <Group justify="space-between" align="center">
+        <Tooltip label={rollDisabledTooltip} disabled={canRoll || isRolling}>
+          <Button
+            size="xs"
+            variant="filled"
+            leftSection={
+              <DiceIcon
+                size={16}
+                style={isRolling ? { animation: 'dice-roll 0.45s linear infinite' } : undefined}
+              />
+            }
+            disabled={!canRoll && !isRolling}
+            onClick={handleRoll}
+            style={isRolling ? { pointerEvents: 'none' } : undefined}
+          >
+            {isRolling
+              ? 'Rolling…'
+              : rollsRemaining > 0
+                ? `Roll the bones (${rollsRemaining} left)`
+                : 'No rolls left today'}
+          </Button>
+        </Tooltip>
+        <Tooltip label={poolTooltip}>
+          <Badge size="sm" color={poolColor} variant="light" style={{ cursor: 'default' }}>
+            {data.pool_remaining} album{data.pool_remaining !== 1 ? 's' : ''} in your pool
+          </Badge>
+        </Tooltip>
+      </Group>
+
+      {data.deals.length === 0 ? (
+        <Alert icon={<IconInfoCircle size={16} />} color="blue" title="Nothing dealt yet today">
+          Roll the bones to draw an album from the group pool — just for you.
+        </Alert>
+      ) : data.deals.length === 1 ? (
+        <SpinSlide key={data.deals[0].id} groupAlbum={data.deals[0]} groupId={groupId} allowGuessing={allowGuessing} />
+      ) : (
+        <MultiAlbumSpin albums={data.deals} groupId={groupId} allowGuessing={allowGuessing} />
+      )}
+    </Stack>
+  )
+}
+
 interface Props {
   groupId: number
   group: GroupDetailResponse | undefined
 }
 
 export default function TodaysSpin({ groupId, group }: Props) {
+  if (group?.settings?.dealer_mode) {
+    return <DealerSpin groupId={groupId} group={group} />
+  }
+  return <SharedSpin groupId={groupId} group={group} />
+}
+
+function SharedSpin({ groupId, group }: Props) {
   const { data: albums, isLoading, isError } = useTodaysAlbums(groupId)
   const catchUpEnabled = group?.settings?.catch_up_enabled ?? false
   const { data: catchUpAlbums = [] } = useCatchUpAlbums(groupId, catchUpEnabled)

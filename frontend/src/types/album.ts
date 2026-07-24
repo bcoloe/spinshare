@@ -20,11 +20,26 @@ export interface GroupAlbumResponse {
   status: 'pending' | 'selected' | 'reviewed'
   added_at: string
   selected_date: string | null
+  dealt_at: string | null  // when the album was dealt to the caller (dealer groups)
   album: AlbumResponse
   nomination_count: number
   nominator_user_ids: number[]
   avg_rating: number | null
   review_count: number
+}
+
+export interface DealRollResponse {
+  deal: GroupAlbumResponse
+  rolls_used_today: number
+  rolls_per_day: number
+  pool_remaining: number
+}
+
+export interface DealsTodayResponse {
+  deals: GroupAlbumResponse[]
+  rolls_used_today: number
+  rolls_per_day: number
+  pool_remaining: number
 }
 
 export interface ReviewCreate {
