@@ -322,7 +322,7 @@ class TestGetTodaysAlbums:
         # Now query from Thursday — should still return Wednesday's album
         thursday = date(2026, 1, 8)
         assert thursday.isoweekday() == 4
-        with patch("app.services.group_album_service._group_today", return_value=thursday):
+        with patch("app.services.group_album_service.group_today", return_value=thursday):
             results = group_album_service.get_todays_albums(sample_group.id, sample_user)
 
         assert len(results) == 1
@@ -344,7 +344,7 @@ class TestGetTodaysAlbums:
 
         # Query on Thursday with no prior Wednesday selection (pool exhausted / never ran)
         thursday = date(2026, 1, 8)
-        with patch("app.services.group_album_service._group_today", return_value=thursday):
+        with patch("app.services.group_album_service.group_today", return_value=thursday):
             results = group_album_service.get_todays_albums(sample_group.id, sample_user)
 
         assert results == []
@@ -372,7 +372,7 @@ class TestGetTodaysAlbums:
         # but Friday's draw (Jan 9) is more recent and should take precedence.
         saturday = date(2026, 1, 10)
         assert saturday.isoweekday() == 6
-        with patch("app.services.group_album_service._group_today", return_value=saturday):
+        with patch("app.services.group_album_service.group_today", return_value=saturday):
             results = group_album_service.get_todays_albums(sample_group.id, sample_user)
 
         assert len(results) == 1
@@ -910,7 +910,7 @@ class TestChaosSelection:
         with (
             patch("app.services.group_album_service.random.random", return_value=0.0),
             patch(
-                "app.services.group_album_service._group_today",
+                "app.services.group_album_service.group_today",
                 return_value=next_day,
             ),
         ):
@@ -1124,10 +1124,10 @@ class TestSelectionSchedule:
         from datetime import date
         # Set group to Wednesday-only (weekday index 2)
         self._set_selection_days(db_session, sample_group, [2])
-        # Patch _group_today to return a Monday (isoweekday=1 → index 0)
+        # Patch group_today to return a Monday (isoweekday=1 → index 0)
         monday = date(2026, 1, 5)
         assert monday.isoweekday() == 1
-        with patch("app.services.group_album_service._group_today", return_value=monday):
+        with patch("app.services.group_album_service.group_today", return_value=monday):
             result = group_album_service.select_daily_albums(sample_group.id, n=1)
         assert result == []
         db_session.refresh(sample_group_album)
@@ -1140,10 +1140,10 @@ class TestSelectionSchedule:
         from datetime import date
         # Set group to Wednesday-only (weekday index 2)
         self._set_selection_days(db_session, sample_group, [2])
-        # Patch _group_today to return a Wednesday (isoweekday=3 → index 2)
+        # Patch group_today to return a Wednesday (isoweekday=3 → index 2)
         wednesday = date(2026, 1, 7)
         assert wednesday.isoweekday() == 3
-        with patch("app.services.group_album_service._group_today", return_value=wednesday):
+        with patch("app.services.group_album_service.group_today", return_value=wednesday):
             result = group_album_service.select_daily_albums(sample_group.id, n=1)
         assert len(result) == 1
         assert result[0].selected_date is not None
@@ -1155,7 +1155,7 @@ class TestSelectionSchedule:
         from datetime import date
         self._set_selection_days(db_session, sample_group, [2])  # Wednesday only
         monday = date(2026, 1, 5)
-        with patch("app.services.group_album_service._group_today", return_value=monday):
+        with patch("app.services.group_album_service.group_today", return_value=monday):
             result = group_album_service.select_daily_albums(
                 sample_group.id, n=1, bypass_schedule=True
             )

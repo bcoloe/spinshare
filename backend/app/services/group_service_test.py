@@ -666,6 +666,38 @@ class TestGroupServiceSettings:
         sample_group_service.update_group_settings(sample_group.id, sample_user.id, request)
         assert sample_group.settings.min_role_to_nominate == "admin"
 
+    def test_create_group_initializes_dealer_defaults(self, sample_group_service, sample_user):
+        """New groups default to dealer mode off with 1 roll per day."""
+        group = sample_group_service.create_group(GroupCreate(name="DealerDefaults"), sample_user)
+        assert group.settings.dealer_mode is False
+        assert group.settings.dealer_rolls_per_day == 1
+
+    def test_update_settings_dealer_mode_toggle(self, sample_group, sample_group_service, sample_user):
+        """Owner can toggle dealer_mode on and off."""
+        request = GroupModifyRequest(settings=GroupSettingsUpdate(dealer_mode=True))
+        sample_group_service.update_group_settings(sample_group.id, sample_user.id, request)
+        assert sample_group.settings.dealer_mode is True
+
+        request2 = GroupModifyRequest(settings=GroupSettingsUpdate(dealer_mode=False))
+        sample_group_service.update_group_settings(sample_group.id, sample_user.id, request2)
+        assert sample_group.settings.dealer_mode is False
+
+    def test_update_settings_dealer_rolls_per_day(self, sample_group, sample_group_service, sample_user):
+        """Owner can update dealer_rolls_per_day."""
+        request = GroupModifyRequest(settings=GroupSettingsUpdate(dealer_rolls_per_day=3))
+        sample_group_service.update_group_settings(sample_group.id, sample_user.id, request)
+        assert sample_group.settings.dealer_rolls_per_day == 3
+
+    def test_update_settings_dealer_rolls_exceeds_max(self):
+        """dealer_rolls_per_day above 10 is rejected at schema validation."""
+        with pytest.raises(ValidationError):
+            GroupModifyRequest(settings=GroupSettingsUpdate(dealer_rolls_per_day=11))
+
+    def test_update_settings_dealer_rolls_below_min(self):
+        """dealer_rolls_per_day below 1 is rejected at schema validation."""
+        with pytest.raises(ValidationError):
+            GroupModifyRequest(settings=GroupSettingsUpdate(dealer_rolls_per_day=0))
+
 
 class TestGlobalGroup:
     def test_delete_global_group_forbidden(self, sample_group_service, global_group, sample_user):

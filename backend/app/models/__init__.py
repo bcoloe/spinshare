@@ -1,4 +1,5 @@
 from .album import Album
+from .album_deal import AlbumDeal
 from .bot_source import BotSource
 from .genre import Genre, album_genres
 from .group import Group, group_members
@@ -14,6 +15,7 @@ from .user import User
 
 __all__ = [
     "Album",
+    "AlbumDeal",
     "BotSource",
     "Genre",
     "group_members",
