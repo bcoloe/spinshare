@@ -353,11 +353,9 @@ class GroupService:
     ):
         group = self.get_group_by_id(group_id)
         if group.is_global:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="The global group settings cannot be modified",
-            )
-        self.require_permission(modified_by_user_id, group_id, GroupRole.Admin)
+            self._authorize_global_settings_update(modified_by_user_id, update_data)
+        else:
+            self.require_permission(modified_by_user_id, group_id, GroupRole.Admin)
 
         # Change name
         if update_data.name is not None:
@@ -403,6 +401,35 @@ class GroupService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Cannot update group settings due to existing dependencies.",
             ) from None
+
+    def _authorize_global_settings_update(
+        self, modified_by_user_id: int, update_data: GroupModifyRequest
+    ) -> None:
+        """Site admins may toggle dealer mode on the global group; every other field
+        (name, visibility, other settings) stays locked for everyone, consistent with
+        how the global group is seeded.
+
+        Raises:
+            HTTPException 403: If the actor isn't a site admin, or the payload touches
+                anything besides dealer_mode / dealer_rolls_per_day.
+        """
+        actor = self.db.get(User, modified_by_user_id)
+        if actor is None or not actor.is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="The global group settings cannot be modified",
+            )
+        out_of_scope = update_data.name is not None or update_data.is_public is not None
+        if update_data.settings is not None:
+            allowed_fields = {"dealer_mode", "dealer_rolls_per_day"}
+            out_of_scope = out_of_scope or bool(
+                update_data.settings.model_fields_set - allowed_fields
+            )
+        if out_of_scope:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only dealer mode can be changed on the global group",
+            )
 
     def get_group_settings(self, group_id: int) -> GroupSettings:
         """Get settings for a group, creating defaults if missing.

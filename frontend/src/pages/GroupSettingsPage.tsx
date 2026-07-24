@@ -126,6 +126,22 @@ export default function GroupSettingsPage() {
   const isOwner = group?.current_user_role === 'owner'
   const currentRole = group?.current_user_role
 
+  const handleSaveGlobalDealer = async () => {
+    try {
+      await updateGroup.mutateAsync({
+        settings: {
+          dealer_mode: currentDealerMode,
+          dealer_rolls_per_day:
+            typeof currentDealerRollsPerDay === 'number' ? currentDealerRollsPerDay : undefined,
+        },
+      })
+      notifications.show({ color: 'green', message: 'Dealer mode updated' })
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Could not save settings'
+      notifications.show({ color: 'red', message })
+    }
+  }
+
   const handleSave = async () => {
     try {
       await updateGroup.mutateAsync({
@@ -203,6 +219,65 @@ export default function GroupSettingsPage() {
     return (
       <AppShell>
         <Skeleton h={300} radius="md" />
+      </AppShell>
+    )
+  }
+
+  if (group?.is_global) {
+    return (
+      <AppShell>
+        <Stack gap="xl" maw={600}>
+          <Group gap="sm">
+            <Button
+              variant="subtle"
+              leftSection={<IconArrowLeft size={16} />}
+              onClick={() => navigate(`/groups/${gid}`)}
+              px={0}
+            >
+              Back
+            </Button>
+            <Title order={3}>{group?.name} — Settings</Title>
+          </Group>
+
+          {!user?.is_admin ? (
+            <Text size="sm" c="dimmed">
+              The global group's settings are managed by site admins only.
+            </Text>
+          ) : (
+            <Stack gap="md">
+              <Title order={5}>Dealer mode</Title>
+              <Text size="sm" c="dimmed">
+                The global group has no owner or admin tier of its own, so only site admins
+                can change its settings — and dealer mode is the only setting that can be
+                changed here.
+              </Text>
+              <Switch
+                label="Dealer mode"
+                description="Instead of a shared daily spin, each member rolls the dice to draw albums from every group's nominations at their own pace."
+                checked={currentDealerMode}
+                onChange={(e) => setDealerMode(e.currentTarget.checked)}
+              />
+              {currentDealerMode && (
+                <NumberInput
+                  label="Rolls per day"
+                  description="How many albums each member can draw per day (max 10)."
+                  value={currentDealerRollsPerDay}
+                  onChange={setDealerRollsPerDay}
+                  min={1}
+                  max={10}
+                  w={120}
+                />
+              )}
+              <Button
+                style={{ alignSelf: 'flex-start' }}
+                loading={updateGroup.isPending}
+                onClick={handleSaveGlobalDealer}
+              >
+                Save
+              </Button>
+            </Stack>
+          )}
+        </Stack>
       </AppShell>
     )
   }

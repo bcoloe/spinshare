@@ -723,13 +723,65 @@ class TestGlobalGroup:
     def test_update_global_group_settings_forbidden(
         self, sample_group_service, global_group, sample_user
     ):
-        """Settings changes on the global group are blocked regardless of caller."""
-        from app.schemas.group import GroupModifyRequest
-
+        """Settings changes on the global group are blocked for non-admins."""
         sample_group_service.add_user(global_group.id, sample_user.id)
         with pytest.raises(HTTPException) as exc_info:
             sample_group_service.update_group_settings(
                 global_group.id, sample_user.id, GroupModifyRequest(name="renamed")
+            )
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_update_global_group_dealer_mode_by_site_admin(
+        self, db_session, sample_group_service, global_group, user_factory
+    ):
+        """Site admins may toggle dealer mode on the global group."""
+        admin = user_factory(email="admin@test.com", username="site_admin")
+        admin.is_admin = True
+        db_session.commit()
+
+        sample_group_service.update_group_settings(
+            global_group.id,
+            admin.id,
+            GroupModifyRequest(
+                settings=GroupSettingsUpdate(dealer_mode=True, dealer_rolls_per_day=3)
+            ),
+        )
+
+        db_session.refresh(global_group.settings)
+        assert global_group.settings.dealer_mode is True
+        assert global_group.settings.dealer_rolls_per_day == 3
+
+    def test_update_global_group_non_dealer_fields_forbidden_for_site_admin(
+        self, db_session, sample_group_service, global_group, user_factory
+    ):
+        """Even site admins cannot rename or otherwise reconfigure the global group."""
+        admin = user_factory(email="admin2@test.com", username="site_admin2")
+        admin.is_admin = True
+        db_session.commit()
+
+        with pytest.raises(HTTPException) as exc_info:
+            sample_group_service.update_group_settings(
+                global_group.id, admin.id, GroupModifyRequest(name="renamed")
+            )
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+
+        with pytest.raises(HTTPException) as exc_info:
+            sample_group_service.update_group_settings(
+                global_group.id,
+                admin.id,
+                GroupModifyRequest(settings=GroupSettingsUpdate(chaos_mode=True)),
+            )
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_update_global_group_dealer_mode_forbidden_for_non_admin(
+        self, sample_group_service, global_group, sample_user
+    ):
+        """A non-site-admin cannot toggle dealer mode on the global group either."""
+        with pytest.raises(HTTPException) as exc_info:
+            sample_group_service.update_group_settings(
+                global_group.id,
+                sample_user.id,
+                GroupModifyRequest(settings=GroupSettingsUpdate(dealer_mode=True)),
             )
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
 

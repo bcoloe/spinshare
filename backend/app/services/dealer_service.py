@@ -16,7 +16,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import Album, AlbumDeal, GroupAlbum, GroupSettings, Review, User
+from app.models import Album, AlbumDeal, Group, GroupAlbum, GroupSettings, Review, User
 from app.schemas.album import GroupAlbumResponse
 from app.schemas.group_album import DealRollResponse, DealsTodayResponse
 from app.services import group_service as gs
@@ -247,9 +247,13 @@ class DealerService:
     def _eligible_album_ids(
         self, group_id: int, user_id: int, *, exclude_queued: bool = True
     ) -> list[int]:
-        """Distinct albums still dealable to this user: pending nominations in the
-        group, minus albums already dealt to the user, minus albums the user has a
-        published review for.
+        """Distinct albums still dealable to this user, minus albums already dealt to
+        the user, minus albums the user has a published review for.
+
+        For regular groups the candidate pool is that group's pending nominations. For
+        the global group it's every album nominated in any non-global group (mirroring
+        the legacy shared cross-group draw) — nothing is nominated to the global group
+        directly, so per-group pending nominations would always be empty there.
 
         With exclude_queued=True (the sampling pool), queued rows also exclude their
         album so a new draw can never duplicate the pre-drawn allotment. Pass
@@ -263,18 +267,39 @@ class DealerService:
         reviewed_subq = select(Review.album_id).where(
             Review.user_id == user_id, Review.is_draft == False  # noqa: E712
         )
+
+        if self._is_global(group_id):
+            # Albums already spun group-wide via the legacy shared draw (pre-dating
+            # dealer mode) are already part of every member's history — exclude them
+            # the same way an unselected-nominations filter would for a normal group.
+            legacy_selected_subq = select(GroupAlbum.album_id).where(
+                GroupAlbum.group_id == group_id, GroupAlbum.selected_date.isnot(None)
+            )
+            query = (
+                self.db.query(GroupAlbum.album_id)
+                .join(Group, GroupAlbum.group_id == Group.id)
+                .filter(Group.is_global == False)  # noqa: E712
+                .filter(GroupAlbum.album_id.notin_(legacy_selected_subq))
+            )
+        else:
+            query = self.db.query(GroupAlbum.album_id).filter(
+                GroupAlbum.group_id == group_id, GroupAlbum.selected_date.is_(None)
+            )
+
         return [
             row[0]
-            for row in self.db.query(GroupAlbum.album_id)
-            .filter(
-                GroupAlbum.group_id == group_id,
-                GroupAlbum.selected_date.is_(None),
+            for row in query.filter(
                 GroupAlbum.album_id.notin_(dealt_subq),
                 GroupAlbum.album_id.notin_(reviewed_subq),
             )
             .distinct()
             .all()
         ]
+
+    def _is_global(self, group_id: int) -> bool:
+        return bool(
+            self.db.query(Group.is_global).filter(Group.id == group_id).scalar()
+        )
 
     def _rolls_used_today(self, group_id: int, user_id: int, tz_name: str, today) -> int:
         return (
@@ -297,6 +322,8 @@ class DealerService:
         """
         if not album_ids:
             return {}
+        if self._is_global(group_id):
+            self._ensure_global_canonical_rows(group_id, album_ids)
         subq = (
             self.db.query(
                 GroupAlbum.album_id.label("album_id"),
@@ -333,6 +360,44 @@ class DealerService:
             ga.nominator_user_ids = nominators_by_album.get(ga.album_id, [])
             result[ga.album_id] = ga
         return result
+
+    def _ensure_global_canonical_rows(self, global_group_id: int, album_ids: list[int]) -> None:
+        """Get-or-create a canonical GroupAlbum row in the global group for each album
+        about to be dealt, attributed to its original nominator (mirrors the legacy
+        shared global-selection path). Left unselected (selected_date=None) since
+        dealer mode has no group-wide "selected" moment — each member deals the same
+        canonical row independently via their own AlbumDeal.
+        """
+        existing = {
+            row[0]
+            for row in self.db.query(GroupAlbum.album_id)
+            .filter(GroupAlbum.group_id == global_group_id, GroupAlbum.album_id.in_(album_ids))
+            .distinct()
+            .all()
+        }
+        missing = [aid for aid in album_ids if aid not in existing]
+        if not missing:
+            return
+
+        originals: dict[int, int | None] = {}
+        for album_id, added_by in (
+            self.db.query(GroupAlbum.album_id, GroupAlbum.added_by)
+            .join(Group, GroupAlbum.group_id == Group.id)
+            .filter(GroupAlbum.album_id.in_(missing), Group.is_global == False)  # noqa: E712
+            .order_by(GroupAlbum.id)
+            .all()
+        ):
+            originals.setdefault(album_id, added_by)
+
+        for album_id in missing:
+            self.db.add(
+                GroupAlbum(
+                    group_id=global_group_id,
+                    album_id=album_id,
+                    added_by=originals.get(album_id),
+                )
+            )
+        self.db.flush()
 
     def _deal_response(self, ga: GroupAlbum, deal: AlbumDeal | None) -> GroupAlbumResponse:
         response = GroupAlbumResponse.from_orm(ga)
