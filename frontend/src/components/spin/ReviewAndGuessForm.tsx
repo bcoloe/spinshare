@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   ActionIcon,
   Alert,
+  Anchor,
   Avatar,
   Button,
   Group,
@@ -16,6 +17,7 @@ import {
 import { IconPencil, IconStar, IconX } from '@tabler/icons-react'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
+import { Link, useNavigate } from 'react-router-dom'
 import { useMyReview, useMyGuess, useSubmitReview, useUpdateReview, useCheckGuess, useGuessOptions } from '../../hooks/useDailySpin'
 import { useAuth } from '../../hooks/useAuth'
 import { ApiError } from '../../services/apiClient'
@@ -131,6 +133,7 @@ function ReviewSummary({ review }: { review: ReviewResponse }) {
 
 export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, addedBy, allowGuessing = true }: Props) {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const { data: existingReview, isLoading: reviewLoading } = useMyReview(albumId)
   const { data: existingGuess, isLoading: guessLoading } = useMyGuess(groupId, groupAlbumId)
 
@@ -138,8 +141,8 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
   const isDraft = !!existingReview?.is_draft
   const hasPublishedReview = existingReview && !existingReview.is_draft ? existingReview : null
 
-  const submitReview = useSubmitReview(albumId)
-  const updateReview = useUpdateReview(albumId)
+  const submitReview = useSubmitReview(albumId, groupId)
+  const updateReview = useUpdateReview(albumId, groupId)
   const checkGuess = useCheckGuess(groupId, groupAlbumId)
 
   const [rating, setRating] = useState<number | null>(null)
@@ -149,6 +152,7 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
   const [editRating, setEditRating] = useState(0)
   const [editComment, setEditComment] = useState('')
   const [confirmOpen, { open: openConfirm, close: closeConfirm }] = useDisclosure(false)
+  const [resultModal, setResultModal] = useState<{ isFirstReview: boolean } | null>(null)
   const [autosavedAt, setAutosavedAt] = useState<Date | null>(null)
   const isDirtyRef = useRef(false)
   const autosaveCallbackRef = useRef<() => Promise<void>>(() => Promise.resolve())
@@ -215,9 +219,45 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
     </Alert>
   )
 
+  const historyHref = `/groups/${groupId}?tab=history&album=${albumId}`
+
+  const goToHistory = () => {
+    setResultModal(null)
+    navigate(historyHref)
+  }
+
+  const historyLink = (
+    <Anchor component={Link} to={historyHref} size="xs">
+      View group review history →
+    </Anchor>
+  )
+
+  const resultModalEl = (
+    <Modal
+      opened={!!resultModal}
+      onClose={() => setResultModal(null)}
+      title={resultModal?.isFirstReview ? '🎉 First to review!' : 'Review submitted'}
+      centered
+    >
+      <Text size="sm" mb="lg">
+        {resultModal?.isFirstReview
+          ? "You're the first person in the group to review this album."
+          : 'Your review has been saved.'}
+      </Text>
+      <Group justify="flex-end">
+        <Button variant="default" onClick={() => setResultModal(null)}>
+          {resultModal?.isFirstReview ? 'Nice!' : 'Close'}
+        </Button>
+        <Button onClick={goToHistory}>View group review history</Button>
+      </Group>
+    </Modal>
+  )
+
+  let body: React.ReactNode
+
   // ── Edit mode (published review) ─────────────────────────────────────────
   if (hasPublishedReview && isEditing) {
-    return (
+    body = (
       <Stack gap="md">
         <Group justify="space-between" align="center">
           <Text size="sm" fw={600}>Edit your review</Text>
@@ -255,11 +295,9 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
         </Group>
       </Stack>
     )
-  }
-
-  // ── Published review (guessing disabled) ─────────────────────────────────
-  if (hasPublishedReview && !allowGuessing) {
-    return (
+  } else if (hasPublishedReview && !allowGuessing) {
+    // ── Published review (guessing disabled) ─────────────────────────────
+    body = (
       <Stack gap="md">
         <Group justify="space-between" align="flex-start">
           <ReviewSummary review={hasPublishedReview} />
@@ -267,13 +305,12 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
             <IconPencil size={14} />
           </ActionIcon>
         </Group>
+        {historyLink}
       </Stack>
     )
-  }
-
-  // ── Published review + already guessed (or self-nominated) ───────────────
-  if (hasPublishedReview && (existingGuess || isSelfNominated)) {
-    return (
+  } else if (hasPublishedReview && (existingGuess || isSelfNominated)) {
+    // ── Published review + already guessed (or self-nominated) ───────────
+    body = (
       <Stack gap="md">
         <Group justify="space-between" align="flex-start">
           <ReviewSummary review={hasPublishedReview} />
@@ -282,12 +319,11 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
           </ActionIcon>
         </Group>
         {isSelfNominated ? selfNominatedBanner : <GuessResult result={existingGuess!} />}
+        {historyLink}
       </Stack>
     )
-  }
-
-  // ── Published review, no guess yet ───────────────────────────────────────
-  if (hasPublishedReview) {
+  } else if (hasPublishedReview) {
+    // ── Published review, no guess yet ────────────────────────────────────
     const handleGuessSubmit = async () => {
       if (guessedUserId === null) return
       try {
@@ -298,7 +334,7 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
       }
     }
 
-    return (
+    body = (
       <Stack gap="md">
         <Group justify="space-between" align="flex-start">
           <ReviewSummary review={hasPublishedReview} />
@@ -319,147 +355,156 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
             Submit guess
           </Button>
         </Stack>
+        {historyLink}
       </Stack>
     )
-  }
-
-  // ── No review yet / Draft ─────────────────────────────────────────────────
-  const handleSaveDraft = async () => {
-    try {
-      if (isDraft && existingReview) {
-        await updateReview.mutateAsync({
-          reviewId: existingReview.id,
-          data: { rating: rating ?? undefined, comment: comment || undefined, is_draft: true },
-        })
-      } else {
-        await submitReview.mutateAsync({ rating: rating ?? undefined, comment: comment || undefined, is_draft: true })
-      }
-      notifications.show({ color: 'teal', message: 'Draft saved' })
-    } catch (err) {
-      const message = err instanceof ApiError ? err.message : 'Could not save draft'
-      notifications.show({ color: 'red', message })
-    }
-  }
-
-  const doSubmit = async (skipGuess: boolean) => {
-    if (rating === null) {
-      notifications.show({ color: 'red', message: 'Please set a rating' })
-      return
-    }
-    closeConfirm()
-    try {
-      if (isDraft && existingReview) {
-        await updateReview.mutateAsync({
-          reviewId: existingReview.id,
-          data: { rating: rating ?? undefined, comment: comment || undefined, is_draft: false },
-        })
-      } else {
-        await submitReview.mutateAsync({ rating: rating ?? undefined, comment: comment || undefined })
-      }
-    } catch (err) {
-      const message = err instanceof ApiError ? err.message : 'Could not submit review'
-      notifications.show({ color: 'red', message })
-      return
-    }
-
-    if (!skipGuess && guessedUserId !== null) {
+  } else {
+    // ── No review yet / Draft ───────────────────────────────────────────────
+    const handleSaveDraft = async () => {
       try {
-        await checkGuess.mutateAsync({ guessed_user_id: guessedUserId === 'chaos' ? null : guessedUserId })
+        if (isDraft && existingReview) {
+          await updateReview.mutateAsync({
+            reviewId: existingReview.id,
+            data: { rating: rating ?? undefined, comment: comment || undefined, is_draft: true },
+          })
+        } else {
+          await submitReview.mutateAsync({ rating: rating ?? undefined, comment: comment || undefined, is_draft: true })
+        }
+        notifications.show({ color: 'teal', message: 'Draft saved' })
       } catch (err) {
-        const message =
-          err instanceof ApiError
-            ? err.message
-            : 'Review saved, but guess could not be submitted'
-        notifications.show({ color: 'yellow', message })
+        const message = err instanceof ApiError ? err.message : 'Could not save draft'
+        notifications.show({ color: 'red', message })
+      }
+    }
+
+    const doSubmit = async (skipGuess: boolean) => {
+      if (rating === null) {
+        notifications.show({ color: 'red', message: 'Please set a rating' })
         return
       }
+      closeConfirm()
+      let submittedReview: ReviewResponse
+      try {
+        if (isDraft && existingReview) {
+          submittedReview = await updateReview.mutateAsync({
+            reviewId: existingReview.id,
+            data: { rating: rating ?? undefined, comment: comment || undefined, is_draft: false },
+          })
+        } else {
+          submittedReview = await submitReview.mutateAsync({ rating: rating ?? undefined, comment: comment || undefined })
+        }
+      } catch (err) {
+        const message = err instanceof ApiError ? err.message : 'Could not submit review'
+        notifications.show({ color: 'red', message })
+        return
+      }
+
+      if (!skipGuess && guessedUserId !== null) {
+        try {
+          await checkGuess.mutateAsync({ guessed_user_id: guessedUserId === 'chaos' ? null : guessedUserId })
+        } catch (err) {
+          const message =
+            err instanceof ApiError
+              ? err.message
+              : 'Review saved, but guess could not be submitted'
+          notifications.show({ color: 'yellow', message })
+          return
+        }
+      }
+
+      setResultModal({ isFirstReview: submittedReview.is_first_review })
     }
 
-    notifications.show({ color: 'green', message: 'Review submitted' })
-  }
+    const handleSubmitClick = () => {
+      if (rating === null) {
+        notifications.show({ color: 'red', message: 'Please set a rating' })
+        return
+      }
+      if (!allowGuessing || isSelfNominated || guessedUserId) {
+        doSubmit(!allowGuessing)
+      } else {
+        openConfirm()
+      }
+    }
 
-  const handleSubmitClick = () => {
-    if (rating === null) {
-      notifications.show({ color: 'red', message: 'Please set a rating' })
-      return
-    }
-    if (!allowGuessing || isSelfNominated || guessedUserId) {
-      doSubmit(!allowGuessing)
-    } else {
-      openConfirm()
-    }
+    body = (
+      <>
+        <Stack gap="md">
+          <Text size="sm" fw={600}>{isDraft ? 'Your draft review' : 'Your review'}</Text>
+          <div>
+            <Group justify="space-between" mb={4}>
+              <Text size="sm">Rating</Text>
+              <Text size="sm" fw={500} c="violet">
+                {rating !== null ? `${rating} / 10` : '—'}
+              </Text>
+            </Group>
+            <Slider
+              min={0}
+              max={10}
+              step={0.1}
+              value={rating ?? 0}
+              onChange={(v) => { isDirtyRef.current = true; setRating(v) }}
+              marks={[0, 2, 4, 6, 8, 10].map((v) => ({ value: v, label: String(v) }))}
+              mb="lg"
+            />
+          </div>
+          <Textarea
+            label="Comment (optional)"
+            placeholder="What did you think?"
+            value={comment}
+            onChange={(e) => { isDirtyRef.current = true; setComment(e.currentTarget.value) }}
+            maxLength={5000}
+            autosize
+            minRows={2}
+          />
+          {allowGuessing && (isSelfNominated ? (
+            selfNominatedBanner
+          ) : (
+            <Stack gap="xs">
+              <Text size="sm">Who nominated this? (optional)</Text>
+              <AvatarSelector groupId={groupId} groupAlbumId={groupAlbumId} selected={guessedUserId} onChange={setGuessedUserId} />
+            </Stack>
+          ))}
+          <Group justify="space-between" align="center">
+            <Group gap="xs">
+              <Button variant="default" onClick={handleSaveDraft} loading={isPending}>
+                Save draft
+              </Button>
+              <Button onClick={handleSubmitClick} loading={isPending} disabled={rating === null}>
+                Submit review
+              </Button>
+            </Group>
+            {autosavedAt && (
+              <Text size="xs" c="dimmed">
+                Autosaved {autosavedAt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+              </Text>
+            )}
+          </Group>
+        </Stack>
+
+        {allowGuessing && (
+          <Modal opened={confirmOpen} onClose={closeConfirm} title="Submit without a guess?">
+            <Text size="sm" mb="lg">
+              You haven&apos;t selected who nominated this album. Submit your review without a guess?
+            </Text>
+            <Group justify="flex-end">
+              <Button variant="default" onClick={closeConfirm}>
+                Go back
+              </Button>
+              <Button loading={isPending} onClick={() => doSubmit(true)}>
+                Submit anyway
+              </Button>
+            </Group>
+          </Modal>
+        )}
+      </>
+    )
   }
 
   return (
     <>
-      <Stack gap="md">
-        <Text size="sm" fw={600}>{isDraft ? 'Your draft review' : 'Your review'}</Text>
-        <div>
-          <Group justify="space-between" mb={4}>
-            <Text size="sm">Rating</Text>
-            <Text size="sm" fw={500} c="violet">
-              {rating !== null ? `${rating} / 10` : '—'}
-            </Text>
-          </Group>
-          <Slider
-            min={0}
-            max={10}
-            step={0.1}
-            value={rating ?? 0}
-            onChange={(v) => { isDirtyRef.current = true; setRating(v) }}
-            marks={[0, 2, 4, 6, 8, 10].map((v) => ({ value: v, label: String(v) }))}
-            mb="lg"
-          />
-        </div>
-        <Textarea
-          label="Comment (optional)"
-          placeholder="What did you think?"
-          value={comment}
-          onChange={(e) => { isDirtyRef.current = true; setComment(e.currentTarget.value) }}
-          maxLength={5000}
-          autosize
-          minRows={2}
-        />
-        {allowGuessing && (isSelfNominated ? (
-          selfNominatedBanner
-        ) : (
-          <Stack gap="xs">
-            <Text size="sm">Who nominated this? (optional)</Text>
-            <AvatarSelector groupId={groupId} groupAlbumId={groupAlbumId} selected={guessedUserId} onChange={setGuessedUserId} />
-          </Stack>
-        ))}
-        <Group justify="space-between" align="center">
-          <Group gap="xs">
-            <Button variant="default" onClick={handleSaveDraft} loading={isPending}>
-              Save draft
-            </Button>
-            <Button onClick={handleSubmitClick} loading={isPending} disabled={rating === null}>
-              Submit review
-            </Button>
-          </Group>
-          {autosavedAt && (
-            <Text size="xs" c="dimmed">
-              Autosaved {autosavedAt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-            </Text>
-          )}
-        </Group>
-      </Stack>
-
-      {allowGuessing && (
-        <Modal opened={confirmOpen} onClose={closeConfirm} title="Submit without a guess?">
-          <Text size="sm" mb="lg">
-            You haven&apos;t selected who nominated this album. Submit your review without a guess?
-          </Text>
-          <Group justify="flex-end">
-            <Button variant="default" onClick={closeConfirm}>
-              Go back
-            </Button>
-            <Button loading={isPending} onClick={() => doSubmit(true)}>
-              Submit anyway
-            </Button>
-          </Group>
-        </Modal>
-      )}
+      {body}
+      {resultModalEl}
     </>
   )
 }

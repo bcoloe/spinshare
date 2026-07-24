@@ -2,11 +2,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { albumService } from '../services/albumService'
 import type { NominationGuessCreate, ReviewCreate, ReviewUpdate } from '../types/album'
 
-export function useUpdateReview(albumId: number) {
+export function useUpdateReview(albumId: number, groupId?: number) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ reviewId, data }: { reviewId: number; data: ReviewUpdate }) =>
-      albumService.updateReview(albumId, reviewId, data),
+      albumService.updateReview(albumId, reviewId, data, groupId),
     onSuccess: (updated) => {
       qc.setQueryData(['reviews', albumId, 'me'], updated)
       qc.invalidateQueries({ queryKey: ['albums', albumId, 'reviews'] })
@@ -17,6 +17,9 @@ export function useUpdateReview(albumId: number) {
           return key[0] === 'groups' && key[2] === 'reviews'
         },
       })
+      if (groupId != null) {
+        qc.invalidateQueries({ queryKey: ['groups', groupId, 'albums', 'history'] })
+      }
     },
   })
 }
@@ -93,10 +96,10 @@ export function useGuessOptions(groupId: number, groupAlbumId: number) {
   })
 }
 
-export function useSubmitReview(albumId: number) {
+export function useSubmitReview(albumId: number, groupId?: number) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: ReviewCreate) => albumService.submitReview(albumId, data),
+    mutationFn: (data: ReviewCreate) => albumService.submitReview(albumId, data, groupId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['reviews', albumId, 'me'] })
       qc.invalidateQueries({ queryKey: ['albums', albumId, 'reviews'] })
@@ -107,6 +110,9 @@ export function useSubmitReview(albumId: number) {
           return key[0] === 'groups' && key[2] === 'reviews'
         },
       })
+      if (groupId != null) {
+        qc.invalidateQueries({ queryKey: ['groups', groupId, 'albums', 'history'] })
+      }
     },
   })
 }

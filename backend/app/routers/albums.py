@@ -423,13 +423,18 @@ def update_album_links(
 def create_review(
     album_id: int,
     data: ReviewCreate,
+    group_id: int | None = Query(None),
     current_user: User = Depends(get_current_user),
     album_service: AlbumService = Depends(get_album_service),
     review_service: ReviewService = Depends(get_review_service),
 ):
-    """Submit a review for an album. One review per user per album."""
+    """Submit a review for an album. One review per user per album.
+
+    If group_id is provided, the response's is_first_review flag reflects
+    whether this is the first published review among that group's members.
+    """
     album_service.get_album_by_id(album_id)
-    return review_service.create_review(album_id, current_user.id, data)
+    return review_service.create_review(album_id, current_user.id, data, group_id=group_id)
 
 
 @albums_router.get("/{album_id}/reviews", response_model=list[AlbumReviewItem])
@@ -474,13 +479,19 @@ def update_review(
     album_id: int,
     review_id: int,
     data: ReviewUpdate,
+    group_id: int | None = Query(None),
     current_user: User = Depends(get_current_user),
     album_service: AlbumService = Depends(get_album_service),
     review_service: ReviewService = Depends(get_review_service),
 ):
-    """Update your review for an album."""
+    """Update your review for an album.
+
+    If group_id is provided and this update publishes a draft, the response's
+    is_first_review flag reflects whether this is the first published review
+    among that group's members.
+    """
     album_service.get_album_by_id(album_id)
-    return review_service.update_review(review_id, current_user.id, data)
+    return review_service.update_review(review_id, current_user.id, data, group_id=group_id)
 
 
 @albums_router.delete(
