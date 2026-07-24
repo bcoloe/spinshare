@@ -7,10 +7,17 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
-from app.dependencies import get_current_user, get_group_album_service
+from app.dependencies import get_current_user, get_dealer_service, get_group_album_service
 from app.main import app
 from app.routers.conftest import make_mock_user
-from app.schemas.group_album import CheckGuessResponse, NominationGuessResponse
+from app.schemas.album import AlbumResponse, GroupAlbumResponse
+from app.schemas.group_album import (
+    CheckGuessResponse,
+    DealRollResponse,
+    DealsTodayResponse,
+    NominationGuessResponse,
+)
+from app.services.dealer_service import DealerService
 from app.services.group_album_service import GroupAlbumService
 from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
@@ -58,9 +65,33 @@ def make_mock_guess_response(id=1, group_album_id=1, guessing_user_id=2, guessed
     )
 
 
+def make_deal_response(album_id=1, group_album_id=1):
+    return GroupAlbumResponse(
+        id=group_album_id,
+        group_id=1,
+        album_id=album_id,
+        added_by=1,
+        status="pending",
+        added_at=_NOW,
+        selected_date=None,
+        dealt_at=_NOW,
+        album=AlbumResponse(
+            id=album_id,
+            title="OK Computer",
+            artist="Radiohead",
+            added_at=_NOW,
+        ),
+    )
+
+
 @pytest.fixture
 def mock_svc():
     return MagicMock(spec=GroupAlbumService)
+
+
+@pytest.fixture
+def mock_dealer_svc():
+    return MagicMock(spec=DealerService)
 
 
 @pytest.fixture
@@ -69,17 +100,19 @@ def mock_user():
 
 
 @pytest.fixture
-def client(mock_user, mock_svc):
+def client(mock_user, mock_svc, mock_dealer_svc):
     app.dependency_overrides[get_current_user] = lambda: mock_user
     app.dependency_overrides[get_group_album_service] = lambda: mock_svc
+    app.dependency_overrides[get_dealer_service] = lambda: mock_dealer_svc
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
 
 
 @pytest.fixture
-def unauthed_client(mock_svc):
+def unauthed_client(mock_svc, mock_dealer_svc):
     app.dependency_overrides[get_group_album_service] = lambda: mock_svc
+    app.dependency_overrides[get_dealer_service] = lambda: mock_dealer_svc
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
@@ -146,6 +179,93 @@ class TestTriggerDailySelection:
 
     def test_unauthenticated(self, unauthed_client):
         resp = unauthed_client.post("/groups/1/albums/select-today")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+# ==================== DEALER MODE ====================
+
+
+class TestRollDeal:
+    def test_roll_returns_deal(self, client, mock_dealer_svc):
+        mock_dealer_svc.roll.return_value = DealRollResponse(
+            deal=make_deal_response(),
+            rolls_used_today=1,
+            rolls_per_day=2,
+            pool_remaining=4,
+        )
+        resp = client.post("/groups/1/deals/roll")
+        assert resp.status_code == status.HTTP_200_OK
+        body = resp.json()
+        assert body["deal"]["dealt_at"] is not None
+        assert body["rolls_used_today"] == 1
+        assert body["rolls_per_day"] == 2
+        assert body["pool_remaining"] == 4
+        mock_dealer_svc.roll.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "detail", ["dealer_mode_disabled", "no_rolls_remaining", "dealer_pool_empty"]
+    )
+    def test_roll_conflicts(self, client, mock_dealer_svc, detail):
+        mock_dealer_svc.roll.side_effect = HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=detail
+        )
+        resp = client.post("/groups/1/deals/roll")
+        assert resp.status_code == status.HTTP_409_CONFLICT
+        assert resp.json()["detail"] == detail
+
+    def test_non_member_forbidden(self, client, mock_dealer_svc):
+        mock_dealer_svc.roll.side_effect = HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not a member"
+        )
+        resp = client.post("/groups/1/deals/roll")
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_unauthenticated(self, unauthed_client):
+        resp = unauthed_client.post("/groups/1/deals/roll")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+class TestGetTodaysDeals:
+    def test_returns_deals(self, client, mock_dealer_svc):
+        mock_dealer_svc.get_todays_deals.return_value = DealsTodayResponse(
+            deals=[make_deal_response()],
+            rolls_used_today=1,
+            rolls_per_day=1,
+            pool_remaining=0,
+        )
+        resp = client.get("/groups/1/deals/today")
+        assert resp.status_code == status.HTTP_200_OK
+        assert len(resp.json()["deals"]) == 1
+
+    def test_empty_when_dealer_off(self, client, mock_dealer_svc):
+        mock_dealer_svc.get_todays_deals.return_value = DealsTodayResponse(
+            deals=[], rolls_used_today=0, rolls_per_day=0, pool_remaining=0
+        )
+        resp = client.get("/groups/1/deals/today")
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["deals"] == []
+
+    def test_unauthenticated(self, unauthed_client):
+        resp = unauthed_client.get("/groups/1/deals/today")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+class TestGetMemberHistory:
+    def test_returns_history(self, client, mock_dealer_svc):
+        mock_dealer_svc.get_member_history.return_value = [make_deal_response()]
+        resp = client.get("/groups/1/albums/history")
+        assert resp.status_code == status.HTTP_200_OK
+        assert len(resp.json()) == 1
+
+    def test_non_member_forbidden(self, client, mock_dealer_svc):
+        mock_dealer_svc.get_member_history.side_effect = HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not a member"
+        )
+        resp = client.get("/groups/1/albums/history")
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_unauthenticated(self, unauthed_client):
+        resp = unauthed_client.get("/groups/1/albums/history")
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
 

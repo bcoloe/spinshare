@@ -3,7 +3,7 @@
 from collections import Counter, defaultdict
 from datetime import datetime
 
-from app.models import Group, GroupAlbum, GroupSettings, NominationGuess, User, group_members
+from app.models import AlbumDeal, Group, GroupAlbum, GroupSettings, NominationGuess, User, group_members
 from app.models.group import GroupRole
 from app.schemas.group import (
     GroupCreate,
@@ -15,7 +15,7 @@ from app.schemas.notification import NotificationType
 from app.services import user_service
 from app.services.notification_service import NotificationService
 from fastapi import HTTPException, status
-from sqlalchemy import func, select, update
+from sqlalchemy import exists, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -163,10 +163,22 @@ class GroupService:
 
         # Remove the departing member's unselected nominations. Only their own rows are
         # deleted — co-nominations of the same album by other members remain intact.
+        # Nominations for albums already dealt to someone (dealer mode) are anonymized
+        # instead, preserving other members' pools, histories, and guess reveals.
+        dealt_album_ids = (
+            select(AlbumDeal.album_id).where(AlbumDeal.group_id == group_id).scalar_subquery()
+        )
         self.db.query(GroupAlbum).filter(
             GroupAlbum.group_id == group_id,
             GroupAlbum.added_by == user_id,
             GroupAlbum.selected_date.is_(None),
+            GroupAlbum.album_id.in_(dealt_album_ids),
+        ).update({"added_by": None}, synchronize_session="fetch")
+        self.db.query(GroupAlbum).filter(
+            GroupAlbum.group_id == group_id,
+            GroupAlbum.added_by == user_id,
+            GroupAlbum.selected_date.is_(None),
+            GroupAlbum.album_id.notin_(dealt_album_ids),
         ).delete(synchronize_session="fetch")
 
         try:
@@ -487,11 +499,20 @@ class GroupService:
         )
 
         # ── Guess stats ──────────────────────────────────────────────────────
-        # Fetch all guesses for selected albums in this group in one query.
+        # Fetch all guesses for surfaced albums in this group in one query.
+        # An album is surfaced once selected (shared spins) or dealt to a member
+        # (dealer mode) — guesses can only exist for surfaced albums.
+        dealt_in_group = exists().where(
+            AlbumDeal.group_id == GroupAlbum.group_id,
+            AlbumDeal.album_id == GroupAlbum.album_id,
+        )
         guess_rows = (
             self.db.query(NominationGuess)
             .join(GroupAlbum, NominationGuess.group_album_id == GroupAlbum.id)
-            .filter(GroupAlbum.group_id == group_id, GroupAlbum.selected_date.isnot(None))
+            .filter(
+                GroupAlbum.group_id == group_id,
+                or_(GroupAlbum.selected_date.isnot(None), dealt_in_group),
+            )
             .all()
         )
 

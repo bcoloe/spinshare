@@ -16,7 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import Album, Group, GroupAlbum, GroupSettings, NominationGuess, Review, User
+from app.models import Album, AlbumDeal, Group, GroupAlbum, GroupSettings, NominationGuess, Review, User
 from app.models.group import group_members
 from app.schemas.group_album import (
     CheckGuessResponse,
@@ -72,6 +72,11 @@ class GroupAlbumService:
             HTTPException 409: If no eligible distinct albums are available.
         """
         settings = self.db.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
+
+        # Dealer groups have no shared daily selection — members roll individually
+        if settings is not None and settings.dealer_mode:
+            return []
+
         tz_name = (settings.timezone if settings else None) or DEFAULT_TZ
 
         today = group_today(tz_name)
@@ -347,6 +352,11 @@ class GroupAlbumService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Group settings not found",
             )
+        if settings.dealer_mode:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="dealer_mode_enabled",
+            )
 
         tz_name = (settings.timezone if settings else None) or DEFAULT_TZ
         today = group_today(tz_name)
@@ -465,7 +475,7 @@ class GroupAlbumService:
         group_service.require_membership(user.id, group_id)
 
         settings = self.db.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
-        if settings is None or not settings.catch_up_enabled:
+        if settings is None or not settings.catch_up_enabled or settings.dealer_mode:
             return []
 
         tz_name = (settings.timezone if settings else None) or DEFAULT_TZ
@@ -573,7 +583,7 @@ class GroupAlbumService:
         """Submit a nomination guess and receive instant feedback.
 
         Rules:
-        - Album must have been selected (selected_date IS NOT NULL).
+        - Album must have been selected (selected_date IS NOT NULL) or dealt to the user.
         - User must be a group member.
         - User cannot guess themselves (for non-chaos guesses).
         - One guess per user per album (409 on duplicate).
@@ -589,7 +599,9 @@ class GroupAlbumService:
         group_service.require_membership(user.id, group_id)
 
         group_album = self._get_group_album_or_404(group_id, group_album_id)
-        if group_album.selected_date is None:
+        if group_album.selected_date is None and not self._user_has_revealed_deal(
+            group_id, user.id, group_album.album_id
+        ):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Guesses can only be submitted for albums that have been selected",
@@ -816,6 +828,7 @@ class GroupAlbumService:
         """Return the number of distinct albums available for future selection.
 
         For regular groups: distinct unselected nominations within the group.
+        For dealer groups: albums still dealable to the calling user.
         For the global group: distinct albums nominated in any non-global group
         that have not yet been spun globally.
 
@@ -824,6 +837,12 @@ class GroupAlbumService:
         """
         group_service = gs.GroupService(self.db)
         group_service.require_membership(user.id, group_id)
+
+        settings = self.db.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
+        if settings is not None and settings.dealer_mode:
+            from app.services.dealer_service import DealerService  # local import avoids circular dependency
+
+            return DealerService(self.db).get_pool_count(group_id, user.id)
 
         group = self.db.query(Group).filter(Group.id == group_id).first()
         if group and group.is_global:
@@ -897,6 +916,20 @@ class GroupAlbumService:
                 message=message,
                 group_id=group_id,
             )
+
+    def _user_has_revealed_deal(self, group_id: int, user_id: int, album_id: int) -> bool:
+        """Whether the album has been dealt (revealed) to this user in this group."""
+        return (
+            self.db.query(AlbumDeal.id)
+            .filter(
+                AlbumDeal.group_id == group_id,
+                AlbumDeal.user_id == user_id,
+                AlbumDeal.album_id == album_id,
+                AlbumDeal.revealed_at.isnot(None),
+            )
+            .first()
+            is not None
+        )
 
     def _get_group_album_or_404(self, group_id: int, group_album_id: int) -> GroupAlbum:
         ga = (

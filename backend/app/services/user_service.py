@@ -2,12 +2,12 @@
 
 from datetime import UTC, datetime, timedelta
 
-from app.models import Group, GroupAlbum, NominationGuess, Review, SpotifyConnection, User
+from app.models import AlbumDeal, Group, GroupAlbum, NominationGuess, Review, SpotifyConnection, User
 from app.models.group import group_members
 from app.schemas.user import LoginRequest, LoginResponse, RefreshResponse, UserCreate, UserResponse, UserUpdate
 from app.utils import security
 from fastapi import HTTPException, status
-from sqlalchemy import delete as sa_delete, select
+from sqlalchemy import delete as sa_delete, exists, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -398,8 +398,10 @@ class UserService:
         """Delete a user account.
 
         Pending nominations are removed from their groups. Already-selected
-        nominations are preserved but anonymized (added_by set to NULL).
-        Reviews and nomination guesses are deleted. Created groups remain.
+        nominations — and pending nominations for albums already dealt to a
+        member (dealer mode) — are preserved but anonymized (added_by set to
+        NULL). Reviews, nomination guesses, and album deals are deleted.
+        Created groups remain.
 
         Raises:
             HTTPException 404: If user not found
@@ -417,10 +419,27 @@ class UserService:
             Review.user_id == user_id
         ).delete(synchronize_session=False)
 
-        # Remove pending nominations from groups
+        # Delete the user's album deals first so the anonymization check below
+        # only considers deals held by *other* members
+        self.db.query(AlbumDeal).filter(
+            AlbumDeal.user_id == user_id
+        ).delete(synchronize_session=False)
+
+        # Pending nominations for albums already dealt to a member (dealer mode)
+        # stay in the group anonymized; the rest are removed
+        dealt_in_group = exists().where(
+            AlbumDeal.group_id == GroupAlbum.group_id,
+            AlbumDeal.album_id == GroupAlbum.album_id,
+        )
         self.db.query(GroupAlbum).filter(
             GroupAlbum.added_by == user_id,
             GroupAlbum.selected_date.is_(None),
+            dealt_in_group,
+        ).update({"added_by": None}, synchronize_session=False)
+        self.db.query(GroupAlbum).filter(
+            GroupAlbum.added_by == user_id,
+            GroupAlbum.selected_date.is_(None),
+            ~dealt_in_group,
         ).delete(synchronize_session=False)
 
         # Anonymize already-selected nominations so the album stays in the group
