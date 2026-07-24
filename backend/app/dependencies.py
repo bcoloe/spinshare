@@ -14,11 +14,13 @@ from app.services.invite_link_service import InviteLinkService
 from app.services.notification_service import NotificationService
 from app.services.review_service import ReviewService
 from app.services.explore_service import ExploreService
+from app.services.public_spin_service import PublicSpinService
 from app.services.stats_service import StatsService
 from app.services.user_service import UserService
 from app.utils.security import decode_access_token
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="user/login")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="user/login", auto_error=False)
 
 
 def get_group_service(db: Session = Depends(get_db)) -> GroupService:
@@ -76,6 +78,11 @@ def get_explore_service(db: Session = Depends(get_db)) -> ExploreService:
     return ExploreService(db)
 
 
+def get_public_spin_service(db: Session = Depends(get_db)) -> PublicSpinService:
+    """Dependency to get PublicSpinService"""
+    return PublicSpinService(db)
+
+
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
     """
     Get the current authenticated user from JWT token.
@@ -104,6 +111,33 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise credentials_exception from e
 
     return user
+
+
+def get_current_user_optional(
+    token: str | None = Depends(oauth2_scheme_optional), db: Session = Depends(get_db)
+) -> User | None:
+    """
+    Get the current authenticated user from JWT token if present and valid.
+
+    Unlike get_current_user, this never raises 401 — a missing, invalid, or
+    stale token simply resolves to None so callers can allow anonymous access.
+    """
+    if token is None:
+        return None
+
+    payload = decode_access_token(token)
+    if payload is None:
+        return None
+
+    user_id = payload.get("sub")
+    if user_id is None:
+        return None
+
+    user_service = UserService(db)
+    try:
+        return user_service.get_user_by_id(int(user_id))
+    except HTTPException:
+        return None
 
 
 def get_current_admin_user(current_user: User = Depends(get_current_user)) -> User:

@@ -30,7 +30,7 @@ const UnseenReviewsContext = createContext<UnseenReviewsContextValue>({
 export function UnseenReviewsProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
   const [unseen, setUnseen] = useState<Set<UnseenKey>>(new Set())
-  const { data: unreadNotifications = [] } = useUnreadNotifications()
+  const { data: unreadNotifications = [] } = useUnreadNotifications(!!user)
 
   // Hydrate from localStorage whenever the logged-in user changes.
   useEffect(() => {

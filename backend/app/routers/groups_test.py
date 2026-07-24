@@ -82,9 +82,12 @@ class TestGroupGet:
         assert resp.status_code == status.HTTP_200_OK
 
     def test_get_private_group_as_non_member(self, client, mock_group_service):
+        from fastapi import HTTPException
         group = make_mock_group(is_public=False)
         mock_group_service.get_group_by_id.return_value = group
-        mock_group_service.is_user_in_group.return_value = False
+        mock_group_service.require_public_or_member.side_effect = HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Access denied"
+        )
 
         resp = client.get("/groups/1")
         assert resp.status_code == status.HTTP_403_FORBIDDEN
@@ -172,6 +175,7 @@ class TestGroupJoin:
 
 class TestGroupMembers:
     def test_list_members(self, client, mock_group_service):
+        mock_group_service.get_group_by_id.return_value = make_mock_group()
         mock_group_service.get_group_members.return_value = [
             {"user_id": 1, "username": "test_user", "role": "owner", "joined_at": _NOW}
         ]
@@ -182,12 +186,13 @@ class TestGroupMembers:
         members = resp.json()
         assert len(members) == 1
         assert members[0]["username"] == "test_user"
-        mock_group_service.require_membership.assert_called_once()
+        mock_group_service.require_public_or_member.assert_called_once()
 
     def test_list_members_forbidden(self, client, mock_group_service):
         from fastapi import HTTPException
-        mock_group_service.require_membership.side_effect = HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="You must be a member"
+        mock_group_service.get_group_by_id.return_value = make_mock_group(is_public=False)
+        mock_group_service.require_public_or_member.side_effect = HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Access denied"
         )
         resp = client.get("/groups/1/members")
         assert resp.status_code == status.HTTP_403_FORBIDDEN
@@ -271,6 +276,7 @@ class TestGroupSearch:
 
 class TestGroupStats:
     def test_get_stats_success(self, client, mock_group_service):
+        mock_group_service.get_group_by_id.return_value = make_mock_group()
         mock_group_service.get_group_stats.return_value = {
             "member_count": 3,
             "albums_added": 10,
@@ -290,12 +296,13 @@ class TestGroupStats:
         assert data["member_count"] == 3
         assert data["albums_added"] == 10
         assert data["albums_reviewed"] == 5
-        mock_group_service.require_membership.assert_called_once()
+        mock_group_service.require_public_or_member.assert_called_once()
 
     def test_get_stats_non_member_forbidden(self, client, mock_group_service):
         from fastapi import HTTPException
-        mock_group_service.require_membership.side_effect = HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="You must be a member"
+        mock_group_service.get_group_by_id.return_value = make_mock_group(is_public=False)
+        mock_group_service.require_public_or_member.side_effect = HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Access denied"
         )
         resp = client.get("/groups/1/stats")
         assert resp.status_code == status.HTTP_403_FORBIDDEN

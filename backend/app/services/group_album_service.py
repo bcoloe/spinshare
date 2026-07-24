@@ -517,7 +517,7 @@ class GroupAlbumService:
 
         return results
 
-    def get_todays_albums(self, group_id: int, user: User) -> list[GroupAlbum]:
+    def get_todays_albums(self, group_id: int, user: User | None) -> list[GroupAlbum]:
         """Return albums from the most recent scheduled draw for a group. Requires membership.
 
         On non-draw days, falls back to the previous scheduled draw's albums so members
@@ -528,11 +528,19 @@ class GroupAlbumService:
         When an album has multiple nominations they are all selected together;
         this returns one canonical GroupAlbum (earliest nomination) per album.
 
+        Pass user=None for anonymous access — allowed only for the global
+        group or bot groups.
+
         Raises:
-            HTTPException 403: If user is not a group member.
+            HTTPException 401: Anonymous caller, group is not global/bot.
+            HTTPException 403: Authenticated caller is not a group member.
         """
         group_service = gs.GroupService(self.db)
-        group_service.require_membership(user.id, group_id)
+        if user is not None:
+            group_service.require_membership(user.id, group_id)
+        else:
+            group = group_service.get_group_by_id(group_id)
+            group_service.require_public_or_member(group, None)
 
         settings = self.db.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
         tz_name = (settings.timezone if settings else None) or DEFAULT_TZ

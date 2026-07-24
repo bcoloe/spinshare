@@ -6,12 +6,13 @@ import ChunkErrorBoundary from './components/ChunkErrorBoundary'
 
 const ProtectedRoute = lazy(() => import('./components/auth/ProtectedRoute'))
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
+const LandingPage = lazy(() => import('./pages/LandingPage'))
 
 function RootRoute() {
-  const { user } = useAuth()
-  const favoriteId = user?.username
-    ? localStorage.getItem(`spinshare_favorite_group_${user.username}`)
-    : null
+  const { user, isInitializing } = useAuth()
+  if (isInitializing) return <LoadingOverlay visible />
+  if (!user) return <LandingPage />
+  const favoriteId = localStorage.getItem(`spinshare_favorite_group_${user.username}`)
   if (favoriteId) return <Navigate to={`/groups/${favoriteId}`} replace />
   return <DashboardPage />
 }
@@ -45,27 +46,31 @@ const router = createBrowserRouter([
   { path: '/reset-password', element: <ResetPasswordPage /> },
   { path: '/invite/:token', element: <InviteAcceptPage /> },
   { path: '/join/:token', element: <JoinGroupPage /> },
+  { path: '/', element: <RootRoute /> },
+  { path: '/about', element: <AboutPage /> },
+  { path: '/about/getting-started', element: <GettingStartedPage /> },
+  { path: '/about/contributing', element: <ContributingPage /> },
+  // GroupPage handles its own anonymous-viewing logic (global/bot groups only)
+  // and redirects to /login itself, so it stays outside ProtectedRoute.
+  { path: '/groups/:groupId', element: <GroupPage /> },
+  // Albums, groups, and stats browsing are publicly readable; user browsing
+  // stays behind login (see /explore/users below).
+  { path: '/albums/:albumId', element: <AlbumPage /> },
+  { path: '/explore', element: <Navigate to="/explore/albums" replace /> },
+  { path: '/explore/albums', element: <ExploreAlbumsPage /> },
+  { path: '/explore/groups', element: <ExploreGroupsPage /> },
+  { path: '/explore/stats', element: <ExploreStatsPage /> },
   {
     element: <ProtectedRoute />,
     children: [
-      { path: '/', element: <RootRoute /> },
       { path: '/dashboard', element: <DashboardPage /> },
-      { path: '/groups/:groupId', element: <GroupPage /> },
       { path: '/groups/:groupId/spin', element: <DailySpinPage /> },
       { path: '/groups/:groupId/catalog', element: <GroupCatalogPage /> },
       { path: '/groups/:groupId/settings', element: <GroupSettingsPage /> },
       { path: '/profile', element: <ProfilePage /> },
       { path: '/users/:username', element: <UserProfilePage /> },
-      { path: '/albums/:albumId', element: <AlbumPage /> },
       { path: '/search', element: <SearchPage /> },
-      { path: '/explore', element: <Navigate to="/explore/albums" replace /> },
-      { path: '/explore/albums', element: <ExploreAlbumsPage /> },
-      { path: '/explore/groups', element: <ExploreGroupsPage /> },
       { path: '/explore/users', element: <ExploreUsersPage /> },
-      { path: '/explore/stats', element: <ExploreStatsPage /> },
-      { path: '/about', element: <AboutPage /> },
-      { path: '/about/getting-started', element: <GettingStartedPage /> },
-      { path: '/about/contributing', element: <ContributingPage /> },
     ],
   },
   { path: '*', element: <NotFoundPage /> },

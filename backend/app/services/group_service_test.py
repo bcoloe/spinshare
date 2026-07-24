@@ -2,7 +2,7 @@ import random
 from datetime import datetime, timezone
 
 import pytest
-from app.models import GroupAlbum
+from app.models import BotSource, GroupAlbum
 from app.models.group import Group, GroupRole
 from app.schemas.group import GroupCreate, GroupModifyRequest, GroupSettingsUpdate
 from app.schemas.notification import NotificationType
@@ -791,6 +791,45 @@ class TestGlobalGroup:
         assert result is not None
         assert result.id == global_group.id
         assert result.is_global
+
+
+class TestRequirePublicOrMember:
+    """Read-access guard for the landing-page/anonymous-browsing flows."""
+
+    def test_anonymous_allowed_on_global_group(self, sample_group_service, global_group):
+        sample_group_service.require_public_or_member(global_group, None)
+
+    def test_anonymous_allowed_on_bot_group(
+        self, db_session, sample_group_service, sample_group, user_factory
+    ):
+        bot_user = user_factory(email="bot@test.com", username="bot_user")
+        db_session.add(BotSource(name="Test Bot", bot_user_id=bot_user.id, bot_group_id=sample_group.id))
+        db_session.commit()
+        db_session.refresh(sample_group)
+
+        sample_group_service.require_public_or_member(sample_group, None)
+
+    def test_anonymous_forbidden_on_regular_public_group(self, sample_group_service, sample_group):
+        with pytest.raises(HTTPException) as exc_info:
+            sample_group_service.require_public_or_member(sample_group, None)
+        assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_authenticated_non_member_forbidden_on_private_group(
+        self, db_session, sample_group_service, sample_group, user_factory
+    ):
+        sample_group.is_public = False
+        db_session.commit()
+        outsider = user_factory(email="outsider@test.com", username="outsider")
+
+        with pytest.raises(HTTPException) as exc_info:
+            sample_group_service.require_public_or_member(sample_group, outsider)
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_authenticated_non_member_allowed_on_public_group(
+        self, sample_group_service, sample_group, user_factory
+    ):
+        outsider = user_factory(email="outsider@test.com", username="outsider")
+        sample_group_service.require_public_or_member(sample_group, outsider)
 
 
 class TestGroupServiceSearch:

@@ -11,6 +11,7 @@ import { AuthProvider } from './context/AuthContext'
 import { FavoriteGroupProvider } from './context/FavoriteGroupContext'
 import { UnseenReviewsProvider } from './context/UnseenReviewsContext'
 import { PlayerProvider } from './context/PlayerContext'
+import { ApiError } from './services/apiClient'
 import App from './App'
 
 const theme = createTheme({
@@ -22,7 +23,11 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 30_000,
-      retry: 1,
+      // Retrying a 401 without credentials can never succeed — settle
+      // immediately so callers (e.g. anonymous-viewing redirects) see the
+      // error without waiting on a pointless retry/backoff cycle.
+      retry: (failureCount, error) =>
+        error instanceof ApiError && error.status === 401 ? false : failureCount < 1,
     },
   },
 })
