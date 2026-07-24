@@ -63,6 +63,7 @@ export interface ReviewResponse {
   is_draft: boolean
   reviewed_at: string
   updated_at: string | null
+  is_first_review: boolean
 }
 
 export interface AlbumReviewItem {

@@ -49,6 +49,46 @@ class TestReviewServiceCreate:
             review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=6.0))
         assert exc_info.value.status_code == status.HTTP_409_CONFLICT
 
+    def test_create_review_is_first_review_true(
+        self, review_service, sample_album, sample_user, sample_group
+    ):
+        review = review_service.create_review(
+            sample_album.id, sample_user.id, ReviewCreate(rating=8.0), group_id=sample_group.id
+        )
+        assert review.is_first_review is True
+
+    def test_create_review_is_first_review_false_when_group_member_already_reviewed(
+        self, db_session, review_service, sample_album, sample_user, sample_group, user_factory
+    ):
+        other = user_factory(email="other@test.com", username="other_reviewer")
+        sample_group.members.append(other)
+        db_session.commit()
+        review_service.create_review(
+            sample_album.id, other.id, ReviewCreate(rating=6.0), group_id=sample_group.id
+        )
+
+        review = review_service.create_review(
+            sample_album.id, sample_user.id, ReviewCreate(rating=8.0), group_id=sample_group.id
+        )
+        assert review.is_first_review is False
+
+    def test_create_review_is_first_review_false_without_group_id(
+        self, review_service, sample_album, sample_user
+    ):
+        review = review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=8.0))
+        assert review.is_first_review is False
+
+    def test_create_draft_review_is_not_first_review(
+        self, review_service, sample_album, sample_user, sample_group
+    ):
+        review = review_service.create_review(
+            sample_album.id,
+            sample_user.id,
+            ReviewCreate(rating=8.0, is_draft=True),
+            group_id=sample_group.id,
+        )
+        assert review.is_first_review is False
+
 
 class TestReviewServiceGet:
     def test_get_review_by_id_success(self, review_service, sample_album, sample_user):
@@ -170,6 +210,46 @@ class TestReviewServiceUpdate:
         with pytest.raises(HTTPException) as exc_info:
             review_service.update_review(review.id, sample_user.id, ReviewUpdate(is_draft=False))
         assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_publish_draft_is_first_review_true(
+        self, review_service, sample_album, sample_user, sample_group
+    ):
+        review = review_service.create_review(
+            sample_album.id, sample_user.id, ReviewCreate(rating=7.0, is_draft=True)
+        )
+        updated = review_service.update_review(
+            review.id, sample_user.id, ReviewUpdate(is_draft=False), group_id=sample_group.id
+        )
+        assert updated.is_first_review is True
+
+    def test_publish_draft_is_first_review_false_when_group_member_already_reviewed(
+        self, db_session, review_service, sample_album, sample_user, sample_group, user_factory
+    ):
+        other = user_factory(email="other@test.com", username="other_reviewer")
+        sample_group.members.append(other)
+        db_session.commit()
+        review_service.create_review(
+            sample_album.id, other.id, ReviewCreate(rating=6.0), group_id=sample_group.id
+        )
+
+        review = review_service.create_review(
+            sample_album.id, sample_user.id, ReviewCreate(rating=7.0, is_draft=True)
+        )
+        updated = review_service.update_review(
+            review.id, sample_user.id, ReviewUpdate(is_draft=False), group_id=sample_group.id
+        )
+        assert updated.is_first_review is False
+
+    def test_edit_already_published_review_is_not_first_review(
+        self, review_service, sample_album, sample_user, sample_group
+    ):
+        review = review_service.create_review(
+            sample_album.id, sample_user.id, ReviewCreate(rating=7.0), group_id=sample_group.id
+        )
+        updated = review_service.update_review(
+            review.id, sample_user.id, ReviewUpdate(rating=9.0), group_id=sample_group.id
+        )
+        assert updated.is_first_review is False
 
 
 class TestReviewServiceDelete:

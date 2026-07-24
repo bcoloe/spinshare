@@ -18,7 +18,9 @@ class ReviewService:
 
     # ==================== CREATE ====================
 
-    def create_review(self, album_id: int, user_id: int, data: ReviewCreate) -> Review:
+    def create_review(
+        self, album_id: int, user_id: int, data: ReviewCreate, group_id: int | None = None
+    ) -> Review:
         """Create a review for an album.
 
         Raises:
@@ -44,7 +46,33 @@ class ReviewService:
         if not data.is_draft:
             self._notify_co_reviewers(album_id, user_id)
         self._refresh_group_album_avgs(album_id)
+        review.is_first_review = (
+            not data.is_draft
+            and group_id is not None
+            and self._is_first_group_review(album_id, group_id, exclude_review_id=review.id)
+        )
         return review
+
+    def _is_first_group_review(
+        self, album_id: int, group_id: int, *, exclude_review_id: int | None = None
+    ) -> bool:
+        """Check whether no group member has a published review of this album yet."""
+        member_ids = list(
+            self.db.scalars(
+                select(group_members.c.user_id).where(group_members.c.group_id == group_id)
+            ).all()
+        )
+        if not member_ids:
+            return False
+        stmt = select(Review.id).where(
+            Review.album_id == album_id,
+            Review.user_id.in_(member_ids),
+            Review.is_draft == False,  # noqa: E712
+        )
+        if exclude_review_id is not None:
+            stmt = stmt.where(Review.id != exclude_review_id)
+        existing = self.db.scalar(stmt.limit(1))
+        return existing is None
 
     def _refresh_group_album_avgs(self, album_id: int) -> None:
         """Recompute and cache avg_rating / review_count on all group_albums rows for this album.
@@ -342,7 +370,9 @@ class ReviewService:
 
     # ==================== UPDATE ====================
 
-    def update_review(self, review_id: int, user_id: int, data: ReviewUpdate) -> Review:
+    def update_review(
+        self, review_id: int, user_id: int, data: ReviewUpdate, group_id: int | None = None
+    ) -> Review:
         """Update an existing review. Only the author may update.
 
         Raises:
@@ -371,12 +401,20 @@ class ReviewService:
                 detail="Rating is required to submit a review",
             )
 
+        just_published = was_draft and not review.is_draft
+
         self.db.commit()
         self.db.refresh(review)
 
-        if was_draft and not review.is_draft:
+        if just_published:
             self._notify_co_reviewers(review.album_id, user_id)
         self._refresh_group_album_avgs(review.album_id)
+
+        review.is_first_review = (
+            just_published
+            and group_id is not None
+            and self._is_first_group_review(review.album_id, group_id, exclude_review_id=review.id)
+        )
 
         return review
 

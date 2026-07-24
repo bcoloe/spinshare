@@ -4,7 +4,7 @@
 # enforcement. AlbumService and ReviewService are fully mocked.
 
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from app.dependencies import get_album_service, get_current_admin_user, get_review_service
@@ -82,6 +82,7 @@ def make_mock_review(
     is_draft=False,
     reviewed_at=None,
     updated_at=None,
+    is_first_review=False,
 ):
     review = MagicMock()
     review.id = id
@@ -95,6 +96,7 @@ def make_mock_review(
     review.is_draft = is_draft
     review.reviewed_at = reviewed_at or _NOW
     review.updated_at = updated_at
+    review.is_first_review = is_first_review
     return review
 
 
@@ -266,6 +268,28 @@ class TestReviewCreate:
         resp = client.post("/albums/1/reviews", json={"rating": 7.0})
         assert resp.status_code == status.HTTP_409_CONFLICT
 
+    def test_create_review_passes_group_id(self, client, mock_album_service, mock_review_service):
+        mock_album_service.get_album_by_id.return_value = make_mock_album()
+        mock_review_service.create_review.return_value = make_mock_review(is_first_review=True)
+
+        resp = client.post("/albums/1/reviews?group_id=5", json={"rating": 8.5})
+
+        assert resp.status_code == status.HTTP_201_CREATED
+        assert resp.json()["is_first_review"] is True
+        mock_review_service.create_review.assert_called_once_with(1, 1, ANY, group_id=5)
+
+    def test_create_review_without_group_id_passes_none(
+        self, client, mock_album_service, mock_review_service
+    ):
+        mock_album_service.get_album_by_id.return_value = make_mock_album()
+        mock_review_service.create_review.return_value = make_mock_review()
+
+        resp = client.post("/albums/1/reviews", json={"rating": 8.5})
+
+        assert resp.status_code == status.HTTP_201_CREATED
+        assert resp.json()["is_first_review"] is False
+        mock_review_service.create_review.assert_called_once_with(1, 1, ANY, group_id=None)
+
 
 class TestReviewGet:
     def test_list_reviews_success(self, client, mock_album_service, mock_review_service):
@@ -312,6 +336,16 @@ class TestReviewUpdate:
         )
         resp = client.patch("/albums/1/reviews/1", json={"rating": 1.0})
         assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_update_review_passes_group_id(self, client, mock_album_service, mock_review_service):
+        mock_album_service.get_album_by_id.return_value = make_mock_album()
+        mock_review_service.update_review.return_value = make_mock_review(is_first_review=True)
+
+        resp = client.patch("/albums/1/reviews/1?group_id=5", json={"is_draft": False})
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["is_first_review"] is True
+        mock_review_service.update_review.assert_called_once_with(1, 1, ANY, group_id=5)
 
 
 class TestReviewDelete:

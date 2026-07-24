@@ -65,15 +65,26 @@ export const albumService = {
     return apiFetch(`/albums/${albumId}/stats`)
   },
 
-  submitReview(albumId: number, data: ReviewCreate): Promise<ReviewResponse> {
-    return apiFetch(`/albums/${albumId}/reviews`, {
+  submitReview(albumId: number, data: ReviewCreate, groupId?: number): Promise<ReviewResponse> {
+    const url = groupId != null
+      ? `/albums/${albumId}/reviews?group_id=${groupId}`
+      : `/albums/${albumId}/reviews`
+    return apiFetch(url, {
       method: 'POST',
       body: JSON.stringify(data),
     })
   },
 
-  updateReview(albumId: number, reviewId: number, data: ReviewUpdate): Promise<ReviewResponse> {
-    return apiFetch(`/albums/${albumId}/reviews/${reviewId}`, {
+  updateReview(
+    albumId: number,
+    reviewId: number,
+    data: ReviewUpdate,
+    groupId?: number,
+  ): Promise<ReviewResponse> {
+    const url = groupId != null
+      ? `/albums/${albumId}/reviews/${reviewId}?group_id=${groupId}`
+      : `/albums/${albumId}/reviews/${reviewId}`
+    return apiFetch(url, {
       method: 'PATCH',
       body: JSON.stringify(data),
     })

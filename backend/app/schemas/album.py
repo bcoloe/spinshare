@@ -228,6 +228,7 @@ class ReviewResponse(BaseModel):
     is_draft: bool
     reviewed_at: datetime
     updated_at: datetime | None = None
+    is_first_review: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
