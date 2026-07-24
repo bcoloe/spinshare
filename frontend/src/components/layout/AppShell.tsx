@@ -403,7 +403,10 @@ export default function AppShell({ children }: AppShellProps) {
                     label={g.name}
                     component={Link}
                     to={`/groups/${g.id}`}
-                    active={location.pathname.startsWith(`/groups/${g.id}`)}
+                    active={
+                      location.pathname === `/groups/${g.id}` ||
+                      location.pathname.startsWith(`/groups/${g.id}/`)
+                    }
                     onClick={() => {
                       if (mobileOpened) closeMobile()
                     }}
