@@ -27,6 +27,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import {
   IconBrandApple,
   IconBrandSpotify,
+  IconBrandWikipedia,
   IconBrandYoutube,
   IconChevronDown,
   IconChevronRight,
@@ -739,6 +740,18 @@ export default function AlbumPage() {
                     Open URL
                   </Button>
                 )}
+                <Button
+                  component="a"
+                  href={album.wikipedia_url ?? undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  variant="subtle"
+                  size="sm"
+                  leftSection={<IconBrandWikipedia size={16} />}
+                  disabled={!album.wikipedia_url}
+                >
+                  Wikipedia
+                </Button>
                 {(playingSpotifyAlbumId === album.spotify_album_id || playingAppleMusicAlbumId === album.apple_music_album_id) && (playerStatus === 'playing' || playerStatus === 'paused') && (
                   <Badge color="green" variant="light" leftSection={<IconMusic size={10} />}>
                     {playerStatus === 'playing' ? 'Now Playing' : 'Paused'}
@@ -775,6 +788,18 @@ export default function AlbumPage() {
               leftSection={<IconExternalLink size={16} />}
             >
               Open URL
+            </Button>
+            <Button
+              component="a"
+              href={album.wikipedia_url ?? undefined}
+              target="_blank"
+              rel="noopener noreferrer"
+              variant="subtle"
+              size="sm"
+              leftSection={<IconBrandWikipedia size={16} />}
+              disabled={!album.wikipedia_url}
+            >
+              Wikipedia
             </Button>
           </Group>
         ) : null}

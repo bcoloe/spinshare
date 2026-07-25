@@ -40,6 +40,7 @@ class AlbumBase(BaseModel):
     spotify_album_id: str | None = None
     apple_music_album_id: str | None = None
     artist_url: str | None = None
+    wikipedia_url: str | None = None
     title: str
     artist: str
     release_date: str | None = None
@@ -90,6 +91,7 @@ class AlbumLinksUpdate(BaseModel):
     apple_music_album_id: str | None = None
     youtube_music_id: str | None = None
     artist_url: str | None = None
+    wikipedia_url: str | None = None
 
     @field_validator("artist_url")
     @classmethod
@@ -109,6 +111,20 @@ class AlbumLinksUpdate(BaseModel):
             raise ValueError("artist_url must point to an album page (path must start with /album/)")
         return v
 
+    @field_validator("wikipedia_url")
+    @classmethod
+    def validate_wikipedia_url(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        try:
+            parsed = urlparse(v)
+        except Exception:
+            raise ValueError("wikipedia_url must be a valid URL")
+        netloc = parsed.netloc.lower()
+        if not (netloc == "wikipedia.org" or netloc.endswith(".wikipedia.org")):
+            raise ValueError("wikipedia_url must be a wikipedia.org URL")
+        return v
+
 
 class AlbumResponse(AlbumBase):
     id: int
@@ -125,6 +141,7 @@ class AlbumResponse(AlbumBase):
             spotify_album_id=album.spotify_album_id,
             apple_music_album_id=album.apple_music_album_id,
             artist_url=album.artist_url,
+            wikipedia_url=album.wikipedia_url,
             title=album.title,
             artist=album.artist,
             release_date=album.release_date,

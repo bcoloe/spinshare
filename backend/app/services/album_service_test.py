@@ -547,6 +547,11 @@ class TestAlbumServiceUpdateLinks:
         result = album_service.update_album_links(sample_album.id, data)
         assert result.artist_url == "https://radiohead.bandcamp.com/album/ok-computer"
 
+    def test_update_wikipedia_url(self, album_service, sample_album):
+        data = AlbumLinksUpdate(wikipedia_url="https://en.wikipedia.org/wiki/OK_Computer")
+        result = album_service.update_album_links(sample_album.id, data)
+        assert result.wikipedia_url == "https://en.wikipedia.org/wiki/OK_Computer"
+
     def test_none_fields_are_ignored(self, album_service, sample_album):
         original_spotify_id = sample_album.spotify_album_id
         data = AlbumLinksUpdate(apple_music_album_id="999")
@@ -572,3 +577,79 @@ class TestAlbumServiceUpdateLinks:
         with pytest.raises(HTTPException) as exc_info:
             album_service.update_album_links(99999, data)
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestBackfillWikipediaUrl:
+    """Tests for the self-healing Wikipedia URL backfill."""
+
+    def test_stores_resolved_url_and_stamps_checked_at(self, album_service, sample_album):
+        with patch(
+            "app.utils.wikipedia_client.find_wikipedia_url",
+            return_value="https://en.wikipedia.org/wiki/OK_Computer",
+        ) as mock_find:
+            album_service.backfill_wikipedia_url(
+                sample_album.id, sample_album.title, sample_album.artist
+            )
+        album_service.db.refresh(sample_album)
+        assert sample_album.wikipedia_url == "https://en.wikipedia.org/wiki/OK_Computer"
+        assert sample_album.wikipedia_checked_at is not None
+        mock_find.assert_called_once()
+
+    def test_stamps_checked_at_even_when_no_page_found(self, album_service, sample_album):
+        with patch("app.utils.wikipedia_client.find_wikipedia_url", return_value=None):
+            album_service.backfill_wikipedia_url(
+                sample_album.id, sample_album.title, sample_album.artist
+            )
+        album_service.db.refresh(sample_album)
+        assert sample_album.wikipedia_url is None
+        assert sample_album.wikipedia_checked_at is not None
+
+    def test_noop_when_url_already_set(self, album_service, sample_album):
+        sample_album.wikipedia_url = "https://en.wikipedia.org/wiki/Manual_Override"
+        album_service.db.commit()
+        with patch("app.utils.wikipedia_client.find_wikipedia_url") as mock_find:
+            album_service.backfill_wikipedia_url(
+                sample_album.id, sample_album.title, sample_album.artist
+            )
+        mock_find.assert_not_called()
+        album_service.db.refresh(sample_album)
+        assert sample_album.wikipedia_url == "https://en.wikipedia.org/wiki/Manual_Override"
+
+    def test_noop_when_recently_checked(self, album_service, sample_album):
+        from datetime import datetime, timezone
+
+        sample_album.wikipedia_checked_at = datetime.now(timezone.utc)
+        album_service.db.commit()
+        with patch("app.utils.wikipedia_client.find_wikipedia_url") as mock_find:
+            album_service.backfill_wikipedia_url(
+                sample_album.id, sample_album.title, sample_album.artist
+            )
+        mock_find.assert_not_called()
+
+    def test_rechecks_when_last_check_is_stale(self, album_service, sample_album):
+        from datetime import datetime, timedelta, timezone
+
+        from app.services.album_service import _WIKIPEDIA_TTL
+
+        sample_album.wikipedia_checked_at = datetime.now(timezone.utc) - _WIKIPEDIA_TTL - timedelta(days=1)
+        album_service.db.commit()
+        with patch(
+            "app.utils.wikipedia_client.find_wikipedia_url",
+            return_value="https://en.wikipedia.org/wiki/OK_Computer",
+        ) as mock_find:
+            album_service.backfill_wikipedia_url(
+                sample_album.id, sample_album.title, sample_album.artist
+            )
+        mock_find.assert_called_once()
+        album_service.db.refresh(sample_album)
+        assert sample_album.wikipedia_url == "https://en.wikipedia.org/wiki/OK_Computer"
+
+    def test_swallows_client_exceptions(self, album_service, sample_album):
+        with patch(
+            "app.utils.wikipedia_client.find_wikipedia_url",
+            side_effect=Exception("boom"),
+        ):
+            # Must not raise — safe as a background task.
+            album_service.backfill_wikipedia_url(
+                sample_album.id, sample_album.title, sample_album.artist
+            )

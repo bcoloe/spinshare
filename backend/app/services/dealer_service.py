@@ -157,6 +157,7 @@ class DealerService:
 
         canonical = self.canonical_group_albums(group_id, [deal.album_id])
         self.heal_genres(list(canonical.values()))
+        self.heal_wikipedia(list(canonical.values()))
 
         return DealRollResponse(
             deal=self._deal_response(canonical[deal.album_id], deal),
@@ -199,6 +200,7 @@ class DealerService:
         )
 
         canonical = self.canonical_group_albums(group_id, [d.album_id for d in deals])
+        self.heal_wikipedia(list(canonical.values()))
         return DealsTodayResponse(
             deals=[
                 self._deal_response(canonical[d.album_id], d)
@@ -456,3 +458,17 @@ class DealerService:
             album = ga.albums
             if album and not album.genres:
                 album_svc.backfill_genres(album.id, album.title, album.artist)
+
+    def heal_wikipedia(self, group_albums: list[GroupAlbum]) -> None:
+        """Backfill the Wikipedia link for dealt albums that lack one.
+
+        Runs inline (like heal_genres) so the dealt album's link is present in the same
+        response — no follow-up refresh. Each call is gated + cached in backfill_wikipedia_url.
+        """
+        from app.services.album_service import AlbumService
+
+        album_svc = AlbumService(self.db)
+        for ga in group_albums:
+            album = ga.albums
+            if album is not None:
+                album_svc.backfill_wikipedia_url(album.id, album.title, album.artist)

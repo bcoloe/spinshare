@@ -25,7 +25,8 @@ from app.schemas.group_album import (
 )
 from app.services.dealer_service import DealerService
 from app.services.group_album_service import GroupAlbumService
-from fastapi import APIRouter, Depends, Query, status
+from app.utils import wikipedia_backfill
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 
 router = APIRouter(prefix="/groups", tags=["group-album-workflow"])
 
@@ -36,21 +37,24 @@ router = APIRouter(prefix="/groups", tags=["group-album-workflow"])
 @router.get("/{group_id}/albums/today", response_model=list[GroupAlbumResponse])
 def get_todays_albums(
     group_id: int,
+    background_tasks: BackgroundTasks,
     current_user: User | None = Depends(get_current_user_optional),
     svc: GroupAlbumService = Depends(get_group_album_service),
 ):
     """Return the albums selected as today's daily spins for the group.
 
     Requires membership. Anonymous visitors may read this only for the
-    global group or bot groups.
+    global group or bot groups. Lazily self-heals each album's Wikipedia link.
     """
     gas = svc.get_todays_albums(group_id, current_user)
+    wikipedia_backfill.schedule_many(background_tasks, [ga.albums for ga in gas])
     return [GroupAlbumResponse.from_orm(ga) for ga in gas]
 
 
 @router.get("/{group_id}/albums/catchup", response_model=list[GroupAlbumResponse])
 def get_catchup_albums(
     group_id: int,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     svc: GroupAlbumService = Depends(get_group_album_service),
 ):
@@ -60,12 +64,14 @@ def get_catchup_albums(
     Requires membership.
     """
     gas = svc.get_catchup_albums(group_id, current_user)
+    wikipedia_backfill.schedule_many(background_tasks, [ga.albums for ga in gas])
     return [GroupAlbumResponse.from_orm(ga) for ga in gas]
 
 
 @router.post("/{group_id}/albums/select-today", response_model=list[GroupAlbumResponse])
 def trigger_daily_selection(
     group_id: int,
+    background_tasks: BackgroundTasks,
     force_chaos: bool = Query(default=False),
     current_user: User = Depends(get_current_user),
     svc: GroupAlbumService = Depends(get_group_album_service),
@@ -76,6 +82,7 @@ def trigger_daily_selection(
     pool is empty and chaos mode is enabled (FULL CHAOS MODE).
     """
     gas = svc.trigger_daily_selection(group_id, current_user, force_chaos=force_chaos)
+    wikipedia_backfill.schedule_many(background_tasks, [ga.albums for ga in gas])
     return [GroupAlbumResponse.from_orm(ga) for ga in gas]
 
 

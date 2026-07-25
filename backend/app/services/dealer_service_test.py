@@ -1,13 +1,20 @@
 """Tests for the DealerService per-member roll workflow and dealer-mode guards."""
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from app.models import Album, AlbumDeal, GroupAlbum, Review
 from app.schemas.album import GroupAlbumStatus, GroupAlbumStatusUpdate
 from app.schemas.group_album import NominationGuessCreate
 from fastapi import HTTPException, status
+
+
+@pytest.fixture(autouse=True)
+def _mock_wikipedia_lookup():
+    """Keep dealer tests hermetic — never hit the live MediaWiki API during inline heal."""
+    with patch("app.utils.wikipedia_client.find_wikipedia_url", return_value=None) as m:
+        yield m
 
 
 @pytest.fixture
@@ -59,6 +66,17 @@ class TestDealerRoll:
         assert result.deal.album_id in {ga.album_id for ga in nominated}
         # One deal consumed from the caller's pool of 3
         assert result.pool_remaining == 2
+
+    def test_roll_backfills_wikipedia_link_inline(
+        self, dealer_service, dealer_group, sample_user, nominate_albums, _mock_wikipedia_lookup
+    ):
+        _mock_wikipedia_lookup.return_value = "https://en.wikipedia.org/wiki/Some_Album"
+        nominate_albums(dealer_group, 1)
+
+        result = dealer_service.roll(dealer_group.id, sample_user)
+
+        # The dealt album's link is resolved in the same response — no refresh needed.
+        assert result.deal.album.wikipedia_url == "https://en.wikipedia.org/wiki/Some_Album"
 
     def test_roll_requires_dealer_mode(self, dealer_service, sample_group, sample_user, nominate_albums):
         nominate_albums(sample_group, 1)

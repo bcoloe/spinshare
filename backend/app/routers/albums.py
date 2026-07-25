@@ -29,7 +29,7 @@ from app.schemas.album import (
 )
 from app.services.album_service import AlbumService
 from app.services.review_service import ReviewService
-from app.utils import apple_music_client, spotify_client
+from app.utils import apple_music_client, spotify_client, wikipedia_backfill
 from app.utils.album_search import merge_search_results, normalize_title_for_dedup
 from app.utils.url_parser import MusicService, detect_service, extract_apple_music_album_id, extract_spotify_album_id, extract_youtube_music_id, scrape_bandcamp_metadata
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
@@ -192,6 +192,7 @@ def get_or_create_album(
     album = album_service.get_or_create_album(data)
     if is_new and album.apple_music_album_id is None:
         background_tasks.add_task(_backfill_apple_music_id_bg, album.id, data.title, data.artist)
+    wikipedia_backfill.schedule(background_tasks, album)
     return AlbumResponse.from_orm_with_genres(album)
 
 
@@ -246,6 +247,7 @@ def resolve_album_url(
         album = album_service.get_or_create_album(album_data)
         if is_new and album.apple_music_album_id is None:
             background_tasks.add_task(_backfill_apple_music_id_bg, album.id, album.title, album.artist)
+        wikipedia_backfill.schedule(background_tasks, album)
         return AlbumResponse.from_orm_with_genres(album)
 
     if service == MusicService.AppleMusic:
@@ -270,6 +272,7 @@ def resolve_album_url(
             genres=result.genres,
         )
         album = album_service.get_or_create_album(album_data)
+        wikipedia_backfill.schedule(background_tasks, album)
         return AlbumResponse.from_orm_with_genres(album)
 
     if service == MusicService.YouTubeMusic:
@@ -321,6 +324,7 @@ def resolve_album_url(
             genres=genres,
         )
         album = album_service.get_or_create_album(album_data)
+        wikipedia_backfill.schedule(background_tasks, album)
         return AlbumResponse.from_orm_with_genres(album)
 
     # Bandcamp — try auto-scraping first, then fall back to manual fields
@@ -372,6 +376,7 @@ def resolve_album_url(
         genres=genres,
     )
     album = album_service.get_or_create_album(album_data)
+    wikipedia_backfill.schedule(background_tasks, album)
     return AlbumResponse.from_orm_with_genres(album)
 
 
@@ -405,8 +410,17 @@ def get_album(
 ):
     """Get a registered album by its internal ID. Publicly readable — no
     authentication required.
+
+    Self-heals the album's Wikipedia link inline: albums that predate the feature, or
+    that gained a page since the last check, get resolved on read so the link is present
+    on this response (no follow-up refresh needed). The lookup is gated + cached, so it
+    runs at most once per album per TTL.
     """
     album = album_service.get_album_by_id(album_id)
+    if wikipedia_backfill.needs_check(album):
+        # backfill_wikipedia_url mutates this same session-managed album, so the change
+        # is reflected here without a re-fetch (commit expires + reloads on access).
+        album_service.backfill_wikipedia_url(album.id, album.title, album.artist)
     return AlbumResponse.from_orm_with_genres(album)
 
 
