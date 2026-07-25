@@ -50,9 +50,16 @@ export default function GroupPage() {
   const [nominateOpened, { open: openNominate, close: closeNominate }] = useDisclosure(false)
   const isMobile = useMediaQuery('(max-width: 768px)')
 
-  const { data: group, isLoading: groupLoading, isError: groupError } = useGroup(gid)
+  const { user, isInitializing } = useAuth()
+  // Wait for the auth bootstrap (silent token refresh + /me) to resolve before
+  // fetching the group — otherwise this can race ahead with no Authorization
+  // header, and for anonymously-viewable groups the backend happily returns
+  // 200 with current_user_role: null instead of 401, so it never self-heals.
+  const { data: group, isLoading: groupQueryLoading, isError: groupError } = useGroup(gid, !isInitializing)
+  // The query is disabled (not merely slow) while auth is initializing, so its
+  // own isLoading stays false with no data yet — fold isInitializing back in.
+  const groupLoading = isInitializing || groupQueryLoading
   const isMember = !!group?.current_user_role
-  const { user } = useAuth()
   const canAnonymouslyView = !!group && (group.is_global || group.is_bot_group)
   const { data: members = [], isLoading: membersLoading } = useGroupMembers(gid, isMember || canAnonymouslyView)
   const { data: historyAlbums = [], isLoading: albumsLoading } = useGroupHistory(gid, isMember || canAnonymouslyView)
@@ -183,7 +190,13 @@ export default function GroupPage() {
           </Group>
         )}
 
-        {!groupLoading && group && !isMember && user ? (
+        {groupLoading ? (
+          // Group hasn't loaded yet — hold off on rendering tab content below,
+          // since TodaysSpin picks SharedSpin vs. DealerSpin off `group` and
+          // would otherwise mount the wrong one and swap out from under itself
+          // (and its own `album` focus) once the real group data arrives.
+          <Skeleton h={200} radius="md" />
+        ) : group && !isMember && user ? (
           <Paper withBorder p="xl" radius="md">
             <Stack align="center" gap="md">
               <ThemeIcon size={48} radius="xl" variant="light" color="violet">
@@ -208,7 +221,7 @@ export default function GroupPage() {
               )}
             </Stack>
           </Paper>
-        ) : !groupLoading && group && !user && !canAnonymouslyView ? (
+        ) : group && !user && !canAnonymouslyView ? (
           // Anonymous visitor on a non-public group — redirecting to /login.
           <Skeleton h={200} radius="md" />
         ) : (
