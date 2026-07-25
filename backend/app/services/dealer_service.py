@@ -434,7 +434,12 @@ class DealerService:
                     added_by=originals.get(album_id),
                 )
             )
-        self.db.flush()
+        # Callers invoke this well after their own commit (roll(), the public-spin
+        # draw) or not at all (the read-only history/today endpoints), so without an
+        # explicit commit here these inserts get silently rolled back on session
+        # close — every subsequent call then finds the same album "missing" again
+        # and re-inserts it, burning a new (non-transactional) id each time.
+        self.db.commit()
 
     def _deal_response(self, ga: GroupAlbum, deal: AlbumDeal | None) -> GroupAlbumResponse:
         response = GroupAlbumResponse.from_orm(ga)

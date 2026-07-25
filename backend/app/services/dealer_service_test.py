@@ -1,6 +1,7 @@
 """Tests for the DealerService per-member roll workflow and dealer-mode guards."""
 
 from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock
 
 import pytest
 from app.models import Album, AlbumDeal, GroupAlbum, Review
@@ -696,6 +697,31 @@ class TestDealerGlobalGroup:
             .all()
         )
         assert {d.user_id for d in deals} == {sample_user.id, other.id}
+
+    def test_ensure_global_canonical_rows_commits_new_rows(
+        self, db_session, dealer_service, global_group, sample_group, sample_user,
+        sample_group_service, nominate_albums, monkeypatch,
+    ):
+        """New canonical GroupAlbum rows must be durably committed, not just
+        flushed. A real HTTP request's session is closed with no surrounding
+        commit (see app.database.get_db) — several callers of this method
+        (get_todays_deals, get_member_history, get_public_history) never commit
+        at all, and roll() already committed before reaching this call. A
+        flush-only insert would be silently discarded on session close, so the
+        next request would find the same album "missing" and re-insert it,
+        burning a new id every time (the bug behind issue #133's "album id
+        keeps increasing on refresh" report)."""
+        global_group.settings.dealer_mode = True
+        db_session.commit()
+        sample_group_service.add_user(global_group.id, sample_user.id)
+        nominated = nominate_albums(sample_group, 1)
+
+        commit_spy = MagicMock(wraps=db_session.commit)
+        monkeypatch.setattr(db_session, "commit", commit_spy)
+
+        dealer_service.ensure_global_canonical_rows(global_group.id, [nominated[0].album_id])
+
+        assert commit_spy.called
 
     def test_pool_pools_across_multiple_groups(
         self, db_session, dealer_service, global_group, sample_group, sample_user,
