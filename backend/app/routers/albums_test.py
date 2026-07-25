@@ -30,6 +30,8 @@ def make_mock_album(
     youtube_music_id=None,
     apple_music_album_id=None,
     artist_url=None,
+    wikipedia_url=None,
+    wikipedia_checked_at=None,
     added_at=None,
     genres=None,
 ):
@@ -43,6 +45,8 @@ def make_mock_album(
     album.youtube_music_id = youtube_music_id
     album.apple_music_album_id = apple_music_album_id
     album.artist_url = artist_url
+    album.wikipedia_url = wikipedia_url
+    album.wikipedia_checked_at = wikipedia_checked_at
     album.added_at = added_at or _NOW
     album.genres = genres if genres is not None else []
     return album
@@ -113,6 +117,13 @@ def make_mock_album_stats(
     return AlbumStatsResponse(
         average_rating=average_rating, review_count=review_count, histogram=histogram
     )
+
+
+@pytest.fixture(autouse=True)
+def _no_real_wiki_backfill():
+    """Stop lazy Wikipedia backfill tasks from opening real DB sessions in these router tests."""
+    with patch("app.utils.wikipedia_backfill._run_backfill") as m:
+        yield m
 
 
 @pytest.fixture
@@ -222,6 +233,39 @@ class TestAlbumGet:
         resp = client.get("/albums/spotify/spotify_test")
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["spotify_album_id"] == "spotify_test"
+
+    def test_get_album_includes_wikipedia_url(self, client, mock_album_service):
+        mock_album_service.get_album_by_id.return_value = make_mock_album(
+            id=42, wikipedia_url="https://en.wikipedia.org/wiki/OK_Computer"
+        )
+        resp = client.get("/albums/42")
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["wikipedia_url"] == "https://en.wikipedia.org/wiki/OK_Computer"
+
+    def test_get_album_backfills_inline_when_url_missing(self, client, mock_album_service):
+        mock_album_service.get_album_by_id.return_value = make_mock_album(
+            id=42, wikipedia_url=None, wikipedia_checked_at=None
+        )
+        resp = client.get("/albums/42")
+        assert resp.status_code == status.HTTP_200_OK
+        mock_album_service.backfill_wikipedia_url.assert_called_once_with(42, "OK Computer", "Radiohead")
+
+    def test_get_album_skips_backfill_when_url_present(self, client, mock_album_service):
+        mock_album_service.get_album_by_id.return_value = make_mock_album(
+            id=42, wikipedia_url="https://en.wikipedia.org/wiki/OK_Computer"
+        )
+        resp = client.get("/albums/42")
+        assert resp.status_code == status.HTTP_200_OK
+        mock_album_service.backfill_wikipedia_url.assert_not_called()
+
+    def test_get_album_skips_backfill_when_recently_checked(self, client, mock_album_service):
+        recent = datetime.now(timezone.utc)
+        mock_album_service.get_album_by_id.return_value = make_mock_album(
+            id=42, wikipedia_url=None, wikipedia_checked_at=recent
+        )
+        resp = client.get("/albums/42")
+        assert resp.status_code == status.HTTP_200_OK
+        mock_album_service.backfill_wikipedia_url.assert_not_called()
 
     def test_get_album_works_without_authentication(self, unauthed_client, mock_album_service):
         mock_album_service.get_album_by_id.return_value = make_mock_album(id=1)
@@ -957,6 +1001,25 @@ class TestUpdateAlbumLinks:
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["spotify_album_id"] == "new_spotify_id"
         mock_album_service.update_album_links.assert_called_once()
+
+    def test_update_wikipedia_url_success(self, admin_client, mock_album_service):
+        updated = make_mock_album(wikipedia_url="https://en.wikipedia.org/wiki/Kid_A")
+        mock_album_service.update_album_links.return_value = updated
+
+        resp = admin_client.patch(
+            "/albums/1", json={"wikipedia_url": "https://en.wikipedia.org/wiki/Kid_A"}
+        )
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["wikipedia_url"] == "https://en.wikipedia.org/wiki/Kid_A"
+        mock_album_service.update_album_links.assert_called_once()
+
+    def test_update_wikipedia_url_rejects_non_wikipedia_domain(self, admin_client, mock_album_service):
+        resp = admin_client.patch(
+            "/albums/1", json={"wikipedia_url": "https://evil.example.com/wiki/Kid_A"}
+        )
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        mock_album_service.update_album_links.assert_not_called()
 
     def test_update_links_not_found(self, admin_client, mock_album_service):
         mock_album_service.update_album_links.side_effect = HTTPException(

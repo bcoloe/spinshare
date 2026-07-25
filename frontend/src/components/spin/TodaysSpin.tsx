@@ -22,7 +22,7 @@ import {
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { IconBrandApple, IconBrandSpotify, IconBrandYoutube, IconCheck, IconClock, IconDice1, IconDice2, IconDice3, IconDice4, IconDice5, IconDice6, IconExternalLink, IconHistory, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
+import { IconBrandApple, IconBrandSpotify, IconBrandWikipedia, IconBrandYoutube, IconCheck, IconClock, IconDice1, IconDice2, IconDice3, IconDice4, IconDice5, IconDice6, IconExternalLink, IconHistory, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
 import AlbumCard from './AlbumCard'
 import ReviewAndGuessForm from './ReviewAndGuessForm'
 import AlbumSearchModal from '../albums/AlbumSearchModal'
@@ -207,6 +207,20 @@ function SpinSlide({ groupAlbum, groupId, allowGuessing = true }: { groupAlbum: 
                 Open in Apple Music
               </Button>
             </Tooltip>
+            <Tooltip label="No Wikipedia page found" disabled={!!groupAlbum.album.wikipedia_url}>
+              <Button
+                component="a"
+                href={groupAlbum.album.wikipedia_url ?? undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                variant="subtle"
+                size="sm"
+                leftSection={<IconBrandWikipedia size={16} />}
+                disabled={!groupAlbum.album.wikipedia_url}
+              >
+                Wikipedia
+              </Button>
+            </Tooltip>
           </Group>
           {!hasSpotify && !hasAppleMusic && (
             <Text size="xs" c="dimmed">
@@ -367,6 +381,20 @@ function MultiAlbumSpin({ albums, groupId, allowGuessing = true }: { albums: Gro
                   disabled={!appleMusicId}
                 >
                   Open in Apple Music
+                </Button>
+              </Tooltip>
+              <Tooltip label="No Wikipedia page found" disabled={!!activeAlbum.album.wikipedia_url}>
+                <Button
+                  component="a"
+                  href={activeAlbum.album.wikipedia_url ?? undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  variant="subtle"
+                  size="sm"
+                  leftSection={<IconBrandWikipedia size={16} />}
+                  disabled={!activeAlbum.album.wikipedia_url}
+                >
+                  Wikipedia
                 </Button>
               </Tooltip>
             </Group>

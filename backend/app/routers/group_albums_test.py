@@ -4,7 +4,7 @@
 # fully mocked — business logic is tested in group_album_service_test.py.
 
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from app.dependencies import (
@@ -30,6 +30,13 @@ from fastapi.testclient import TestClient
 _NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 
+@pytest.fixture(autouse=True)
+def _no_real_wiki_backfill():
+    """Stop lazy Wikipedia backfill tasks from opening real DB sessions in these router tests."""
+    with patch("app.utils.wikipedia_backfill._run_backfill") as m:
+        yield m
+
+
 def make_mock_album(id=1):
     a = MagicMock()
     a.id = id
@@ -41,6 +48,8 @@ def make_mock_album(id=1):
     a.youtube_music_id = None
     a.apple_music_album_id = None
     a.artist_url = None
+    a.wikipedia_url = None
+    a.wikipedia_checked_at = None
     a.added_at = _NOW
     a.genres = []
     return a
@@ -140,6 +149,20 @@ class TestGetTodaysAlbums:
         resp = client.get("/groups/1/albums/today")
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json() == []
+
+    def test_schedules_wikipedia_backfill_for_unhealed_album(self, client, mock_svc, _no_real_wiki_backfill):
+        mock_svc.get_todays_albums.return_value = [make_mock_group_album()]
+        resp = client.get("/groups/1/albums/today")
+        assert resp.status_code == status.HTTP_200_OK
+        _no_real_wiki_backfill.assert_called_once_with(1, "OK Computer", "Radiohead")
+
+    def test_skips_wikipedia_backfill_for_healed_album(self, client, mock_svc, _no_real_wiki_backfill):
+        ga = make_mock_group_album()
+        ga.albums.wikipedia_url = "https://en.wikipedia.org/wiki/OK_Computer"
+        mock_svc.get_todays_albums.return_value = [ga]
+        resp = client.get("/groups/1/albums/today")
+        assert resp.status_code == status.HTTP_200_OK
+        _no_real_wiki_backfill.assert_not_called()
 
     def test_non_member_forbidden(self, client, mock_svc):
         mock_svc.get_todays_albums.side_effect = HTTPException(

@@ -8,6 +8,10 @@ log = logging.getLogger(__name__)
 # Generic top-level categories returned by streaming services that carry no meaningful info.
 _IGNORED_GENRES: frozenset[str] = frozenset({"music", "music videos", "musica"})
 
+# How long a resolved (or absent) Wikipedia link is trusted before the backfill re-checks it.
+# Sourced from the shared backfill helper so routers and the service agree on one value.
+from app.utils.wikipedia_backfill import WIKIPEDIA_TTL as _WIKIPEDIA_TTL
+
 from app.models import Album, Group, GroupAlbum, User
 from app.models.genre import Genre
 from app.schemas.album import AlbumCreate, AlbumLinksUpdate, GroupAlbumStatus, GroupAlbumStatusUpdate
@@ -219,6 +223,9 @@ class AlbumService:
                     detail="artist_url is already assigned to another album",
                 )
             album.artist_url = data.artist_url
+
+        if data.wikipedia_url is not None:
+            album.wikipedia_url = data.wikipedia_url
 
         try:
             self.db.commit()
@@ -539,6 +546,31 @@ class AlbumService:
                 self.db.commit()
         except Exception:
             log.warning("Apple Music backfill failed for album %d (%r by %r)", album_id, title, artist)
+
+    def backfill_wikipedia_url(self, album_id: int, title: str, artist: str) -> None:
+        """Attempt to resolve and store the Wikipedia URL for an album.
+
+        Prefers the album's own page, falling back to the artist's page. No-op if the album
+        already has a URL (which keeps admin overrides authoritative) or if it was checked
+        within the TTL. The checked-at timestamp is stamped even when nothing is found, so
+        albums with no page are not re-queried on every read. Errors are swallowed so this
+        is safe to call as a background task.
+        """
+        from app.utils import wikipedia_client
+
+        try:
+            album = self.get_album_by_id(album_id)
+            if album.wikipedia_url is not None:
+                return
+            if album.wikipedia_checked_at is not None:
+                age = datetime.now(timezone.utc) - album.wikipedia_checked_at
+                if age < _WIKIPEDIA_TTL:
+                    return
+            album.wikipedia_url = wikipedia_client.find_wikipedia_url(title, artist)
+            album.wikipedia_checked_at = datetime.now(timezone.utc)
+            self.db.commit()
+        except Exception:
+            log.warning("Wikipedia backfill failed for album %d (%r by %r)", album_id, title, artist)
 
     def get_todays_albums(self, group_id: int) -> list[GroupAlbum]:
         """Return albums selected for today in this group."""
