@@ -190,7 +190,13 @@ export default function GroupPage() {
           </Group>
         )}
 
-        {!groupLoading && group && !isMember && user ? (
+        {groupLoading ? (
+          // Group hasn't loaded yet — hold off on rendering tab content below,
+          // since TodaysSpin picks SharedSpin vs. DealerSpin off `group` and
+          // would otherwise mount the wrong one and swap out from under itself
+          // (and its own `album` focus) once the real group data arrives.
+          <Skeleton h={200} radius="md" />
+        ) : group && !isMember && user ? (
           <Paper withBorder p="xl" radius="md">
             <Stack align="center" gap="md">
               <ThemeIcon size={48} radius="xl" variant="light" color="violet">
@@ -215,7 +221,7 @@ export default function GroupPage() {
               )}
             </Stack>
           </Paper>
-        ) : !groupLoading && group && !user && !canAnonymouslyView ? (
+        ) : group && !user && !canAnonymouslyView ? (
           // Anonymous visitor on a non-public group — redirecting to /login.
           <Skeleton h={200} radius="md" />
         ) : (
