@@ -20,11 +20,11 @@ export function useGroupSearch(query: string) {
   })
 }
 
-export function useGroup(groupId: number) {
+export function useGroup(groupId: number, enabled = true) {
   return useQuery({
     queryKey: ['groups', groupId],
     queryFn: () => groupService.getById(groupId),
-    enabled: !!groupId,
+    enabled: enabled && !!groupId,
   })
 }
 
