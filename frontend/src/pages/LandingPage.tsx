@@ -11,8 +11,10 @@ export default function LandingPage() {
         <Stack gap="xs" ta="center" align="center">
           <Title order={1}>SpinShare</Title>
           <Text c="dimmed" size="lg" maw={560}>
-            Groups roll a random album from what members nominate — you review it, then guess
-            who picked it.
+            Share your favorite music with friends.
+          </Text>
+          <Text c="dimmed" size="lg" maw={560}>
+            Form groups; nominate albums to the pool; and share reviews.
           </Text>
           <Group gap="sm" mt="sm">
             <Button component={Link} to="/login" leftSection={<IconLogin size={16} />}>

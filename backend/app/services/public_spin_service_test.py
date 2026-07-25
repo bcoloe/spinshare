@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 import pytest
-from app.models import Album, GroupAlbum, PublicSpinDraw
+from app.models import Album, Group, GroupAlbum, PublicSpinDraw
 from app.services.public_spin_service import PublicSpinService
 from app.utils.time_helpers import DEFAULT_TZ, group_today
 from fastapi import HTTPException, status
@@ -36,7 +36,13 @@ def nominate_albums(db_session, sample_user):
 
 
 class TestPublicSpinDraw:
-    def test_no_global_group_returns_503(self, public_spin_service):
+    def test_no_global_group_returns_503(self, db_session, public_spin_service):
+        # In CI, alembic migrations seed the global group before tests run;
+        # locally, Base.metadata.create_all leaves it absent. Delete it
+        # explicitly so this test exercises the "never seeded" case either way.
+        db_session.query(Group).filter(Group.is_global == True).delete()  # noqa: E712
+        db_session.commit()
+
         with pytest.raises(HTTPException) as exc_info:
             public_spin_service.get_or_create_todays_draw()
         assert exc_info.value.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
