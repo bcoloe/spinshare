@@ -74,8 +74,8 @@ export default function AppShell({ children }: AppShellProps) {
   const { data: groups, isLoading } = useMyGroups(user?.username ?? '')
   const { favoriteId, toggleFavorite, clearIfStale } = useFavoriteGroup()
   const [sidebarFilter, setSidebarFilter] = useState('')
-  const { data: pendingInvitations = [] } = useMyPendingInvitations()
-  const { data: unreadNotifications = [] } = useUnreadNotifications()
+  const { data: pendingInvitations = [] } = useMyPendingInvitations(!!user)
+  const { data: unreadNotifications = [] } = useUnreadNotifications(!!user)
   const acceptInvitation = useAcceptInvitation()
   const declineInvitation = useDeclineInvitation()
   const markNotificationRead = useMarkNotificationRead()
@@ -143,13 +143,14 @@ export default function AppShell({ children }: AppShellProps) {
                 ? <IconLayoutSidebarLeftCollapse size={20} />
                 : <IconLayoutSidebarLeftExpand size={20} />}
             </ActionIcon>
-            <Link to="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'inherit', textDecoration: 'none' }}>
+            <Link to={user ? '/dashboard' : '/'} style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'inherit', textDecoration: 'none' }}>
               <IconDisc size={22} />
               <Title order={4}>SpinShare</Title>
             </Link>
           </Group>
 
           <Group gap="xs">
+            {user && (
             <Popover
               opened={bellOpened}
               onClose={closeBell}
@@ -309,21 +310,25 @@ export default function AppShell({ children }: AppShellProps) {
                 </Stack>
               </Popover.Dropdown>
             </Popover>
+            )}
 
+            {user && (
             <ActionIcon variant="subtle" onClick={openFeedback} aria-label="Send feedback">
               <IconMessageReport size={18} />
             </ActionIcon>
+            )}
 
+          {user ? (
           <Menu shadow="md" width={180}>
             <Menu.Target>
               <UnstyledButton>
                 <Avatar size="sm" radius="xl" color="violet">
-                  {user?.username?.[0]?.toUpperCase()}
+                  {user.username[0]?.toUpperCase()}
                 </Avatar>
               </UnstyledButton>
             </Menu.Target>
             <Menu.Dropdown>
-              <Menu.Label>{user?.username}</Menu.Label>
+              <Menu.Label>{user.username}</Menu.Label>
               <Menu.Item leftSection={<IconUser size={14} />} onClick={() => navigate('/profile')}>
                 Profile
               </Menu.Item>
@@ -333,6 +338,21 @@ export default function AppShell({ children }: AppShellProps) {
               </Menu.Item>
             </Menu.Dropdown>
           </Menu>
+          ) : (
+          <Menu shadow="md" width={160}>
+            <Menu.Target>
+              <UnstyledButton>
+                <Avatar size="sm" radius="xl" color="gray">
+                  <IconUser size={16} />
+                </Avatar>
+              </UnstyledButton>
+            </Menu.Target>
+            <Menu.Dropdown>
+              <Menu.Item onClick={() => navigate('/login')}>Log in</Menu.Item>
+              <Menu.Item onClick={() => navigate('/register')}>Register</Menu.Item>
+            </Menu.Dropdown>
+          </Menu>
+          )}
           </Group>
         </Group>
       </MantineAppShell.Header>
@@ -378,6 +398,7 @@ export default function AppShell({ children }: AppShellProps) {
 
         <Divider my="xs" />
 
+        {user && (
         <MantineAppShell.Section grow component={ScrollArea}>
           <Text size="xs" fw={600} c="dimmed" mb="xs" tt="uppercase">
             Your Groups
@@ -427,6 +448,7 @@ export default function AppShell({ children }: AppShellProps) {
             <Text size="xs" c="dimmed">No groups yet</Text>
           )}
         </MantineAppShell.Section>
+        )}
 
         <MantineAppShell.Section>
           <Stack gap="xs">
@@ -441,14 +463,16 @@ export default function AppShell({ children }: AppShellProps) {
             >
               About
             </Button>
-            <Button
-              fullWidth
-              variant="light"
-              leftSection={<IconPlus size={16} />}
-              onClick={openCreate}
-            >
-              New group
-            </Button>
+            {user && (
+              <Button
+                fullWidth
+                variant="light"
+                leftSection={<IconPlus size={16} />}
+                onClick={openCreate}
+              >
+                New group
+              </Button>
+            )}
           </Stack>
         </MantineAppShell.Section>
       </MantineAppShell.Navbar>
@@ -461,8 +485,8 @@ export default function AppShell({ children }: AppShellProps) {
         </MantineAppShell.Footer>
       )}
 
-      <CreateGroupModal opened={createOpened} onClose={closeCreate} />
-      <FeedbackModal opened={feedbackOpened} onClose={closeFeedback} />
+      {user && <CreateGroupModal opened={createOpened} onClose={closeCreate} />}
+      {user && <FeedbackModal opened={feedbackOpened} onClose={closeFeedback} />}
       <SearchModal opened={searchOpened} onClose={closeSearch} />
     </MantineAppShell>
   )

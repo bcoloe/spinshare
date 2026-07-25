@@ -1,6 +1,6 @@
 # backend/app/routers/explore.py
 
-from app.dependencies import get_current_user, get_explore_service
+from app.dependencies import get_current_user, get_current_user_optional, get_explore_service
 from app.models import User
 from app.schemas.explore import ExploreAlbumsPage, ExploreGroupsPage, ExploreUsersPage, SiteStatsResponse
 from app.services.explore_service import ExploreService
@@ -19,10 +19,11 @@ def explore_albums(
     min_reviews: int | None = Query(default=None, ge=0),
     sort_by: str = Query(default="top_rated"),
     q: str | None = Query(default=None),
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
     svc: ExploreService = Depends(get_explore_service),
 ):
-    """Browse all nominated albums across the platform.
+    """Browse all nominated albums across the platform. Publicly readable —
+    no authentication required.
 
     q filters by partial match on artist or album title (case-insensitive).
     sort_by: top_rated | bottom_rated | most_reviewed | most_nominated | recent
@@ -41,10 +42,11 @@ def explore_groups(
     limit: int = Query(default=20, ge=1, le=100),
     q: str | None = Query(default=None),
     group_type: str = Query(default="all"),
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
     svc: ExploreService = Depends(get_explore_service),
 ):
-    """Browse groups on the platform (human and bot groups).
+    """Browse groups on the platform (human and bot groups). Publicly
+    readable — no authentication required.
 
     q filters by partial name match (case-insensitive).
     group_type: all | human | bot
@@ -55,7 +57,7 @@ def explore_groups(
         group_type = "all"
     return svc.get_explore_groups(
         offset=offset, limit=limit, q=q or None, group_type=group_type,
-        include_private=current_user.is_admin,
+        include_private=bool(current_user and current_user.is_admin),
     )
 
 
@@ -77,8 +79,10 @@ def explore_users(
 
 @router.get("/stats", response_model=SiteStatsResponse)
 def explore_stats(
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
     svc: ExploreService = Depends(get_explore_service),
 ):
-    """Return platform-wide statistics: totals and ranked album/artist lists."""
+    """Return platform-wide statistics: totals and ranked album/artist lists.
+    Publicly readable — no authentication required.
+    """
     return svc.get_site_stats()

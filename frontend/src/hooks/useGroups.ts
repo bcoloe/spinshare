@@ -132,10 +132,11 @@ export function useInvitation(token: string) {
   })
 }
 
-export function useMyPendingInvitations() {
+export function useMyPendingInvitations(enabled: boolean = true) {
   return useQuery({
     queryKey: ['invitations', 'pending'],
     queryFn: () => invitationService.getMyPending(),
+    enabled,
     // No polling — fetches on mount and on window focus (tab return).
     // Polling was removed to allow Neon compute to auto-suspend between requests.
   })

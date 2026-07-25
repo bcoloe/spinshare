@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { notificationService } from '../services/notificationService'
 
-export function useUnreadNotifications() {
+export function useUnreadNotifications(enabled: boolean = true) {
   return useQuery({
     queryKey: ['notifications', 'unread'],
     queryFn: () => notificationService.getUnread(),
+    enabled,
     // No polling — fetches on mount and on window focus (tab return).
     // Polling was removed to allow Neon compute to auto-suspend between requests.
   })

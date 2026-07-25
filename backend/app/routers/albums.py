@@ -3,7 +3,13 @@
 import difflib
 
 from app.database import SessionLocal
-from app.dependencies import get_album_service, get_current_admin_user, get_current_user, get_review_service
+from app.dependencies import (
+    get_album_service,
+    get_current_admin_user,
+    get_current_user,
+    get_current_user_optional,
+    get_review_service,
+)
 from app.models import User
 from app.schemas.album import (
     AlbumCreate,
@@ -394,10 +400,12 @@ def get_album_by_spotify_id(
 @albums_router.get("/{album_id}", response_model=AlbumResponse)
 def get_album(
     album_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
     album_service: AlbumService = Depends(get_album_service),
 ):
-    """Get a registered album by its internal ID."""
+    """Get a registered album by its internal ID. Publicly readable — no
+    authentication required.
+    """
     album = album_service.get_album_by_id(album_id)
     return AlbumResponse.from_orm_with_genres(album)
 
@@ -441,23 +449,28 @@ def create_review(
 def list_reviews(
     album_id: int,
     group_id: int | None = Query(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
     album_service: AlbumService = Depends(get_album_service),
     review_service: ReviewService = Depends(get_review_service),
 ):
-    """List all published reviews for an album, including each reviewer's username."""
+    """List all published reviews for an album, including each reviewer's
+    username. Publicly readable — no authentication required.
+    """
     album_service.get_album_by_id(album_id)
-    return review_service.get_reviews_for_album(album_id, viewer_id=current_user.id, group_id=group_id)
+    viewer_id = current_user.id if current_user else None
+    return review_service.get_reviews_for_album(album_id, viewer_id=viewer_id, group_id=group_id)
 
 
 @albums_router.get("/{album_id}/stats", response_model=AlbumStatsResponse)
 def get_album_stats(
     album_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
     album_service: AlbumService = Depends(get_album_service),
     review_service: ReviewService = Depends(get_review_service),
 ):
-    """Return global rating stats and histogram for an album."""
+    """Return global rating stats and histogram for an album. Publicly
+    readable — no authentication required.
+    """
     album_service.get_album_by_id(album_id)
     return review_service.get_album_stats(album_id)
 

@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ActionIcon,
@@ -49,15 +50,26 @@ export default function GroupPage() {
   const [nominateOpened, { open: openNominate, close: closeNominate }] = useDisclosure(false)
   const isMobile = useMediaQuery('(max-width: 768px)')
 
-  const { data: group, isLoading: groupLoading } = useGroup(gid)
+  const { data: group, isLoading: groupLoading, isError: groupError } = useGroup(gid)
   const isMember = !!group?.current_user_role
-  const { data: members = [], isLoading: membersLoading } = useGroupMembers(gid, isMember)
-  const { data: historyAlbums = [], isLoading: albumsLoading } = useGroupHistory(gid, isMember)
+  const { user } = useAuth()
+  const canAnonymouslyView = !!group && (group.is_global || group.is_bot_group)
+  const { data: members = [], isLoading: membersLoading } = useGroupMembers(gid, isMember || canAnonymouslyView)
+  const { data: historyAlbums = [], isLoading: albumsLoading } = useGroupHistory(gid, isMember || canAnonymouslyView)
   const { data: nominationCount } = useNominationCount(gid, isMember)
   const joinGroup = useJoinGroup()
 
   const { favoriteId, toggleFavorite } = useFavoriteGroup()
-  const { user } = useAuth()
+
+  // Anonymous visitors may only browse the global group or bot groups —
+  // everything else (including a 401 from the group fetch itself) sends
+  // them to log in.
+  useEffect(() => {
+    if (user) return
+    if (groupError || (!groupLoading && group && !canAnonymouslyView)) {
+      navigate('/login', { replace: true })
+    }
+  }, [user, groupError, groupLoading, group, canAnonymouslyView, navigate])
 
   const handleJoin = async () => {
     if (!group) return
@@ -122,7 +134,7 @@ export default function GroupPage() {
             </div>
 
             <Group gap="xs">
-              {isMember ? (
+              {user && (isMember ? (
                 <>
                   <Tooltip label={favoriteId === gid ? 'Remove from favorites' : 'Set as favorite group'}>
                     <ActionIcon
@@ -166,12 +178,12 @@ export default function GroupPage() {
                 >
                   Join group
                 </Button>
-              ) : null}
+              ) : null)}
             </Group>
           </Group>
         )}
 
-        {!groupLoading && group && !isMember ? (
+        {!groupLoading && group && !isMember && user ? (
           <Paper withBorder p="xl" radius="md">
             <Stack align="center" gap="md">
               <ThemeIcon size={48} radius="xl" variant="light" color="violet">
@@ -196,6 +208,9 @@ export default function GroupPage() {
               )}
             </Stack>
           </Paper>
+        ) : !groupLoading && group && !user && !canAnonymouslyView ? (
+          // Anonymous visitor on a non-public group — redirecting to /login.
+          <Skeleton h={200} radius="md" />
         ) : (
           <>
             <Box
@@ -214,7 +229,7 @@ export default function GroupPage() {
                   data={[
                     { label: "Today's Spin", value: 'spin' },
                     { label: 'Review History', value: 'history' },
-                    { label: 'My Nominations', value: 'nominations' },
+                    ...(user ? [{ label: 'My Nominations', value: 'nominations' }] : []),
                     { label: 'Group Info', value: 'info' },
                   ]}
                   styles={{ root: { background: 'transparent' } }}
@@ -240,7 +255,7 @@ export default function GroupPage() {
             {tab === 'info' && group && <GroupInfo group={group} />}
             {tab === 'info' && groupLoading && <Skeleton h={300} radius="md" />}
 
-            {tab === 'nominations' && <MyNominations groupId={gid} />}
+            {tab === 'nominations' && user && <MyNominations groupId={gid} />}
           </>
         )}
       </Stack>

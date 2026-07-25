@@ -72,19 +72,19 @@ export function useRollDeal(groupId: number) {
   })
 }
 
-export function useMyReview(albumId: number) {
+export function useMyReview(albumId: number, enabled: boolean = true) {
   return useQuery({
     queryKey: ['reviews', albumId, 'me'],
     queryFn: () => albumService.getMyReview(albumId),
-    enabled: !!albumId,
+    enabled: !!albumId && enabled,
   })
 }
 
-export function useMyGuess(groupId: number, groupAlbumId: number) {
+export function useMyGuess(groupId: number, groupAlbumId: number, enabled: boolean = true) {
   return useQuery({
     queryKey: ['guesses', groupId, groupAlbumId, 'me'],
     queryFn: () => albumService.getMyGuess(groupId, groupAlbumId),
-    enabled: !!groupId && !!groupAlbumId,
+    enabled: !!groupId && !!groupAlbumId && enabled,
   })
 }
 

@@ -22,6 +22,7 @@ import { useMyReview, useMyGuess, useSubmitReview, useUpdateReview, useCheckGues
 import { useAuth } from '../../hooks/useAuth'
 import { ApiError } from '../../services/apiClient'
 import GuessResult from './GuessResult'
+import GuestReviewPrompt from './GuestReviewPrompt'
 import type { ReviewResponse } from '../../types/album'
 
 interface Props {
@@ -134,8 +135,8 @@ function ReviewSummary({ review }: { review: ReviewResponse }) {
 export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, addedBy, allowGuessing = true }: Props) {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const { data: existingReview, isLoading: reviewLoading } = useMyReview(albumId)
-  const { data: existingGuess, isLoading: guessLoading } = useMyGuess(groupId, groupAlbumId)
+  const { data: existingReview, isLoading: reviewLoading } = useMyReview(albumId, !!user)
+  const { data: existingGuess, isLoading: guessLoading } = useMyGuess(groupId, groupAlbumId, !!user)
 
   const isSelfNominated = user?.id === addedBy
   const isDraft = !!existingReview?.is_draft
@@ -210,6 +211,8 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
       notifications.show({ color: 'red', message })
     }
   }
+
+  if (!user) return <GuestReviewPrompt />
 
   if (reviewLoading || guessLoading) return <Skeleton h={80} />
 

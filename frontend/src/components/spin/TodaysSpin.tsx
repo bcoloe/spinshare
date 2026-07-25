@@ -29,6 +29,8 @@ import AlbumSearchModal from '../albums/AlbumSearchModal'
 import { usePlayer } from '../../context/PlayerContext'
 import { useCatchUpAlbums, useMyReview, useRollDeal, useTodaysAlbums, useTodaysDeals, useTriggerDailySelection } from '../../hooks/useDailySpin'
 import { useGroupAlbums, useNominationCount } from '../../hooks/useAlbums'
+import { usePublicSpin } from '../../hooks/usePublicSpin'
+import { useAuth } from '../../hooks/useAuth'
 import { albumSearchService } from '../../services/albumSearchService'
 import { ApiError } from '../../services/apiClient'
 import type { GroupAlbumResponse } from '../../types/album'
@@ -387,7 +389,8 @@ function MultiAlbumSpin({ albums, groupId, allowGuessing = true }: { albums: Gro
 }
 
 function AlbumTab({ albumId, title, coverUrl, isPlaying = false }: { albumId: number; title: string; coverUrl: string | null; isPlaying?: boolean }) {
-  const { data: review } = useMyReview(albumId)
+  const { user } = useAuth()
+  const { data: review } = useMyReview(albumId, !!user)
   const reviewed = !!review && !review.is_draft
   return (
     <Tooltip label={title} openDelay={400} disabled={title.length <= 22}>
@@ -641,12 +644,39 @@ function DealerSpin({ groupId, group }: { groupId: number; group: GroupDetailRes
   )
 }
 
+// ==================== ANONYMOUS (PUBLIC) SPIN ====================
+
+// The public draw always lives in the global group, so the group id is
+// read off the drawn albums themselves — no caller-supplied id needed.
+// Reused directly by LandingPage as well as the anonymous branch below.
+export function PublicSpin() {
+  const { data, isLoading, isError } = usePublicSpin()
+
+  if (isLoading) return <Skeleton h={400} radius="md" />
+
+  if (isError || !data || data.albums.length === 0) {
+    return (
+      <Alert icon={<IconInfoCircle size={16} />} color="blue" title="Nothing to spin yet">
+        Check back soon for today&apos;s picks.
+      </Alert>
+    )
+  }
+
+  const groupId = data.albums[0].group_id
+
+  return data.albums.length === 1
+    ? <SpinSlide key={data.albums[0].id} groupAlbum={data.albums[0]} groupId={groupId} allowGuessing={false} />
+    : <MultiAlbumSpin albums={data.albums} groupId={groupId} allowGuessing={false} />
+}
+
 interface Props {
   groupId: number
   group: GroupDetailResponse | undefined
 }
 
 export default function TodaysSpin({ groupId, group }: Props) {
+  const { user } = useAuth()
+  if (!user) return <PublicSpin />
   if (group?.settings?.dealer_mode) {
     return <DealerSpin groupId={groupId} group={group} />
   }

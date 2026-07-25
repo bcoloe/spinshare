@@ -756,3 +756,48 @@ class TestDealerGlobalGroup:
             dealer_service.roll(global_group.id, sample_user)
         assert exc_info.value.status_code == status.HTTP_409_CONFLICT
         assert exc_info.value.detail == "dealer_pool_empty"
+
+
+class TestDealerPublicHistory:
+    """get_public_history: anonymous-visitor read of a group's shared history."""
+
+    def test_returns_shared_selections_only(
+        self, db_session, dealer_service, global_group, sample_group, sample_user,
+        sample_group_service, nominate_albums,
+    ):
+        nominated = nominate_albums(sample_group, 1)
+        db_session.add(
+            GroupAlbum(
+                group_id=global_group.id,
+                album_id=nominated[0].album_id,
+                added_by=sample_user.id,
+                selected_date=datetime.now(tz=timezone.utc),
+            )
+        )
+        db_session.commit()
+
+        history = dealer_service.get_public_history(global_group.id)
+
+        assert len(history) == 1
+        assert history[0].album_id == nominated[0].album_id
+        assert history[0].dealt_at is None
+
+    def test_excludes_unselected_deals(
+        self, db_session, dealer_service, global_group, sample_group, sample_user,
+        sample_group_service, nominate_albums,
+    ):
+        """Per-user AlbumDeal rows (dealer mode) never appear — only shared selections."""
+        global_group.settings.dealer_mode = True
+        db_session.commit()
+        sample_group_service.add_user(global_group.id, sample_user.id)
+        nominate_albums(sample_group, 1)
+        dealer_service.roll(global_group.id, sample_user)
+
+        history = dealer_service.get_public_history(global_group.id)
+
+        assert history == []
+
+    def test_forbidden_for_regular_group(self, dealer_service, sample_group):
+        with pytest.raises(HTTPException) as exc_info:
+            dealer_service.get_public_history(sample_group.id)
+        assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED

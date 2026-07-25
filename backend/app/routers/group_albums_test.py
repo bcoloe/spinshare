@@ -7,7 +7,12 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
-from app.dependencies import get_current_user, get_dealer_service, get_group_album_service
+from app.dependencies import (
+    get_current_user,
+    get_current_user_optional,
+    get_dealer_service,
+    get_group_album_service,
+)
 from app.main import app
 from app.routers.conftest import make_mock_user
 from app.schemas.album import AlbumResponse, GroupAlbumResponse
@@ -102,6 +107,7 @@ def mock_user():
 @pytest.fixture
 def client(mock_user, mock_svc, mock_dealer_svc):
     app.dependency_overrides[get_current_user] = lambda: mock_user
+    app.dependency_overrides[get_current_user_optional] = lambda: mock_user
     app.dependency_overrides[get_group_album_service] = lambda: mock_svc
     app.dependency_overrides[get_dealer_service] = lambda: mock_dealer_svc
     with TestClient(app) as c:
@@ -111,6 +117,7 @@ def client(mock_user, mock_svc, mock_dealer_svc):
 
 @pytest.fixture
 def unauthed_client(mock_svc, mock_dealer_svc):
+    app.dependency_overrides[get_current_user_optional] = lambda: None
     app.dependency_overrides[get_group_album_service] = lambda: mock_svc
     app.dependency_overrides[get_dealer_service] = lambda: mock_dealer_svc
     with TestClient(app) as c:
@@ -141,7 +148,15 @@ class TestGetTodaysAlbums:
         resp = client.get("/groups/1/albums/today")
         assert resp.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_unauthenticated(self, unauthed_client):
+    def test_anonymous_allowed_on_publicly_readable_group(self, unauthed_client, mock_svc):
+        mock_svc.get_todays_albums.return_value = []
+        resp = unauthed_client.get("/groups/1/albums/today")
+        assert resp.status_code == status.HTTP_200_OK
+
+    def test_anonymous_forbidden_on_regular_group(self, unauthed_client, mock_svc):
+        mock_svc.get_todays_albums.side_effect = HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required"
+        )
         resp = unauthed_client.get("/groups/1/albums/today")
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
@@ -264,7 +279,17 @@ class TestGetMemberHistory:
         resp = client.get("/groups/1/albums/history")
         assert resp.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_unauthenticated(self, unauthed_client):
+    def test_anonymous_allowed_on_publicly_readable_group(self, unauthed_client, mock_dealer_svc):
+        mock_dealer_svc.get_public_history.return_value = [make_deal_response()]
+        resp = unauthed_client.get("/groups/1/albums/history")
+        assert resp.status_code == status.HTTP_200_OK
+        assert len(resp.json()) == 1
+        mock_dealer_svc.get_public_history.assert_called_once_with(1)
+
+    def test_anonymous_forbidden_on_regular_group(self, unauthed_client, mock_dealer_svc):
+        mock_dealer_svc.get_public_history.side_effect = HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required"
+        )
         resp = unauthed_client.get("/groups/1/albums/history")
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 

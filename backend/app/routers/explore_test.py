@@ -119,9 +119,10 @@ class TestExploreAlbums:
             offset=0, limit=20, min_reviews=None, sort_by="top_rated", q=None
         )
 
-    def test_requires_authentication(self, unauthed_client):
+    def test_works_without_authentication(self, unauthed_client, mock_explore_service):
+        mock_explore_service.get_explore_albums.return_value = ExploreAlbumsPage(items=[], next_offset=None)
         resp = unauthed_client.get("/explore/albums")
-        assert resp.status_code == 401
+        assert resp.status_code == 200
 
     def test_empty_page(self, client, mock_explore_service):
         mock_explore_service.get_explore_albums.return_value = ExploreAlbumsPage(items=[], next_offset=None)
@@ -164,9 +165,13 @@ class TestExploreGroups:
             offset=0, limit=20, q=None, group_type="all", include_private=False
         )
 
-    def test_requires_authentication(self, unauthed_client):
+    def test_works_without_authentication(self, unauthed_client, mock_explore_service):
+        mock_explore_service.get_explore_groups.return_value = ExploreGroupsPage(items=[], next_offset=None)
         resp = unauthed_client.get("/explore/groups")
-        assert resp.status_code == 401
+        assert resp.status_code == 200
+        mock_explore_service.get_explore_groups.assert_called_once_with(
+            offset=0, limit=20, q=None, group_type="all", include_private=False
+        )
 
     def test_bot_group_flag_preserved(self, client, mock_explore_service):
         mock_explore_service.get_explore_groups.return_value = ExploreGroupsPage(
@@ -174,6 +179,15 @@ class TestExploreGroups:
         )
         resp = client.get("/explore/groups")
         assert resp.json()["items"][0]["is_global"] is True
+
+
+# ==================== GET /explore/users ====================
+# Unlike albums/groups/stats, user browsing stays behind authentication.
+
+class TestExploreUsers:
+    def test_requires_authentication(self, unauthed_client):
+        resp = unauthed_client.get("/explore/users")
+        assert resp.status_code == 401
 
 
 # ==================== GET /explore/stats ====================
@@ -205,9 +219,10 @@ class TestExploreStats:
         assert data["top_rated_albums"][0]["title"] == "Top"
         assert data["most_nominated_artists"][0]["artist"] == "The Beatles"
 
-    def test_requires_authentication(self, unauthed_client):
+    def test_works_without_authentication(self, unauthed_client, mock_explore_service):
+        mock_explore_service.get_site_stats.return_value = self._stats_response()
         resp = unauthed_client.get("/explore/stats")
-        assert resp.status_code == 401
+        assert resp.status_code == 200
 
     def test_calls_get_site_stats(self, client, mock_explore_service):
         mock_explore_service.get_site_stats.return_value = self._stats_response()

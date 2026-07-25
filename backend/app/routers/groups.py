@@ -1,6 +1,6 @@
 # backend/app/routers/groups.py
 
-from app.dependencies import get_current_user, get_group_service
+from app.dependencies import get_current_user, get_current_user_optional, get_group_service
 from app.models import User
 from app.models.group import GroupRole
 from app.schemas.group import (
@@ -65,16 +65,19 @@ def search_groups(
 @router.get("/name/{group_name}", response_model=GroupDetailResponse)
 def get_group_by_name(
     group_name: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
     group_service: GroupService = Depends(get_group_service),
 ):
-    """Get group by name (case-insensitive). Private groups require membership (admins exempt)."""
+    """Get group by name (case-insensitive).
+
+    Private groups require membership (admins exempt). Anonymous visitors may
+    read only the global group or bot groups.
+    """
     group = group_service.get_group_by_name(group_name)
     if group is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
-    if not group.is_public and not current_user.is_admin and not group_service.is_user_in_group(current_user.id, group.id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-    current_role = group_service.get_user_role(current_user.id, group.id)
+    group_service.require_public_or_member(group, current_user)
+    current_role = group_service.get_user_role(current_user.id, group.id) if current_user else None
     return GroupDetailResponse(
         id=group.id,
         name=group.name,
@@ -91,14 +94,17 @@ def get_group_by_name(
 @router.get("/{group_id}", response_model=GroupDetailResponse)
 def get_group(
     group_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
     group_service: GroupService = Depends(get_group_service),
 ):
-    """Get group by ID. Private groups require membership (admins exempt)."""
+    """Get group by ID.
+
+    Private groups require membership (admins exempt). Anonymous visitors may
+    read only the global group or bot groups.
+    """
     group = group_service.get_group_by_id(group_id)
-    if not group.is_public and not current_user.is_admin and not group_service.is_user_in_group(current_user.id, group_id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-    current_role = group_service.get_user_role(current_user.id, group_id)
+    group_service.require_public_or_member(group, current_user)
+    current_role = group_service.get_user_role(current_user.id, group_id) if current_user else None
     return GroupDetailResponse(
         id=group.id,
         name=group.name,
@@ -152,12 +158,16 @@ def delete_group(
 @router.get("/{group_id}/stats", response_model=GroupStatsResponse)
 def get_group_stats(
     group_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
     group_service: GroupService = Depends(get_group_service),
 ):
-    """Get aggregate statistics for a group. Requires membership (admins exempt)."""
-    if not current_user.is_admin:
-        group_service.require_membership(current_user.id, group_id)
+    """Get aggregate statistics for a group.
+
+    Requires membership (admins exempt). Anonymous visitors may read stats
+    only for the global group or bot groups.
+    """
+    group = group_service.get_group_by_id(group_id)
+    group_service.require_public_or_member(group, current_user)
     return group_service.get_group_stats(group_id)
 
 
@@ -211,12 +221,16 @@ def remove_member(
 @router.get("/{group_id}/members", response_model=list[GroupMemberResponse])
 def list_members(
     group_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
     group_service: GroupService = Depends(get_group_service),
 ):
-    """List all members of a group. Requires membership (admins exempt)."""
-    if not current_user.is_admin:
-        group_service.require_membership(current_user.id, group_id)
+    """List all members of a group.
+
+    Requires membership (admins exempt). Anonymous visitors may read the
+    member list only for the global group or bot groups.
+    """
+    group = group_service.get_group_by_id(group_id)
+    group_service.require_public_or_member(group, current_user)
     return group_service.get_group_members(group_id)
 
 
@@ -224,12 +238,16 @@ def list_members(
 def get_member(
     group_id: int,
     user_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
     group_service: GroupService = Depends(get_group_service),
 ):
-    """Get a specific member's info (role, join date). Requires membership (admins exempt)."""
-    if not current_user.is_admin:
-        group_service.require_membership(current_user.id, group_id)
+    """Get a specific member's info (role, join date).
+
+    Requires membership (admins exempt). Anonymous visitors may read this
+    only for the global group or bot groups.
+    """
+    group = group_service.get_group_by_id(group_id)
+    group_service.require_public_or_member(group, current_user)
     members = group_service.get_group_members(group_id)
     member = next((m for m in members if m["user_id"] == user_id), None)
     if member is None:

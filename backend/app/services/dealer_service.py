@@ -23,6 +23,24 @@ from app.services import group_service as gs
 from app.utils.time_helpers import DEFAULT_TZ, date_in_tz, group_today
 
 
+def _global_candidate_album_ids(db: Session, global_group_id: int):
+    """Base query: every album nominated in any non-global group, minus albums
+    already selected group-wide via the legacy shared draw within the global
+    group itself. Shared by DealerService._eligible_album_ids (which layers
+    per-user dealt/reviewed exclusions on top) and PublicSpinService (which
+    samples directly from this pool, with no per-visitor exclusions).
+    """
+    legacy_selected_subq = select(GroupAlbum.album_id).where(
+        GroupAlbum.group_id == global_group_id, GroupAlbum.selected_date.isnot(None)
+    )
+    return (
+        db.query(GroupAlbum.album_id)
+        .join(Group, GroupAlbum.group_id == Group.id)
+        .filter(Group.is_global == False)  # noqa: E712
+        .filter(GroupAlbum.album_id.notin_(legacy_selected_subq))
+    )
+
+
 class DealerService:
     """Workflow service for per-member rolls in dealer-mode groups."""
 
@@ -137,8 +155,8 @@ class DealerService:
         self.db.commit()
         self.db.refresh(deal)
 
-        canonical = self._canonical_group_albums(group_id, [deal.album_id])
-        self._heal_genres(list(canonical.values()))
+        canonical = self.canonical_group_albums(group_id, [deal.album_id])
+        self.heal_genres(list(canonical.values()))
 
         return DealRollResponse(
             deal=self._deal_response(canonical[deal.album_id], deal),
@@ -180,7 +198,7 @@ class DealerService:
             .all()
         )
 
-        canonical = self._canonical_group_albums(group_id, [d.album_id for d in deals])
+        canonical = self.canonical_group_albums(group_id, [d.album_id for d in deals])
         return DealsTodayResponse(
             deals=[
                 self._deal_response(canonical[d.album_id], d)
@@ -224,7 +242,7 @@ class DealerService:
             .all()
         }
 
-        canonical = self._canonical_group_albums(
+        canonical = self.canonical_group_albums(
             group_id, list(selected_album_ids | set(deal_by_album))
         )
         responses = [
@@ -232,6 +250,33 @@ class DealerService:
             for album_id, ga in canonical.items()
         ]
         responses.sort(key=lambda r: (r.dealt_at or r.selected_date or r.added_at), reverse=True)
+        return responses
+
+    def get_public_history(self, group_id: int) -> list[GroupAlbumResponse]:
+        """Return the group's shared review history for anonymous visitors.
+
+        Same shape as get_member_history but with no per-user AlbumDeal
+        enrichment — just the group's shared, already-selected albums, newest
+        first.
+
+        Raises:
+            HTTPException 401: If the group is not the global group or a bot
+                group (the only groups anonymous visitors may read).
+        """
+        group_service = gs.GroupService(self.db)
+        group = group_service.get_group_by_id(group_id)
+        group_service.require_public_or_member(group, None)
+
+        selected_album_ids = {
+            row[0]
+            for row in self.db.query(GroupAlbum.album_id)
+            .filter(GroupAlbum.group_id == group_id, GroupAlbum.selected_date.isnot(None))
+            .distinct()
+            .all()
+        }
+        canonical = self.canonical_group_albums(group_id, list(selected_album_ids))
+        responses = [self._deal_response(ga, None) for ga in canonical.values()]
+        responses.sort(key=lambda r: (r.selected_date or r.added_at), reverse=True)
         return responses
 
     def get_pool_count(self, group_id: int, user_id: int) -> int:
@@ -272,15 +317,7 @@ class DealerService:
             # Albums already spun group-wide via the legacy shared draw (pre-dating
             # dealer mode) are already part of every member's history — exclude them
             # the same way an unselected-nominations filter would for a normal group.
-            legacy_selected_subq = select(GroupAlbum.album_id).where(
-                GroupAlbum.group_id == group_id, GroupAlbum.selected_date.isnot(None)
-            )
-            query = (
-                self.db.query(GroupAlbum.album_id)
-                .join(Group, GroupAlbum.group_id == Group.id)
-                .filter(Group.is_global == False)  # noqa: E712
-                .filter(GroupAlbum.album_id.notin_(legacy_selected_subq))
-            )
+            query = _global_candidate_album_ids(self.db, group_id)
         else:
             query = self.db.query(GroupAlbum.album_id).filter(
                 GroupAlbum.group_id == group_id, GroupAlbum.selected_date.is_(None)
@@ -313,7 +350,7 @@ class DealerService:
             .count()
         )
 
-    def _canonical_group_albums(self, group_id: int, album_ids: list[int]) -> dict[int, GroupAlbum]:
+    def canonical_group_albums(self, group_id: int, album_ids: list[int]) -> dict[int, GroupAlbum]:
         """Return {album_id: canonical GroupAlbum} (lowest id per album) with the
         nomination_count / nominator_user_ids enrichment used by GroupAlbumResponse.
 
@@ -323,7 +360,7 @@ class DealerService:
         if not album_ids:
             return {}
         if self._is_global(group_id):
-            self._ensure_global_canonical_rows(group_id, album_ids)
+            self.ensure_global_canonical_rows(group_id, album_ids)
         subq = (
             self.db.query(
                 GroupAlbum.album_id.label("album_id"),
@@ -361,7 +398,7 @@ class DealerService:
             result[ga.album_id] = ga
         return result
 
-    def _ensure_global_canonical_rows(self, global_group_id: int, album_ids: list[int]) -> None:
+    def ensure_global_canonical_rows(self, global_group_id: int, album_ids: list[int]) -> None:
         """Get-or-create a canonical GroupAlbum row in the global group for each album
         about to be dealt, attributed to its original nominator (mirrors the legacy
         shared global-selection path). Left unselected (selected_date=None) since
@@ -405,7 +442,7 @@ class DealerService:
             response.dealt_at = deal.revealed_at
         return response
 
-    def _heal_genres(self, group_albums: list[GroupAlbum]) -> None:
+    def heal_genres(self, group_albums: list[GroupAlbum]) -> None:
         """Backfill genres for dealt albums that have none (mirrors selection paths)."""
         from app.services.album_service import AlbumService
 

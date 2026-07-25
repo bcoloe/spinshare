@@ -15,7 +15,7 @@ from app.services.review_service import ReviewService
 from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
 
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, get_current_user_optional
 
 _NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
@@ -133,6 +133,7 @@ def mock_user():
 @pytest.fixture
 def client(mock_user, mock_album_service, mock_review_service):
     app.dependency_overrides[get_current_user] = lambda: mock_user
+    app.dependency_overrides[get_current_user_optional] = lambda: mock_user
     app.dependency_overrides[get_album_service] = lambda: mock_album_service
     app.dependency_overrides[get_review_service] = lambda: mock_review_service
     with TestClient(app) as c:
@@ -142,6 +143,7 @@ def client(mock_user, mock_album_service, mock_review_service):
 
 @pytest.fixture
 def unauthed_client(mock_album_service, mock_review_service):
+    app.dependency_overrides[get_current_user_optional] = lambda: None
     app.dependency_overrides[get_album_service] = lambda: mock_album_service
     app.dependency_overrides[get_review_service] = lambda: mock_review_service
     with TestClient(app) as c:
@@ -221,9 +223,10 @@ class TestAlbumGet:
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["spotify_album_id"] == "spotify_test"
 
-    def test_get_album_unauthenticated(self, unauthed_client):
+    def test_get_album_works_without_authentication(self, unauthed_client, mock_album_service):
+        mock_album_service.get_album_by_id.return_value = make_mock_album(id=1)
         resp = unauthed_client.get("/albums/1")
-        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+        assert resp.status_code == status.HTTP_200_OK
 
 
 # ==================== REVIEWS ====================
@@ -304,6 +307,15 @@ class TestReviewGet:
         assert len(body) == 2
         assert body[0]["username"] == "alice"
         assert body[1]["username"] == "bob"
+
+    def test_list_reviews_works_without_authentication(
+        self, unauthed_client, mock_album_service, mock_review_service
+    ):
+        mock_album_service.get_album_by_id.return_value = make_mock_album()
+        mock_review_service.get_reviews_for_album.return_value = [make_mock_review()]
+        resp = unauthed_client.get("/albums/1/reviews")
+        assert resp.status_code == status.HTTP_200_OK
+        mock_review_service.get_reviews_for_album.assert_called_once_with(1, viewer_id=None, group_id=None)
 
     def test_get_my_review_success(self, client, mock_album_service, mock_review_service):
         mock_album_service.get_album_by_id.return_value = make_mock_album()
@@ -914,9 +926,13 @@ class TestAlbumStats:
         resp = client.get("/albums/999/stats")
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_get_stats_unauthenticated(self, unauthed_client):
+    def test_get_stats_works_without_authentication(
+        self, unauthed_client, mock_album_service, mock_review_service
+    ):
+        mock_album_service.get_album_by_id.return_value = make_mock_album()
+        mock_review_service.get_album_stats.return_value = make_mock_album_stats()
         resp = unauthed_client.get("/albums/1/stats")
-        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+        assert resp.status_code == status.HTTP_200_OK
 
 
 # ==================== ADMIN: UPDATE ALBUM LINKS ====================

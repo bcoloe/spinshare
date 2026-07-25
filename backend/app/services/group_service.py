@@ -337,7 +337,7 @@ class GroupService:
     def require_membership(self, user_id: int, group_id: int) -> None:
         """
         Require user to be a member of the group.
-        
+
         Raises:
             HTTPException 403: If user is not a member
         """
@@ -345,6 +345,34 @@ class GroupService:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You must be a member of this group"
+            )
+
+    def require_public_or_member(self, group: Group, current_user: User | None) -> None:
+        """Gate read access to a group for the landing-page/anonymous-browsing flows.
+
+        Anonymous visitors may read only the global group or bot groups (the only
+        groups meant to be public-facing); everyone else falls back to the existing
+        is_public/admin/membership rule.
+
+        Raises:
+            HTTPException 401: Anonymous visitor, group is not global/bot.
+            HTTPException 403: Authenticated non-member of a private, non-public group.
+        """
+        if current_user is None:
+            if not (group.is_global or bool(group.bot_sources)):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Authentication required",
+                )
+            return
+        if (
+            not group.is_public
+            and not current_user.is_admin
+            and not self.is_user_in_group(current_user.id, group.id)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied",
             )
 
     # ==================== MUTATION ====================

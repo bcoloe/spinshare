@@ -7,7 +7,12 @@
 # IMPORTANT: registered before the CRUD group_albums_router so that literal
 # path segments (/today, /guess/me) are matched before /{group_album_id}.
 
-from app.dependencies import get_current_user, get_dealer_service, get_group_album_service
+from app.dependencies import (
+    get_current_user,
+    get_current_user_optional,
+    get_dealer_service,
+    get_group_album_service,
+)
 from app.models import User
 from app.schemas.album import GroupAlbumResponse
 from app.schemas.group_album import (
@@ -31,10 +36,14 @@ router = APIRouter(prefix="/groups", tags=["group-album-workflow"])
 @router.get("/{group_id}/albums/today", response_model=list[GroupAlbumResponse])
 def get_todays_albums(
     group_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
     svc: GroupAlbumService = Depends(get_group_album_service),
 ):
-    """Return the albums selected as today's daily spins for the group. Requires membership."""
+    """Return the albums selected as today's daily spins for the group.
+
+    Requires membership. Anonymous visitors may read this only for the
+    global group or bot groups.
+    """
     gas = svc.get_todays_albums(group_id, current_user)
     return [GroupAlbumResponse.from_orm(ga) for ga in gas]
 
@@ -101,13 +110,18 @@ def get_todays_deals(
 @router.get("/{group_id}/albums/history", response_model=list[GroupAlbumResponse])
 def get_member_history(
     group_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
     svc: DealerService = Depends(get_dealer_service),
 ):
-    """Return the caller's review history for the group: the union of shared daily
-    selections and albums dealt to the caller (dealer mode), newest first.
-    Requires membership.
+    """Return the group's review history, newest first.
+
+    For an authenticated member: the union of shared daily selections and
+    albums dealt to the caller (dealer mode). For an anonymous visitor
+    (global group or bot groups only): the group's shared selections, with
+    no per-user deal enrichment.
     """
+    if current_user is None:
+        return svc.get_public_history(group_id)
     return svc.get_member_history(group_id, current_user)
 
 
