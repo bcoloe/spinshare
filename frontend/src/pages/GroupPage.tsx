@@ -225,7 +225,11 @@ export default function GroupPage() {
                 <SegmentedControl
                   fullWidth={!isMobile}
                   value={tab}
-                  onChange={(v) => setSearchParams({ tab: v })}
+                  onChange={(v) => setSearchParams((prev) => {
+                    const next = new URLSearchParams(prev)
+                    next.set('tab', v)
+                    return next
+                  })}
                   data={[
                     { label: "Today's Spin", value: 'spin' },
                     { label: 'Review History', value: 'history' },
