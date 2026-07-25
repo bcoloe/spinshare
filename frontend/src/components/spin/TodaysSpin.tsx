@@ -228,16 +228,19 @@ function SpinSlide({ groupAlbum, groupId, allowGuessing = true }: { groupAlbum: 
 }
 
 function MultiAlbumSpin({ albums, groupId, allowGuessing = true }: { albums: GroupAlbumResponse[]; groupId: number; allowGuessing?: boolean }) {
-  const [searchParams] = useSearchParams()
-  const [activeAlbumValue, setActiveAlbumValue] = useState<string | null>(searchParams.get('album'))
+  const [searchParams, setSearchParams] = useSearchParams()
   const { startAlbum, playInAppleMusic, hasSpotify, hasAppleMusic, preferredService, status: playerStatus, playingSpotifyAlbumId } = usePlayer()
 
-  useEffect(() => {
-    const album = searchParams.get('album')
-    if (album) setActiveAlbumValue(album)
-  }, [searchParams])
-  const currentValue = activeAlbumValue ?? String(albums[0].id)
-  const activeAlbum = albums.find((a) => String(a.id) === currentValue) ?? albums[0]
+  const requestedValue = searchParams.get('album')
+  const activeAlbum = albums.find((a) => String(a.id) === requestedValue) ?? albums[0]
+  const currentValue = String(activeAlbum.id)
+  const handleTabChange = (value: string) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.set('album', value)
+      return next
+    }, { replace: true })
+  }
   const spotifyId = activeAlbum.album.spotify_album_id
   const appleMusicId = activeAlbum.album.apple_music_album_id
   const canPlaySpotify = hasSpotify && !!spotifyId
@@ -266,7 +269,7 @@ function MultiAlbumSpin({ albums, groupId, allowGuessing = true }: { albums: Gro
 
   return (
     <Stack gap="md">
-      <Tabs value={currentValue} onChange={setActiveAlbumValue}>
+      <Tabs value={currentValue} onChange={(value) => value && handleTabChange(value)}>
         <Tabs.List>
           {albums.map((a) => (
             <Tabs.Tab key={a.id} value={String(a.id)}>
