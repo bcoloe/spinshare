@@ -97,6 +97,7 @@ export default function GroupSettingsPage() {
   const [dealerMode, setDealerMode] = useState<boolean | null>(null)
   const [dealerRollsPerDay, setDealerRollsPerDay] = useState<number | string | null>(null)
   const [dailyNominationLimit, setDailyNominationLimit] = useState<number | string | null | undefined>(undefined)
+  const [priorityPickThreshold, setPriorityPickThreshold] = useState<number | string | null | undefined>(undefined)
   const [timezone, setTimezone] = useState<string | null>(null)
   const [selectionDays, setSelectionDays] = useState<number[] | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
@@ -117,6 +118,13 @@ export default function GroupSettingsPage() {
     const raw = dailyNominationLimit === undefined
       ? group?.settings?.daily_nomination_limit
       : dailyNominationLimit
+    if (raw === null || raw === undefined || raw === '') return ''
+    return raw as number
+  })()
+  const currentPriorityPickThreshold: string | number = (() => {
+    const raw = priorityPickThreshold === undefined
+      ? group?.settings?.priority_pick_threshold
+      : priorityPickThreshold
     if (raw === null || raw === undefined || raw === '') return ''
     return raw as number
   })()
@@ -160,6 +168,11 @@ export default function GroupSettingsPage() {
           daily_nomination_limit: typeof currentDailyNominationLimit === 'number'
             ? currentDailyNominationLimit
             : currentDailyNominationLimit === ''
+            ? null
+            : undefined,
+          priority_pick_threshold: typeof currentPriorityPickThreshold === 'number'
+            ? currentPriorityPickThreshold
+            : currentPriorityPickThreshold === ''
             ? null
             : undefined,
           timezone: currentTimezone,
@@ -368,6 +381,17 @@ export default function GroupSettingsPage() {
             min={1}
             max={50}
             placeholder="No limit"
+            w={160}
+            allowDecimal={false}
+          />
+          <NumberInput
+            label="Priority pick threshold"
+            description="Reviews a member must publish to promote a nomination to the front of the daily draw. Leave empty to disable."
+            value={currentPriorityPickThreshold}
+            onChange={setPriorityPickThreshold}
+            min={1}
+            max={100}
+            placeholder="Disabled"
             w={160}
             allowDecimal={false}
           />

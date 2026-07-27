@@ -27,6 +27,7 @@ import GroupInfo from '../components/groups/GroupInfo'
 import LeaveGroupModal from '../components/groups/LeaveGroupModal'
 import InviteUserModal from '../components/groups/InviteUserModal'
 import MyNominations from '../components/groups/MyNominations'
+import ParticipationMeter from '../components/groups/ParticipationMeter'
 import AlbumSearchModal from '../components/albums/AlbumSearchModal'
 import { useGroup, useGroupMembers, useJoinGroup } from '../hooks/useGroups'
 import { useGroupHistory, useNominationCount } from '../hooks/useAlbums'
@@ -274,6 +275,10 @@ export default function GroupPage() {
 
             {tab === 'nominations' && user && <MyNominations groupId={gid} />}
           </>
+        )}
+
+        {isMember && group && !group.is_global && !group.settings?.dealer_mode && (
+          <ParticipationMeter groupId={gid} />
         )}
       </Stack>
 

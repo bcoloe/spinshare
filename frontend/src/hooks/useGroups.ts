@@ -37,6 +37,26 @@ export function useGroupMembers(groupId: number, enabled = true) {
   })
 }
 
+export function useParticipation(groupId: number, enabled = true) {
+  return useQuery({
+    queryKey: ['groups', groupId, 'participation'],
+    queryFn: () => groupService.getParticipation(groupId),
+    enabled: enabled && !!groupId,
+  })
+}
+
+export function useSetPriorityPick(groupId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (groupAlbumId: number) => groupService.setPriorityPick(groupId, groupAlbumId),
+    onSuccess: (progress) => {
+      qc.setQueryData(['groups', groupId, 'participation'], progress)
+      // A promoted nomination may be drawn on the next selection — keep album views fresh.
+      qc.invalidateQueries({ queryKey: ['groups', groupId, 'albums'] })
+    },
+  })
+}
+
 export function useGroupStats(groupId: number) {
   return useQuery({
     queryKey: ['groups', groupId, 'stats'],

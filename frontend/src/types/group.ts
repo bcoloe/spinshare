@@ -17,6 +17,7 @@ export interface GroupSettings {
   catch_up_enabled: boolean
   dealer_mode: boolean
   dealer_rolls_per_day: number
+  priority_pick_threshold: number | null
 }
 
 export interface GroupDetailResponse extends GroupResponse {
@@ -26,6 +27,13 @@ export interface GroupDetailResponse extends GroupResponse {
   member_count: number
   current_user_role: 'owner' | 'admin' | 'member' | null
   settings: GroupSettings | null
+}
+
+export interface ParticipationResponse {
+  threshold: number | null
+  credits: number
+  can_pick: boolean
+  pending_pick: import('./album').GroupAlbumResponse | null
 }
 
 export interface GroupMemberResponse {
@@ -93,6 +101,7 @@ export interface GroupModify {
     catch_up_enabled?: boolean
     dealer_mode?: boolean
     dealer_rolls_per_day?: number
+    priority_pick_threshold?: number | null
   }
 }
 

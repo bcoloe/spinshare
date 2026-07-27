@@ -4,6 +4,7 @@ from app.models import Album, AlbumDeal, Group, GroupAlbum, Review, User, group_
 from app.schemas.album import AlbumReviewItem, AlbumStatsResponse, HistogramBucket, ReviewCreate, ReviewUpdate
 from app.schemas.notification import NotificationType
 from app.services.notification_service import NotificationService
+from app.services.participation_service import ParticipationService
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -45,6 +46,8 @@ class ReviewService:
             ) from None
         if not data.is_draft:
             self._notify_co_reviewers(album_id, user_id)
+            if group_id is not None:
+                ParticipationService(self.db).award_review_credit(group_id, user_id, review)
         self._refresh_group_album_avgs(album_id)
         review.is_first_review = (
             not data.is_draft
@@ -408,6 +411,8 @@ class ReviewService:
 
         if just_published:
             self._notify_co_reviewers(review.album_id, user_id)
+            if group_id is not None:
+                ParticipationService(self.db).award_review_credit(group_id, user_id, review)
         self._refresh_group_album_avgs(review.album_id)
 
         review.is_first_review = (

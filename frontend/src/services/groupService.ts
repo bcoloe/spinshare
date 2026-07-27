@@ -6,6 +6,7 @@ import type {
   GroupModify,
   GroupResponse,
   GroupStatsResponse,
+  ParticipationResponse,
 } from '../types/group'
 
 export const groupService = {
@@ -62,5 +63,16 @@ export const groupService = {
 
   getStats(groupId: number): Promise<GroupStatsResponse> {
     return apiFetch(`/groups/${groupId}/stats`)
+  },
+
+  getParticipation(groupId: number): Promise<ParticipationResponse> {
+    return apiFetch(`/groups/${groupId}/participation/me`)
+  },
+
+  setPriorityPick(groupId: number, groupAlbumId: number): Promise<ParticipationResponse> {
+    return apiFetch(`/groups/${groupId}/participation/priority-pick`, {
+      method: 'POST',
+      body: JSON.stringify({ group_album_id: groupAlbumId }),
+    })
   },
 }

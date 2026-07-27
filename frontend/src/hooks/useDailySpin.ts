@@ -19,6 +19,8 @@ export function useUpdateReview(albumId: number, groupId?: number) {
       })
       if (groupId != null) {
         qc.invalidateQueries({ queryKey: ['groups', groupId, 'albums', 'history'] })
+        // Publishing a review may award a priority-pick credit.
+        qc.invalidateQueries({ queryKey: ['groups', groupId, 'participation'] })
       }
     },
   })
@@ -112,6 +114,8 @@ export function useSubmitReview(albumId: number, groupId?: number) {
       })
       if (groupId != null) {
         qc.invalidateQueries({ queryKey: ['groups', groupId, 'albums', 'history'] })
+        // Publishing a review may award a priority-pick credit.
+        qc.invalidateQueries({ queryKey: ['groups', groupId, 'participation'] })
       }
     },
   })
