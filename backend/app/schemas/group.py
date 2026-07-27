@@ -59,6 +59,7 @@ class GroupSettingsResponse(BaseModel):
     catch_up_enabled: bool
     dealer_mode: bool
     dealer_rolls_per_day: int
+    priority_pick_threshold: int | None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -78,6 +79,7 @@ class GroupSettingsUpdate(BaseModel):
     catch_up_enabled: bool | None = None
     dealer_mode: bool | None = None
     dealer_rolls_per_day: int | None = None
+    priority_pick_threshold: int | None = None
 
     @field_validator("min_role_to_add_members", "min_role_to_nominate")
     @classmethod

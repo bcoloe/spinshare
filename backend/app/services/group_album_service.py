@@ -28,6 +28,7 @@ from app.schemas.group_album import (
 from app.schemas.notification import NotificationType
 from app.services import group_service as gs
 from app.services.notification_service import NotificationService
+from app.services.participation_service import ParticipationService
 from app.utils.time_helpers import (
     DEFAULT_TZ,
     date_in_tz,
@@ -113,23 +114,50 @@ class GroupAlbumService:
 
         chaos_mode = settings.chaos_mode if settings else False
 
+        # Priority picks jump the queue: claim up to N promoted nominations (FIFO),
+        # mark them selected, and let random selection fill only the remaining slots.
+        priority = ParticipationService(self.db).claim_priority_picks(group_id, n)
+        now = datetime.now(tz=timezone.utc)
+        for ga in priority:
+            ga.selected_date = now
+        if priority:
+            self.db.flush()  # exclude them from the pending pool below
+        priority_album_ids = {ga.album_id for ga in priority}
+        remaining_n = n - len(priority)
+
         available_album_ids = [
             row[0]
             for row in self.db.query(GroupAlbum.album_id)
             .filter(GroupAlbum.group_id == group_id, GroupAlbum.selected_date.is_(None))
             .distinct()
             .all()
+            if row[0] not in priority_album_ids
         ]
-        if len(available_album_ids) == 0:
+        if len(available_album_ids) == 0 and not priority:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="No unselected albums available",
             )
 
-        if not chaos_mode:
-            selected = self._select_normal_albums(group_id, group, available_album_ids, n)
+        if remaining_n <= 0 or not available_album_ids:
+            # Priority picks filled the day; nothing left to draw randomly.
+            random_selected: list[GroupAlbum] = []
+            if priority:
+                self.db.commit()  # persist the priority selections flushed above
+        elif not chaos_mode:
+            random_selected = self._select_normal_albums(
+                group_id, group, available_album_ids, remaining_n
+            )
         else:
-            selected = self._select_with_chaos(group_id, group, available_album_ids, n)
+            random_selected = self._select_with_chaos(
+                group_id, group, available_album_ids, remaining_n
+            )
+
+        selected = priority + random_selected
+        # Members who already reviewed a freshly drawn album earn their credit now.
+        ParticipationService(self.db).credit_existing_reviewers(
+            group_id, [ga.album_id for ga in selected]
+        )
         self._heal_genres(selected)
         return selected
 

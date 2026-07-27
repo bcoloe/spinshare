@@ -9,6 +9,7 @@ from .invitation import GroupInvitation
 from .invite_link import GroupInviteLink
 from .nomination_guess import NominationGuess
 from .notification import Notification
+from .participation import GroupParticipation, PriorityReviewCredit
 from .public_spin_draw import PublicSpinDraw
 from .review import Review
 from .spotify_connection import SpotifyConnection
@@ -28,6 +29,8 @@ __all__ = [
     "GroupInviteLink",
     "NominationGuess",
     "Notification",
+    "GroupParticipation",
+    "PriorityReviewCredit",
     "PublicSpinDraw",
     "Review",
     "SpotifyConnection",

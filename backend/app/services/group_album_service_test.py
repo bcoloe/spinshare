@@ -1168,3 +1168,81 @@ class TestSelectionSchedule:
         """Default selection_days=[0..6] means every day triggers selection."""
         result = group_album_service.select_daily_albums(sample_group.id, n=1)
         assert len(result) == 1
+
+
+class TestPrioritySelection:
+    """Draw integration for the priority-pick feature."""
+
+    def _enable_and_queue(self, db_session, group, user, threshold, queued_ga):
+        from app.models import GroupParticipation, GroupSettings
+
+        settings = db_session.query(GroupSettings).filter(GroupSettings.group_id == group.id).first()
+        settings.priority_pick_threshold = threshold
+        db_session.add(GroupParticipation(
+            group_id=group.id, user_id=user.id, credits=threshold + 1,
+            priority_group_album_id=queued_ga.id,
+            priority_queued_at=datetime.now(tz=timezone.utc),
+        ))
+        db_session.commit()
+
+    def _pending(self, db_session, group, user, spotify_id, title):
+        album = _make_album(db_session, spotify_id, title)
+        ga = GroupAlbum(group_id=group.id, album_id=album.id, added_by=user.id)
+        db_session.add(ga)
+        db_session.commit()
+        db_session.refresh(ga)
+        return ga
+
+    def test_priority_pick_occupies_the_only_slot(
+        self, group_album_service, sample_group, sample_user, db_session
+    ):
+        promoted = self._pending(db_session, sample_group, sample_user, "sp_p", "Promoted")
+        other = self._pending(db_session, sample_group, sample_user, "sp_o", "Other")
+        self._enable_and_queue(db_session, sample_group, sample_user, 2, promoted)
+
+        results = group_album_service.select_daily_albums(sample_group.id, n=1)
+
+        assert len(results) == 1
+        assert results[0].album_id == promoted.album_id
+        # The non-promoted album stays pending.
+        db_session.refresh(other)
+        assert other.selected_date is None
+        # Credit debited by the threshold (surplus retained: 3 - 2 = 1).
+        from app.models import GroupParticipation
+
+        row = db_session.query(GroupParticipation).filter(
+            GroupParticipation.group_id == sample_group.id,
+            GroupParticipation.user_id == sample_user.id,
+        ).first()
+        assert row.credits == 1
+        assert row.priority_group_album_id is None
+
+    def test_priority_fills_first_then_random_fills_remainder(
+        self, group_album_service, sample_group, sample_user, db_session
+    ):
+        promoted = self._pending(db_session, sample_group, sample_user, "sp_p", "Promoted")
+        self._pending(db_session, sample_group, sample_user, "sp_a", "A")
+        self._pending(db_session, sample_group, sample_user, "sp_b", "B")
+        self._enable_and_queue(db_session, sample_group, sample_user, 1, promoted)
+
+        results = group_album_service.select_daily_albums(sample_group.id, n=2)
+
+        album_ids = [ga.album_id for ga in results]
+        assert len(results) == 2
+        assert promoted.album_id in album_ids  # priority always drawn
+        assert len(set(album_ids)) == 2  # promoted not double-selected
+
+    def test_no_priority_when_none_queued(
+        self, group_album_service, sample_group, sample_group_album, db_session
+    ):
+        from app.models import GroupSettings
+
+        settings = db_session.query(GroupSettings).filter(
+            GroupSettings.group_id == sample_group.id
+        ).first()
+        settings.priority_pick_threshold = 2  # enabled, but nobody has queued a pick
+        db_session.commit()
+
+        results = group_album_service.select_daily_albums(sample_group.id, n=1)
+        assert len(results) == 1
+        assert results[0].id == sample_group_album.id

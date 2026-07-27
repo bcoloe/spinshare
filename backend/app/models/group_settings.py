@@ -36,5 +36,6 @@ class GroupSettings(Base):
     catch_up_enabled = Column(Boolean, nullable=False, default=False, server_default="false")
     dealer_mode = Column(Boolean, nullable=False, default=False, server_default="false")
     dealer_rolls_per_day = Column(Integer, nullable=False, default=1, server_default="1")
+    priority_pick_threshold = Column(Integer, nullable=True)
 
     group = relationship("Group", back_populates="settings")

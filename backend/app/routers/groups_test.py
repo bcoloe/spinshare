@@ -330,3 +330,60 @@ class TestGroupRoles:
         )
         resp = client.put("/groups/1/members/2/role", json={"role": "admin"})
         assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestPriorityPick:
+    """Router tests for the participation endpoints — ParticipationService is mocked."""
+
+    @pytest.fixture
+    def mock_participation_service(self):
+        from app.dependencies import get_participation_service
+        from app.main import app
+
+        svc = MagicMock()
+        app.dependency_overrides[get_participation_service] = lambda: svc
+        yield svc
+        app.dependency_overrides.pop(get_participation_service, None)
+
+    def _progress(self, **kwargs):
+        from app.schemas.participation import ParticipationResponse
+
+        return ParticipationResponse(**{"threshold": 3, "credits": 2, "can_pick": False, **kwargs})
+
+    def test_get_participation_success(self, client, mock_participation_service):
+        mock_participation_service.get_progress.return_value = self._progress(credits=3, can_pick=True)
+
+        resp = client.get("/groups/1/participation/me")
+
+        assert resp.status_code == status.HTTP_200_OK
+        body = resp.json()
+        assert body["threshold"] == 3
+        assert body["credits"] == 3
+        assert body["can_pick"] is True
+        mock_participation_service.get_progress.assert_called_once_with(1, 1)
+
+    def test_get_participation_unauthenticated(self, unauthed_client):
+        resp = unauthed_client.get("/groups/1/participation/me")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_set_priority_pick_success(self, client, mock_participation_service):
+        mock_participation_service.set_priority_pick.return_value = self._progress(credits=3)
+
+        resp = client.post("/groups/1/participation/priority-pick", json={"group_album_id": 42})
+
+        assert resp.status_code == status.HTTP_200_OK
+        mock_participation_service.set_priority_pick.assert_called_once_with(1, 1, 42)
+
+    def test_set_priority_pick_conflict(self, client, mock_participation_service):
+        from fastapi import HTTPException
+
+        mock_participation_service.set_priority_pick.side_effect = HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="insufficient_credits"
+        )
+        resp = client.post("/groups/1/participation/priority-pick", json={"group_album_id": 42})
+        assert resp.status_code == status.HTTP_409_CONFLICT
+        assert resp.json()["detail"] == "insufficient_credits"
+
+    def test_set_priority_pick_missing_body(self, client, mock_participation_service):
+        resp = client.post("/groups/1/participation/priority-pick", json={})
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY

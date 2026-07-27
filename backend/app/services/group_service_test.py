@@ -582,6 +582,28 @@ class TestGroupServiceMutators:
         sample_group_service.update_group_settings(sample_group.id, sample_user.id, request)
         assert sample_group.name == sample_group.name
 
+    def test_update_priority_pick_threshold(
+        self, sample_group, sample_group_service, sample_user
+    ):
+        """priority_pick_threshold round-trips; an explicit null disables the feature."""
+        request = GroupModifyRequest(settings=GroupSettingsUpdate(priority_pick_threshold=10))
+        sample_group_service.update_group_settings(sample_group.id, sample_user.id, request)
+        assert sample_group_service.get_group_settings(sample_group.id).priority_pick_threshold == 10
+
+        # Absent field leaves it unchanged (model_fields_set gate).
+        sample_group_service.update_group_settings(
+            sample_group.id, sample_user.id,
+            GroupModifyRequest(settings=GroupSettingsUpdate(daily_album_count=2)),
+        )
+        assert sample_group_service.get_group_settings(sample_group.id).priority_pick_threshold == 10
+
+        # Explicit null disables.
+        sample_group_service.update_group_settings(
+            sample_group.id, sample_user.id,
+            GroupModifyRequest(settings=GroupSettingsUpdate(priority_pick_threshold=None)),
+        )
+        assert sample_group_service.get_group_settings(sample_group.id).priority_pick_threshold is None
+
     def test_update_group_settings_name_conflict(
         self, sample_group, sample_group_service, sample_user, group_factory
     ):

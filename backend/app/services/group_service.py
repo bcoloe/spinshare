@@ -420,6 +420,8 @@ class GroupService:
                 gs.dealer_mode = update_data.settings.dealer_mode
             if update_data.settings.dealer_rolls_per_day is not None:
                 gs.dealer_rolls_per_day = update_data.settings.dealer_rolls_per_day
+            if "priority_pick_threshold" in update_data.settings.model_fields_set:
+                gs.priority_pick_threshold = update_data.settings.priority_pick_threshold
 
         try:
             self.db.commit()

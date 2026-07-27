@@ -12,6 +12,7 @@ from app.services.group_service import GroupService
 from app.services.invitation_service import InvitationService
 from app.services.invite_link_service import InviteLinkService
 from app.services.notification_service import NotificationService
+from app.services.participation_service import ParticipationService
 from app.services.review_service import ReviewService
 from app.services.explore_service import ExploreService
 from app.services.public_spin_service import PublicSpinService
@@ -51,6 +52,11 @@ def get_group_album_service(db: Session = Depends(get_db)) -> GroupAlbumService:
 def get_dealer_service(db: Session = Depends(get_db)) -> DealerService:
     """Dependency to get DealerService"""
     return DealerService(db)
+
+
+def get_participation_service(db: Session = Depends(get_db)) -> ParticipationService:
+    """Dependency to get ParticipationService"""
+    return ParticipationService(db)
 
 
 def get_notification_service(db: Session = Depends(get_db)) -> NotificationService:

@@ -1,6 +1,11 @@
 # backend/app/routers/groups.py
 
-from app.dependencies import get_current_user, get_current_user_optional, get_group_service
+from app.dependencies import (
+    get_current_user,
+    get_current_user_optional,
+    get_group_service,
+    get_participation_service,
+)
 from app.models import User
 from app.models.group import GroupRole
 from app.schemas.group import (
@@ -15,7 +20,9 @@ from app.schemas.group import (
     JoinGroupResponse,
     RoleUpdateRequest,
 )
+from app.schemas.participation import ParticipationResponse, PriorityPickRequest
 from app.services.group_service import GroupService
+from app.services.participation_service import ParticipationService
 from fastapi import APIRouter, Depends, HTTPException, status
 
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -273,3 +280,29 @@ def update_member_role(
     group_service.set_user_role(user_id, current_user.id, group_id, GroupRole(body.role))
     members = group_service.get_group_members(group_id)
     return next(m for m in members if m["user_id"] == user_id)
+
+
+# ==================== PRIORITY PICK ====================
+
+
+@router.get("/{group_id}/participation/me", response_model=ParticipationResponse)
+def get_my_participation(
+    group_id: int,
+    current_user: User = Depends(get_current_user),
+    participation_service: ParticipationService = Depends(get_participation_service),
+):
+    """Return the caller's priority-pick standing (credits, threshold, pending pick)."""
+    return participation_service.get_progress(group_id, current_user.id)
+
+
+@router.post("/{group_id}/participation/priority-pick", response_model=ParticipationResponse)
+def set_priority_pick(
+    group_id: int,
+    body: PriorityPickRequest,
+    current_user: User = Depends(get_current_user),
+    participation_service: ParticipationService = Depends(get_participation_service),
+):
+    """Promote one of the caller's pending nominations to the front of the line."""
+    return participation_service.set_priority_pick(
+        group_id, current_user.id, body.group_album_id
+    )
