@@ -45,6 +45,15 @@ def _nominate(db_session, group, user, album) -> GroupAlbum:
     return ga
 
 
+def _draw(db_session, group, user, album) -> GroupAlbum:
+    """Nominate ``album`` and mark it drawn (selected) in ``group``."""
+    ga = _nominate(db_session, group, user, album)
+    ga.selected_date = datetime.now(tz=timezone.utc)
+    db_session.commit()
+    db_session.refresh(ga)
+    return ga
+
+
 def _ledger_count(db_session, group_id, user_id) -> int:
     return (
         db_session.query(PriorityReviewCredit)
@@ -59,7 +68,7 @@ def _ledger_count(db_session, group_id, user_id) -> int:
 class TestAwardReviewCredit:
     def test_awards_one_credit(self, participation_service, db_session, sample_group, sample_user, sample_album):
         _set_threshold(db_session, sample_group.id, 3)
-        _nominate(db_session, sample_group, sample_user, sample_album)
+        _draw(db_session, sample_group, sample_user, sample_album)
         review = _make_review(db_session, sample_user, sample_album)
 
         participation_service.award_review_credit(sample_user.id, review)
@@ -67,9 +76,21 @@ class TestAwardReviewCredit:
         assert participation_service.get_progress(sample_group.id, sample_user.id).credits == 1
         assert _ledger_count(db_session, sample_group.id, sample_user.id) == 1
 
+    def test_noop_when_only_nominated_not_drawn(self, participation_service, db_session, sample_group, sample_user, sample_album):
+        """Reviewing an album that is nominated but not yet drawn earns nothing —
+        credit is owed only once the album is actually drawn into the group."""
+        _set_threshold(db_session, sample_group.id, 3)
+        _nominate(db_session, sample_group, sample_user, sample_album)  # pending, never drawn
+        review = _make_review(db_session, sample_user, sample_album)
+
+        participation_service.award_review_credit(sample_user.id, review)
+
+        assert participation_service._get(sample_group.id, sample_user.id) is None
+        assert _ledger_count(db_session, sample_group.id, sample_user.id) == 0
+
     def test_idempotent_on_repeat(self, participation_service, db_session, sample_group, sample_user, sample_album):
         _set_threshold(db_session, sample_group.id, 3)
-        _nominate(db_session, sample_group, sample_user, sample_album)
+        _draw(db_session, sample_group, sample_user, sample_album)
         review = _make_review(db_session, sample_user, sample_album)
 
         participation_service.award_review_credit(sample_user.id, review)
@@ -90,7 +111,7 @@ class TestAwardReviewCredit:
 
     def test_noop_when_threshold_unset(self, participation_service, db_session, sample_group, sample_user, sample_album):
         _set_threshold(db_session, sample_group.id, None)
-        _nominate(db_session, sample_group, sample_user, sample_album)
+        _draw(db_session, sample_group, sample_user, sample_album)
         review = _make_review(db_session, sample_user, sample_album)
 
         participation_service.award_review_credit(sample_user.id, review)
@@ -99,7 +120,7 @@ class TestAwardReviewCredit:
 
     def test_noop_for_global_group(self, participation_service, db_session, global_group, sample_user, sample_album):
         _set_threshold(db_session, global_group.id, 3)
-        _nominate(db_session, global_group, sample_user, sample_album)
+        _draw(db_session, global_group, sample_user, sample_album)
         review = _make_review(db_session, sample_user, sample_album)
 
         participation_service.award_review_credit(sample_user.id, review)
@@ -111,7 +132,7 @@ class TestAwardReviewCredit:
         settings.priority_pick_threshold = 3
         settings.dealer_mode = True
         db_session.commit()
-        _nominate(db_session, sample_group, sample_user, sample_album)
+        _draw(db_session, sample_group, sample_user, sample_album)
         review = _make_review(db_session, sample_user, sample_album)
 
         participation_service.award_review_credit(sample_user.id, review)
@@ -121,7 +142,7 @@ class TestAwardReviewCredit:
     def test_noop_for_non_member(self, participation_service, db_session, sample_group, sample_album, user_factory):
         _set_threshold(db_session, sample_group.id, 3)
         outsider = user_factory(email="out@test.com", username="outsider")
-        _nominate(db_session, sample_group, outsider, sample_album)
+        _draw(db_session, sample_group, outsider, sample_album)
         review = _make_review(db_session, outsider, sample_album)
 
         participation_service.award_review_credit(outsider.id, review)
@@ -131,13 +152,13 @@ class TestAwardReviewCredit:
     def test_credits_every_group_the_album_belongs_to(
         self, participation_service, db_session, sample_group, sample_user, sample_album, group_factory
     ):
-        """A single review credits each group the album is in — the ledger keeps
-        crediting per-group idempotent and independent of any request context."""
+        """A single review credits each group that has drawn the album — the ledger
+        keeps crediting per-group idempotent and independent of any request context."""
         _set_threshold(db_session, sample_group.id, 3)
-        _nominate(db_session, sample_group, sample_user, sample_album)
+        _draw(db_session, sample_group, sample_user, sample_album)
         group2 = group_factory(name="Second", user=sample_user)
         _set_threshold(db_session, group2.id, 3)
-        _nominate(db_session, group2, sample_user, sample_album)
+        _draw(db_session, group2, sample_user, sample_album)
         review = _make_review(db_session, sample_user, sample_album)
 
         participation_service.award_review_credit(sample_user.id, review)
@@ -157,7 +178,7 @@ class TestAwardReviewCreditFromAlbumPage:
         from app.schemas.album import ReviewCreate
 
         _set_threshold(db_session, sample_group.id, 3)
-        _nominate(db_session, sample_group, sample_user, sample_album)
+        _draw(db_session, sample_group, sample_user, sample_album)
 
         # group_id omitted, exactly as the album page submits a review.
         review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=8.0))
@@ -170,7 +191,7 @@ class TestAwardReviewCreditFromAlbumPage:
         from app.schemas.album import ReviewCreate, ReviewUpdate
 
         _set_threshold(db_session, sample_group.id, 3)
-        _nominate(db_session, sample_group, sample_user, sample_album)
+        _draw(db_session, sample_group, sample_user, sample_album)
 
         # Save a draft (no credit), then publish it from the album page (no group_id).
         draft = review_service.create_review(
@@ -406,9 +427,14 @@ class TestEndToEnd:
 
         _set_threshold(db_session, sample_group.id, 2)
 
-        # Three pending nominations: two get reviewed, the third gets promoted.
+        # Three nominations: the first two were drawn on a prior day (so reviewing
+        # them earns credit), the third stays pending so it can be promoted.
         albums = [self._album(db_session, f"sp{i}", f"Album {i}") for i in range(3)]
         noms = [self._nominate(db_session, sample_group, sample_user, a) for a in albums]
+        yesterday = datetime.now(tz=timezone.utc) - timedelta(days=1)
+        for ga in noms[:2]:
+            ga.selected_date = yesterday
+        db_session.commit()
 
         # Publish two reviews in this group → two credits.
         for album in albums[:2]:
@@ -438,7 +464,9 @@ class TestEndToEnd:
 
         _set_threshold(db_session, sample_group.id, 5)
         album = self._album(db_session, "spd", "Draft Album")
-        self._nominate(db_session, sample_group, sample_user, album)
+        ga = self._nominate(db_session, sample_group, sample_user, album)
+        ga.selected_date = datetime.now(tz=timezone.utc)  # drawn → credit-eligible
+        db_session.commit()
 
         # Create as draft (no credit yet), then publish via update (one credit).
         review = review_service.create_review(
@@ -503,19 +531,20 @@ class TestCreditExistingReviewers:
     def test_no_double_credit_across_review_and_draw(
         self, db_session, participation_service, review_service, group_album_service, sample_group, sample_user
     ):
-        """Reviewing then having the album drawn grants exactly one credit."""
+        """Reviewing a pending album then having it drawn grants exactly one credit."""
         from app.schemas.album import ReviewCreate
 
         _set_threshold(db_session, sample_group.id, 2)
         album = self._album(db_session, "spo", "Once")
         _nominate(db_session, sample_group, sample_user, album)
 
+        # Reviewing a not-yet-drawn nomination earns nothing at review time.
         review_service.create_review(
             album.id, sample_user.id, ReviewCreate(rating=8.0), group_id=sample_group.id
         )
-        assert participation_service.get_progress(sample_group.id, sample_user.id).credits == 1
+        assert participation_service.get_progress(sample_group.id, sample_user.id).credits == 0
 
-        # A later draw that selects the same album must not re-credit.
+        # The draw backfills the single credit, and must not double-count.
         group_album_service.select_daily_albums(sample_group.id, n=1)
         assert participation_service.get_progress(sample_group.id, sample_user.id).credits == 1
         assert _ledger_count(db_session, sample_group.id, sample_user.id) == 1
