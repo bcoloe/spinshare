@@ -39,14 +39,28 @@ class ParticipationService:
 
     # ==================== EARNING ====================
 
-    def award_review_credit(self, group_id: int, user_id: int, review: Review) -> None:
+    def award_review_credit(self, user_id: int, review: Review) -> None:
         """Grant a participation credit for a newly published review.
 
-        Called from the review-publish paths. No-op unless the feature is active,
-        the reviewer is a member, and the reviewed album belongs to the group.
-        Idempotent per (group, user, album) via the credit ledger. Commits on award.
+        Called from the review-publish paths. Credits *every* group the reviewed
+        album belongs to (idempotent per group via the ledger) — not just the group
+        in the request context — so a review published from the album page, which
+        carries no group_id, still counts. This also closes the gap where an album
+        already drawn into a group is reviewed afterward: the draw-time backfill
+        (credit_existing_reviewers) has already run, so only this hook can credit it.
+
+        Per-group guards (feature active, membership, album belongs to the group)
+        live in _grant_credit, so groups where the reviewer doesn't qualify are
+        silently skipped. Commits once.
         """
-        self._grant_credit(group_id, user_id, review.album_id, commit=True)
+        group_ids = self.db.scalars(
+            select(GroupAlbum.group_id)
+            .where(GroupAlbum.album_id == review.album_id)
+            .distinct()
+        ).all()
+        for group_id in group_ids:
+            self._grant_credit(group_id, user_id, review.album_id, commit=False)
+        self.db.commit()
 
     def credit_existing_reviewers(self, group_id: int, album_ids: list[int]) -> None:
         """Credit members who already reviewed an album that was just drawn into the group.

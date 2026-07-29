@@ -62,7 +62,7 @@ class TestAwardReviewCredit:
         _nominate(db_session, sample_group, sample_user, sample_album)
         review = _make_review(db_session, sample_user, sample_album)
 
-        participation_service.award_review_credit(sample_group.id, sample_user.id, review)
+        participation_service.award_review_credit(sample_user.id, review)
 
         assert participation_service.get_progress(sample_group.id, sample_user.id).credits == 1
         assert _ledger_count(db_session, sample_group.id, sample_user.id) == 1
@@ -72,8 +72,8 @@ class TestAwardReviewCredit:
         _nominate(db_session, sample_group, sample_user, sample_album)
         review = _make_review(db_session, sample_user, sample_album)
 
-        participation_service.award_review_credit(sample_group.id, sample_user.id, review)
-        participation_service.award_review_credit(sample_group.id, sample_user.id, review)
+        participation_service.award_review_credit(sample_user.id, review)
+        participation_service.award_review_credit(sample_user.id, review)
 
         assert participation_service.get_progress(sample_group.id, sample_user.id).credits == 1
         assert _ledger_count(db_session, sample_group.id, sample_user.id) == 1
@@ -83,7 +83,7 @@ class TestAwardReviewCredit:
         # Album is reviewed but never nominated/selected in the group.
         review = _make_review(db_session, sample_user, sample_album)
 
-        participation_service.award_review_credit(sample_group.id, sample_user.id, review)
+        participation_service.award_review_credit(sample_user.id, review)
 
         assert participation_service._get(sample_group.id, sample_user.id) is None
         assert _ledger_count(db_session, sample_group.id, sample_user.id) == 0
@@ -93,7 +93,7 @@ class TestAwardReviewCredit:
         _nominate(db_session, sample_group, sample_user, sample_album)
         review = _make_review(db_session, sample_user, sample_album)
 
-        participation_service.award_review_credit(sample_group.id, sample_user.id, review)
+        participation_service.award_review_credit(sample_user.id, review)
 
         assert participation_service._get(sample_group.id, sample_user.id) is None
 
@@ -102,7 +102,7 @@ class TestAwardReviewCredit:
         _nominate(db_session, global_group, sample_user, sample_album)
         review = _make_review(db_session, sample_user, sample_album)
 
-        participation_service.award_review_credit(global_group.id, sample_user.id, review)
+        participation_service.award_review_credit(sample_user.id, review)
 
         assert _ledger_count(db_session, global_group.id, sample_user.id) == 0
 
@@ -114,7 +114,7 @@ class TestAwardReviewCredit:
         _nominate(db_session, sample_group, sample_user, sample_album)
         review = _make_review(db_session, sample_user, sample_album)
 
-        participation_service.award_review_credit(sample_group.id, sample_user.id, review)
+        participation_service.award_review_credit(sample_user.id, review)
 
         assert _ledger_count(db_session, sample_group.id, sample_user.id) == 0
 
@@ -124,9 +124,63 @@ class TestAwardReviewCredit:
         _nominate(db_session, sample_group, outsider, sample_album)
         review = _make_review(db_session, outsider, sample_album)
 
-        participation_service.award_review_credit(sample_group.id, outsider.id, review)
+        participation_service.award_review_credit(outsider.id, review)
 
         assert participation_service._get(sample_group.id, outsider.id) is None
+
+    def test_credits_every_group_the_album_belongs_to(
+        self, participation_service, db_session, sample_group, sample_user, sample_album, group_factory
+    ):
+        """A single review credits each group the album is in — the ledger keeps
+        crediting per-group idempotent and independent of any request context."""
+        _set_threshold(db_session, sample_group.id, 3)
+        _nominate(db_session, sample_group, sample_user, sample_album)
+        group2 = group_factory(name="Second", user=sample_user)
+        _set_threshold(db_session, group2.id, 3)
+        _nominate(db_session, group2, sample_user, sample_album)
+        review = _make_review(db_session, sample_user, sample_album)
+
+        participation_service.award_review_credit(sample_user.id, review)
+
+        assert participation_service.get_progress(sample_group.id, sample_user.id).credits == 1
+        assert participation_service.get_progress(group2.id, sample_user.id).credits == 1
+
+
+class TestAwardReviewCreditFromAlbumPage:
+    """Regression: a review published without a group_id (album page) must still
+    credit a group the album was already drawn into — the draw-time backfill has
+    already passed, so only the publish hook can catch it."""
+
+    def test_album_page_review_credits_already_drawn_album(
+        self, review_service, participation_service, db_session, sample_group, sample_user, sample_album
+    ):
+        from app.schemas.album import ReviewCreate
+
+        _set_threshold(db_session, sample_group.id, 3)
+        _nominate(db_session, sample_group, sample_user, sample_album)
+
+        # group_id omitted, exactly as the album page submits a review.
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=8.0))
+
+        assert participation_service.get_progress(sample_group.id, sample_user.id).credits == 1
+
+    def test_album_page_publish_via_update_credits(
+        self, review_service, participation_service, db_session, sample_group, sample_user, sample_album
+    ):
+        from app.schemas.album import ReviewCreate, ReviewUpdate
+
+        _set_threshold(db_session, sample_group.id, 3)
+        _nominate(db_session, sample_group, sample_user, sample_album)
+
+        # Save a draft (no credit), then publish it from the album page (no group_id).
+        draft = review_service.create_review(
+            sample_album.id, sample_user.id, ReviewCreate(rating=8.0, is_draft=True)
+        )
+        assert participation_service.get_progress(sample_group.id, sample_user.id).credits == 0
+
+        review_service.update_review(draft.id, sample_user.id, ReviewUpdate(is_draft=False))
+
+        assert participation_service.get_progress(sample_group.id, sample_user.id).credits == 1
 
 
 class TestGetProgress:
