@@ -86,7 +86,7 @@ export default function ParticipationMeter({ groupId }: Props) {
           </Text>
         </Group>
 
-        <Progress value={pct} radius="xl" size="lg" />
+        <Progress value={pct} radius="xl" size="lg" color="yellow.6" />
 
         {pending_pick ? (
           <Group justify="space-between" align="center" mt={4}>
