@@ -1,5 +1,7 @@
 """Review service."""
 
+import statistics
+
 from app.models import Album, AlbumDeal, Group, GroupAlbum, Review, User, group_members
 from app.schemas.album import AlbumReviewItem, AlbumStatsResponse, HistogramBucket, ReviewCreate, ReviewUpdate
 from app.schemas.notification import NotificationType
@@ -246,11 +248,17 @@ class ReviewService:
         ]
 
         if not reviews:
-            return AlbumStatsResponse(average_rating=None, review_count=0, histogram=buckets)
+            return AlbumStatsResponse(
+                average_rating=None, rating_stddev=None, review_count=0, histogram=buckets
+            )
 
         ratings = [r.rating for r in reviews]
         avg = round(sum(ratings) / len(ratings), 2)
-        return AlbumStatsResponse(average_rating=avg, review_count=len(ratings), histogram=buckets)
+        # Population std dev — a spread/contentiousness measure (0.0 for a single rating).
+        stddev = round(statistics.pstdev(ratings), 2)
+        return AlbumStatsResponse(
+            average_rating=avg, rating_stddev=stddev, review_count=len(ratings), histogram=buckets
+        )
 
     def get_review_by_user_and_album(
         self, album_id: int, user_id: int, *, raise_on_missing: bool = True

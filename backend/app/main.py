@@ -6,6 +6,7 @@ from sqlalchemy.exc import OperationalError
 from app.config import get_settings
 from app.routers import groups, users
 from app.routers.albums import albums_router, group_albums_router
+from app.routers.artists import router as artists_router
 from app.routers.group_albums import router as group_album_workflow_router
 from app.routers.invite_links import router as invite_links_router
 from app.routers.invitations import router as invitations_router
@@ -39,6 +40,7 @@ app.add_middleware(
 app.include_router(users.router)
 app.include_router(groups.router)
 app.include_router(albums_router)
+app.include_router(artists_router)
 # Workflow router registered first so /selected and /select beat /{group_album_id}
 app.include_router(group_album_workflow_router)
 app.include_router(group_albums_router)

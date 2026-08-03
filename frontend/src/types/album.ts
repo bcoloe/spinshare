@@ -89,7 +89,9 @@ export interface HistogramBucket {
 
 export interface AlbumStatsResponse {
   average_rating: number | null
+  rating_stddev: number | null
   review_count: number
+  nomination_count: number
   histogram: HistogramBucket[]
 }
 

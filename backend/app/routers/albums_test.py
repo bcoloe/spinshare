@@ -106,6 +106,7 @@ def make_mock_review(
 
 def make_mock_album_stats(
     average_rating=7.5,
+    rating_stddev=1.2,
     review_count=4,
     histogram=None,
 ):
@@ -115,7 +116,10 @@ def make_mock_album_stats(
         histogram = [HistogramBucket(bucket_start=i, bucket_end=i + 1, count=0) for i in range(10)]
         histogram[7] = HistogramBucket(bucket_start=7, bucket_end=8, count=review_count)
     return AlbumStatsResponse(
-        average_rating=average_rating, review_count=review_count, histogram=histogram
+        average_rating=average_rating,
+        rating_stddev=rating_stddev,
+        review_count=review_count,
+        histogram=histogram,
     )
 
 
@@ -936,15 +940,19 @@ class TestAlbumStats:
     def test_get_stats_success(self, client, mock_album_service, mock_review_service):
         mock_album_service.get_album_by_id.return_value = make_mock_album()
         mock_review_service.get_album_stats.return_value = make_mock_album_stats()
+        mock_album_service.get_album_nomination_count.return_value = 3
 
         resp = client.get("/albums/1/stats")
 
         assert resp.status_code == status.HTTP_200_OK
         body = resp.json()
         assert body["average_rating"] == 7.5
+        assert body["rating_stddev"] == 1.2
         assert body["review_count"] == 4
+        assert body["nomination_count"] == 3
         assert len(body["histogram"]) == 10
         mock_review_service.get_album_stats.assert_called_once_with(1)
+        mock_album_service.get_album_nomination_count.assert_called_once_with(1)
 
     def test_get_stats_no_reviews(self, client, mock_album_service, mock_review_service):
         from app.schemas.album import AlbumStatsResponse, HistogramBucket
@@ -955,6 +963,7 @@ class TestAlbumStats:
             review_count=0,
             histogram=[HistogramBucket(bucket_start=i, bucket_end=i + 1, count=0) for i in range(10)],
         )
+        mock_album_service.get_album_nomination_count.return_value = 0
 
         resp = client.get("/albums/1/stats")
 
@@ -962,6 +971,7 @@ class TestAlbumStats:
         body = resp.json()
         assert body["average_rating"] is None
         assert body["review_count"] == 0
+        assert body["nomination_count"] == 0
 
     def test_get_stats_album_not_found(self, client, mock_album_service, mock_review_service):
         mock_album_service.get_album_by_id.side_effect = HTTPException(
@@ -975,6 +985,7 @@ class TestAlbumStats:
     ):
         mock_album_service.get_album_by_id.return_value = make_mock_album()
         mock_review_service.get_album_stats.return_value = make_mock_album_stats()
+        mock_album_service.get_album_nomination_count.return_value = 0
         resp = unauthed_client.get("/albums/1/stats")
         assert resp.status_code == status.HTTP_200_OK
 
