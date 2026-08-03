@@ -46,7 +46,7 @@ import { useEffect } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { useMyGroups, useMyPendingInvitations, useAcceptInvitation, useDeclineInvitation } from '../../hooks/useGroups'
 import { useFavoriteGroup } from '../../context/FavoriteGroupContext'
-import { useUnreadNotifications, useMarkNotificationRead, useNotificationHistory } from '../../hooks/useNotifications'
+import { useUnreadNotifications, useMarkNotificationRead, useMarkAllNotificationsRead, useNotificationHistory } from '../../hooks/useNotifications'
 import { usePlayer } from '../../context/PlayerContext'
 import { ApiError } from '../../services/apiClient'
 import CreateGroupModal from '../groups/CreateGroupModal'
@@ -79,6 +79,7 @@ export default function AppShell({ children }: AppShellProps) {
   const acceptInvitation = useAcceptInvitation()
   const declineInvitation = useDeclineInvitation()
   const markNotificationRead = useMarkNotificationRead()
+  const markAllNotificationsRead = useMarkAllNotificationsRead()
   const [bellOpened, { toggle: toggleBell, close: closeBell }] = useDisclosure()
   const [showHistory, setShowHistory] = useState(false)
   const { data: historyNotifications, isLoading: historyLoading } = useNotificationHistory(showHistory && bellOpened)
@@ -218,9 +219,19 @@ export default function AppShell({ children }: AppShellProps) {
 
                   {unreadNotifications.length > 0 && (
                     <div>
-                      <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb="xs">
-                        New Activity
-                      </Text>
+                      <Group justify="space-between" mb="xs" wrap="nowrap">
+                        <Text size="xs" fw={600} c="dimmed" tt="uppercase">
+                          New Activity
+                        </Text>
+                        <Anchor
+                          component="button"
+                          size="xs"
+                          c="dimmed"
+                          onClick={() => markAllNotificationsRead.mutate()}
+                        >
+                          Clear all
+                        </Anchor>
+                      </Group>
                       <Stack gap={0}>
                         {unreadNotifications.map((n, i) => (
                           <Fragment key={n.id}>
