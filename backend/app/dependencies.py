@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User
 from app.services.album_service import AlbumService
+from app.services.artist_service import ArtistService
 from app.services.dealer_service import DealerService
 from app.services.group_album_service import GroupAlbumService
 from app.services.group_service import GroupService
@@ -42,6 +43,11 @@ def get_album_service(db: Session = Depends(get_db)) -> AlbumService:
 def get_review_service(db: Session = Depends(get_db)) -> ReviewService:
     """Dependency to get ReviewService"""
     return ReviewService(db)
+
+
+def get_artist_service(db: Session = Depends(get_db)) -> ArtistService:
+    """Dependency to get ArtistService"""
+    return ArtistService(db)
 
 
 def get_group_album_service(db: Session = Depends(get_db)) -> GroupAlbumService:

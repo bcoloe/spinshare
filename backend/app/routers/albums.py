@@ -486,7 +486,9 @@ def get_album_stats(
     readable — no authentication required.
     """
     album_service.get_album_by_id(album_id)
-    return review_service.get_album_stats(album_id)
+    stats = review_service.get_album_stats(album_id)
+    stats.nomination_count = album_service.get_album_nomination_count(album_id)
+    return stats
 
 
 @albums_router.get("/{album_id}/reviews/me", response_model=ReviewResponse)

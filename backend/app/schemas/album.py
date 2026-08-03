@@ -274,5 +274,7 @@ class HistogramBucket(BaseModel):
 
 class AlbumStatsResponse(BaseModel):
     average_rating: float | None
+    rating_stddev: float | None = None  # population std dev of ratings (spread / contentiousness)
     review_count: int
+    nomination_count: int = 0  # distinct users who have nominated this album (any group)
     histogram: list[HistogramBucket]

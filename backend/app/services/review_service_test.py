@@ -623,6 +623,7 @@ class TestAlbumStats:
     def test_empty_album_returns_zero_histogram(self, review_service, sample_album):
         stats = review_service.get_album_stats(sample_album.id)
         assert stats.average_rating is None
+        assert stats.rating_stddev is None
         assert stats.review_count == 0
         assert len(stats.histogram) == 10
         assert all(b.count == 0 for b in stats.histogram)
@@ -637,6 +638,7 @@ class TestAlbumStats:
         review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=7.5))
         stats = review_service.get_album_stats(sample_album.id)
         assert stats.average_rating == 7.5
+        assert stats.rating_stddev == 0.0  # single rating → no spread
         assert stats.review_count == 1
         assert stats.histogram[7].count == 1
         assert sum(b.count for b in stats.histogram) == 1
@@ -650,6 +652,8 @@ class TestAlbumStats:
 
         stats = review_service.get_album_stats(sample_album.id)
         assert stats.average_rating == 5.0
+        # population std dev of [3.0, 7.0] = 2.0
+        assert stats.rating_stddev == 2.0
         assert stats.review_count == 2
         assert stats.histogram[3].count == 1
         assert stats.histogram[7].count == 1

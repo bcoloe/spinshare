@@ -609,7 +609,17 @@ export default function AlbumPage() {
             ) : (
               <>
                 <Title order={2} lineClamp={2}>{album?.title}</Title>
-                <Text size="lg" c="dimmed">{album?.artist}</Text>
+                {album?.artist && (
+                  <Anchor
+                    component={Link}
+                    to={`/artists/${encodeURIComponent(album.artist)}`}
+                    size="lg"
+                    c="dimmed"
+                    style={{ width: 'fit-content' }}
+                  >
+                    {album.artist}
+                  </Anchor>
+                )}
                 <Group gap="xs" mt={4}>
                   {releaseYear && (
                     <Text size="sm" c="dimmed">{releaseYear}</Text>
@@ -827,8 +837,17 @@ export default function AlbumPage() {
                       ? stats.average_rating.toFixed(1)
                       : '—'}
                   </Text>
+                  {stats?.rating_stddev != null && (stats?.review_count ?? 0) >= 2 && (
+                    <Text size="xs" c="dimmed">
+                      ± {stats.rating_stddev.toFixed(1)} (1σ)
+                    </Text>
+                  )}
                   <Text size="xs" c="dimmed">
                     {stats?.review_count ?? 0} review{stats?.review_count !== 1 ? 's' : ''}
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    Nominated by {stats?.nomination_count ?? 0}{' '}
+                    {stats?.nomination_count === 1 ? 'person' : 'people'}
                   </Text>
                 </Stack>
 
