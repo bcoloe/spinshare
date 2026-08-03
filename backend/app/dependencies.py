@@ -131,25 +131,19 @@ def get_current_user_optional(
     """
     Get the current authenticated user from JWT token if present and valid.
 
-    Unlike get_current_user, this never raises 401 — a missing, invalid, or
-    stale token simply resolves to None so callers can allow anonymous access.
+    A genuinely anonymous request (no token at all) resolves to None so callers
+    can allow anonymous access. But a request that *does* carry a token which is
+    expired or otherwise invalid raises 401 rather than silently downgrading to
+    anonymous. That distinction lets a logged-in client whose 15-minute access
+    token has expired mid-session receive a 401, transparently refresh, and
+    retry — instead of getting a 200 that reports them as a non-member (see the
+    "not in group until refreshed" bug, issue #140). Truly anonymous callers
+    never send a token, so they are unaffected.
     """
     if token is None:
         return None
 
-    payload = decode_access_token(token)
-    if payload is None:
-        return None
-
-    user_id = payload.get("sub")
-    if user_id is None:
-        return None
-
-    user_service = UserService(db)
-    try:
-        return user_service.get_user_by_id(int(user_id))
-    except HTTPException:
-        return None
+    return get_current_user(token=token, db=db)
 
 
 def get_current_admin_user(current_user: User = Depends(get_current_user)) -> User:
