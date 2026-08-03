@@ -23,7 +23,7 @@ export function useMarkAllNotificationsRead() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () => notificationService.markAllRead(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications', 'unread'] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
   })
 }
 
