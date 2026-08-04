@@ -12,10 +12,18 @@ from fastapi.testclient import TestClient
 from jose import jwt
 
 from app.config import get_settings
-from app.dependencies import get_album_service, get_current_admin_user, get_current_user, get_user_service
+from app.dependencies import (
+    get_album_service,
+    get_current_admin_user,
+    get_current_user,
+    get_group_album_service,
+    get_user_service,
+)
 from app.main import app
 from app.routers.conftest import make_mock_user
+from app.schemas.user import GroupActivityItem
 from app.services.album_service import AlbumService
+from app.services.group_album_service import GroupAlbumService
 from app.services.user_service import UserService
 
 _NOW = datetime(2026, 1, 1, tzinfo=UTC)
@@ -246,6 +254,30 @@ class TestGetMyNominations:
 
     def test_requires_auth(self, unauthed_client):
         resp = unauthed_client.get("/users/me/nominations")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+class TestGetMyGroupActivity:
+    def test_returns_activity(self, client):
+        mock_svc = MagicMock(spec=GroupAlbumService)
+        mock_svc.get_group_activity_for_user.return_value = [
+            GroupActivityItem(group_id=1, unreviewed_today=2),
+            GroupActivityItem(group_id=7, unreviewed_today=0, rolls_remaining=3),
+        ]
+
+        app.dependency_overrides[get_group_album_service] = lambda: mock_svc
+        resp = client.get("/users/me/group-activity")
+        app.dependency_overrides.pop(get_group_album_service)
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data == [
+            {"group_id": 1, "unreviewed_today": 2, "rolls_remaining": None},
+            {"group_id": 7, "unreviewed_today": 0, "rolls_remaining": 3},
+        ]
+
+    def test_requires_auth(self, unauthed_client):
+        resp = unauthed_client.get("/users/me/group-activity")
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
 

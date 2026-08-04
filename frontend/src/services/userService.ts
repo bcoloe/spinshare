@@ -7,6 +7,7 @@ import type {
   UserResponse,
   UserReviewItem,
 } from '../types/auth'
+import type { GroupActivityItem } from '../types/group'
 
 export const userService = {
   search(query: string): Promise<UserResponse[]> {
@@ -31,6 +32,10 @@ export const userService = {
 
   getGroups(username: string): Promise<UserGroupItem[]> {
     return apiFetch(`/users/${encodeURIComponent(username)}/groups`)
+  },
+
+  getMyGroupActivity(): Promise<GroupActivityItem[]> {
+    return apiFetch('/users/me/group-activity')
   },
 
   setAdminStatus(userId: number, isAdmin: boolean): Promise<UserResponse> {

@@ -1,12 +1,20 @@
 # backend/app/routers/users.py
 
 from app.config import get_settings
-from app.dependencies import get_album_service, get_current_admin_user, get_current_user, get_user_service
+from app.dependencies import (
+    get_album_service,
+    get_current_admin_user,
+    get_current_user,
+    get_group_album_service,
+    get_user_service,
+)
 from app.models import User
 from app.schemas.album import AlbumResponse, UserNominationResponse
 from app.services.album_service import AlbumService
+from app.services.group_album_service import GroupAlbumService
 from app.schemas.user import (
     DecadeBreakdownItem,
+    GroupActivityItem,
     LoginRequest,
     LoginResponse,
     NominationDecadeBreakdownResponse,
@@ -101,6 +109,15 @@ def get_my_nominations(
         )
         for album, group_ids in entries
     ]
+
+
+@router.get("/me/group-activity", response_model=list[GroupActivityItem])
+def get_my_group_activity(
+    current_user: User = Depends(get_current_user),
+    group_album_service: GroupAlbumService = Depends(get_group_album_service),
+):
+    """Return per-group dashboard badge data (unreviewed current spin / dealer rolls left)."""
+    return group_album_service.get_group_activity_for_user(current_user)
 
 
 @router.get("/me/stats", response_model=UserWithStats)

@@ -5,7 +5,6 @@ import { useAuth } from './hooks/useAuth'
 import ChunkErrorBoundary from './components/ChunkErrorBoundary'
 
 const ProtectedRoute = lazy(() => import('./components/auth/ProtectedRoute'))
-const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const LandingPage = lazy(() => import('./pages/LandingPage'))
 
 function RootRoute() {
@@ -14,7 +13,16 @@ function RootRoute() {
   if (!user) return <LandingPage />
   const favoriteId = localStorage.getItem(`spinshare_favorite_group_${user.username}`)
   if (favoriteId) return <Navigate to={`/groups/${favoriteId}`} replace />
-  return <DashboardPage />
+  // The dashboard is now the current user's own profile page (with privileged tabs).
+  return <Navigate to={`/users/${user.username}`} replace />
+}
+
+// Legacy /dashboard entrypoint — send users to their own profile page.
+function DashboardRedirect() {
+  const { user, isInitializing } = useAuth()
+  if (isInitializing) return <LoadingOverlay visible />
+  if (!user) return <Navigate to="/login" replace />
+  return <Navigate to={`/users/${user.username}`} replace />
 }
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
@@ -65,7 +73,7 @@ const router = createBrowserRouter([
   {
     element: <ProtectedRoute />,
     children: [
-      { path: '/dashboard', element: <DashboardPage /> },
+      { path: '/dashboard', element: <DashboardRedirect /> },
       { path: '/groups/:groupId/spin', element: <DailySpinPage /> },
       { path: '/groups/:groupId/catalog', element: <GroupCatalogPage /> },
       { path: '/groups/:groupId/settings', element: <GroupSettingsPage /> },

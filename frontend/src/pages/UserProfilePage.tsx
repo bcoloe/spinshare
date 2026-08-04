@@ -45,6 +45,8 @@ import AppShell from '../components/layout/AppShell'
 import AlbumCoverGrid from '../components/profile/AlbumCoverGrid'
 import ChartCarousel from '../components/profile/ChartCarousel'
 import GroupsTable from '../components/profile/GroupsTable'
+import MyGroupsPanel from '../components/profile/MyGroupsPanel'
+import MyNominationsPanel from '../components/profile/MyNominationsPanel'
 import InviteToGroupModal from '../components/users/InviteToGroupModal'
 import { useUserGroups, useUserNominationBreakdown, useUserProfile, useUserReviewStats, useUserReviews } from '../hooks/useUserProfile'
 import { useAuth } from '../hooks/useAuth'
@@ -53,9 +55,18 @@ import type { UserReviewItem } from '../types/auth'
 
 // ==================== TYPES ====================
 
-type Tab = 'stats' | 'favorites' | 'least-favorites' | 'history'
+type Tab = 'groups' | 'nominations' | 'stats' | 'favorites' | 'least-favorites' | 'history'
 type SortField = 'title' | 'artist' | 'date' | 'rating'
 type SortDir = 'asc' | 'desc'
+
+// Groups is a tab in both contexts; My Nominations is own-profile only.
+function resolveTab(param: string | null, isOwnProfile: boolean): Tab {
+  const allowed: Tab[] = isOwnProfile
+    ? ['groups', 'nominations', 'stats', 'favorites', 'least-favorites', 'history']
+    : ['groups', 'stats', 'favorites', 'least-favorites', 'history']
+  if (param && (allowed as string[]).includes(param)) return param as Tab
+  return isOwnProfile ? 'groups' : 'stats'
+}
 
 // ==================== HELPERS ====================
 
@@ -237,14 +248,14 @@ export default function UserProfilePage() {
   const navigate = useNavigate()
   const { user: currentUser } = useAuth()
   const qc = useQueryClient()
-  const [tab, setTab] = useState<Tab>((searchParams.get('tab') as Tab) ?? 'stats')
+  const isOwnProfile = currentUser?.username === username
+  const [tab, setTab] = useState<Tab>(() => resolveTab(searchParams.get('tab'), isOwnProfile))
   const [inviteOpened, { open: openInvite, close: closeInvite }] = useDisclosure()
   const [adminToggling, setAdminToggling] = useState(false)
 
   useEffect(() => {
-    const paramTab = searchParams.get('tab') as Tab | null
-    if (paramTab) setTab(paramTab)
-  }, [searchParams])
+    setTab(resolveTab(searchParams.get('tab'), isOwnProfile))
+  }, [searchParams, isOwnProfile])
 
   const [sortField, setSortField] = useState<SortField>('date')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
@@ -256,8 +267,6 @@ export default function UserProfilePage() {
   const { data: breakdown, isLoading: breakdownLoading } = useUserNominationBreakdown(username!)
   const { data: reviewStats, isLoading: reviewStatsLoading } = useUserReviewStats(username!)
   const { data: userGroups = [], isLoading: groupsLoading } = useUserGroups(username!)
-
-  const isOwnProfile = currentUser?.username === username
 
   const favorites = useMemo(
     () =>
@@ -383,6 +392,8 @@ export default function UserProfilePage() {
             value={tab}
             onChange={(v) => setTab(v as Tab)}
             data={[
+              { label: 'Groups', value: 'groups' },
+              ...(isOwnProfile ? [{ label: 'My Nominations', value: 'nominations' }] : []),
               { label: 'Stats', value: 'stats' },
               { label: 'Favorites', value: 'favorites' },
               { label: 'Least Favorites', value: 'least-favorites' },
@@ -391,6 +402,18 @@ export default function UserProfilePage() {
             styles={{ root: { background: 'transparent' } }}
           />
         </Box>
+
+        {/* ── GROUPS TAB ── */}
+        {tab === 'groups' && (
+          isOwnProfile ? (
+            <MyGroupsPanel />
+          ) : (
+            <GroupsTable groups={userGroups} loading={groupsLoading} />
+          )
+        )}
+
+        {/* ── MY NOMINATIONS TAB (own profile only) ── */}
+        {tab === 'nominations' && isOwnProfile && <MyNominationsPanel />}
 
         {/* ── STATS TAB ── */}
         {tab === 'stats' && (
@@ -423,11 +446,6 @@ export default function UserProfilePage() {
                 loading={reviewStatsLoading}
               />
             </SimpleGrid>
-
-            <Stack gap="xs">
-              <Text fw={600} size="sm">Groups</Text>
-              <GroupsTable groups={userGroups} loading={groupsLoading} />
-            </Stack>
 
             {reviewStatsLoading ? (
               <Skeleton h={64} radius="md" />
