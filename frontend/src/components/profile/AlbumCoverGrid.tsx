@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { ratingColorHex } from '../../utils/ratingColor'
 import { useNavigate } from 'react-router-dom'
+import { useMediaQuery } from '@mantine/hooks'
 import { Group, Image, Paper, SimpleGrid, Skeleton, Stack, Text } from '@mantine/core'
 
 export interface AlbumCoverItem {
@@ -88,9 +89,65 @@ function AlbumCell({ item, selected, onClick }: AlbumCellProps) {
   )
 }
 
+function AlbumDetail({ item }: { item: AlbumCoverItem }) {
+  const navigate = useNavigate()
+
+  return (
+    <Paper withBorder p="md" radius="md">
+      <Group gap="md" align="flex-start">
+        {item.cover_url && (
+          <Image
+            src={item.cover_url}
+            w={64}
+            h={64}
+            radius="sm"
+            style={{ objectFit: 'cover', flexShrink: 0 }}
+          />
+        )}
+        <Stack gap={2}>
+          <Text
+            fw={600}
+            size="sm"
+            lineClamp={2}
+            style={{ cursor: 'pointer' }}
+            onClick={() => navigate(`/albums/${item.album_id}`)}
+            onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline' }}
+            onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none' }}
+          >
+            {item.title}
+          </Text>
+          <Text size="sm" c="dimmed">{item.artist}</Text>
+          <Text size="xs" c="dimmed">{releaseYear(item.release_date)}</Text>
+        </Stack>
+        <div style={{ marginLeft: 'auto' }}>
+          <div
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: '50%',
+              background: ratingColorHex(item.rating),
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <span style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>
+              {item.rating}
+            </span>
+          </div>
+        </div>
+      </Group>
+    </Paper>
+  )
+}
+
 export default function AlbumCoverGrid({ items, isLoading, emptyMessage }: Props) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
-  const navigate = useNavigate()
+  // Mirror the responsive column counts of the grid below so the detail panel
+  // can be inserted directly beneath the selected album's row.
+  const isMd = useMediaQuery('(min-width: 62em)')
+  const isSm = useMediaQuery('(min-width: 48em)')
+  const cols = isMd ? 5 : isSm ? 4 : 3
 
   if (isLoading) {
     return (
@@ -106,68 +163,36 @@ export default function AlbumCoverGrid({ items, isLoading, emptyMessage }: Props
     return <Text c="dimmed" size="sm">{emptyMessage}</Text>
   }
 
-  const selected = selectedIndex !== null ? items[selectedIndex] : null
+  const selectedRow = selectedIndex !== null ? Math.floor(selectedIndex / cols) : null
+
+  const rows: AlbumCoverItem[][] = []
+  for (let i = 0; i < items.length; i += cols) {
+    rows.push(items.slice(i, i + cols))
+  }
 
   return (
     <Stack gap="md">
-      <SimpleGrid cols={{ base: 3, sm: 4, md: 5 }}>
-        {items.map((item, i) => (
-          <AlbumCell
-            key={i}
-            item={item}
-            selected={selectedIndex === i}
-            onClick={() => setSelectedIndex(selectedIndex === i ? null : i)}
-          />
-        ))}
-      </SimpleGrid>
+      {rows.map((rowItems, rowIdx) => (
+        <Fragment key={rowIdx}>
+          <SimpleGrid cols={cols}>
+            {rowItems.map((item, j) => {
+              const idx = rowIdx * cols + j
+              return (
+                <AlbumCell
+                  key={idx}
+                  item={item}
+                  selected={selectedIndex === idx}
+                  onClick={() => setSelectedIndex(selectedIndex === idx ? null : idx)}
+                />
+              )
+            })}
+          </SimpleGrid>
 
-      {selected && (
-        <Paper withBorder p="md" radius="md">
-          <Group gap="md" align="flex-start">
-            {selected.cover_url && (
-              <Image
-                src={selected.cover_url}
-                w={64}
-                h={64}
-                radius="sm"
-                style={{ objectFit: 'cover', flexShrink: 0 }}
-              />
-            )}
-            <Stack gap={2}>
-              <Text
-                fw={600}
-                size="sm"
-                lineClamp={2}
-                style={{ cursor: 'pointer' }}
-                onClick={() => navigate(`/albums/${selected.album_id}`)}
-                onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline' }}
-                onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none' }}
-              >
-                {selected.title}
-              </Text>
-              <Text size="sm" c="dimmed">{selected.artist}</Text>
-              <Text size="xs" c="dimmed">{releaseYear(selected.release_date)}</Text>
-            </Stack>
-            <div style={{ marginLeft: 'auto' }}>
-              <div
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: '50%',
-                  background: ratingColorHex(selected.rating),
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <span style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>
-                  {selected.rating}
-                </span>
-              </div>
-            </div>
-          </Group>
-        </Paper>
-      )}
+          {selectedRow === rowIdx && selectedIndex !== null && (
+            <AlbumDetail item={items[selectedIndex]} />
+          )}
+        </Fragment>
+      ))}
     </Stack>
   )
 }
