@@ -611,6 +611,61 @@ class GroupAlbumService:
                 canonical.append(ga)
         return canonical
 
+    def get_group_activity_for_user(self, user: User) -> list["GroupActivityItem"]:
+        """Return per-group dashboard badge data across all of the caller's groups.
+
+        For each membership:
+          - Global or bot groups get no indicator (unreviewed_today=0, rolls_remaining=None).
+          - Dealer-mode groups report rolls_remaining (rolls left today) and unreviewed_today=0.
+          - Shared-spin groups report unreviewed_today = albums in the current spin (the most
+            recent scheduled draw, via ``get_todays_albums`` — the same source the group page
+            uses) that the caller has no submitted (non-draft) review for.
+        """
+        from app.schemas.user import GroupActivityItem
+        from app.services.dealer_service import DealerService
+        from app.services.user_service import UserService
+
+        dealer_service = DealerService(self.db)
+        user_service = UserService(self.db)
+        items: list[GroupActivityItem] = []
+
+        for group in user_service.get_user_groups(user.id):
+            settings = group.settings
+
+            if group.is_global or bool(group.bot_sources):
+                items.append(GroupActivityItem(group_id=group.id, unreviewed_today=0))
+                continue
+
+            if settings is not None and settings.dealer_mode:
+                tz_name = settings.timezone or DEFAULT_TZ
+                rolls_used = dealer_service._rolls_used_today(
+                    group.id, user.id, tz_name, group_today(tz_name)
+                )
+                rolls_remaining = max(settings.dealer_rolls_per_day - rolls_used, 0)
+                items.append(
+                    GroupActivityItem(
+                        group_id=group.id,
+                        unreviewed_today=0,
+                        rolls_remaining=rolls_remaining,
+                    )
+                )
+                continue
+
+            todays = self.get_todays_albums(group.id, user)
+            unreviewed = sum(
+                1
+                for ga in todays
+                if not any(
+                    r.user_id == user.id and not r.is_draft
+                    for r in ga.albums.reviews
+                )
+            )
+            items.append(
+                GroupActivityItem(group_id=group.id, unreviewed_today=unreviewed)
+            )
+
+        return items
+
     # ==================== GUESSING ====================
 
     def check_guess(

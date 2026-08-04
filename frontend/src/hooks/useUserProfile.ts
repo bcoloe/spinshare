@@ -40,3 +40,11 @@ export function useUserGroups(username: string) {
     enabled: !!username,
   })
 }
+
+export function useMyGroupActivity(enabled = true) {
+  return useQuery({
+    queryKey: ['users', 'me', 'group-activity'],
+    queryFn: () => userService.getMyGroupActivity(),
+    enabled,
+  })
+}

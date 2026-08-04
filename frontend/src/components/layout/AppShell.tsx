@@ -144,7 +144,7 @@ export default function AppShell({ children }: AppShellProps) {
                 ? <IconLayoutSidebarLeftCollapse size={20} />
                 : <IconLayoutSidebarLeftExpand size={20} />}
             </ActionIcon>
-            <Link to={user ? '/dashboard' : '/'} style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'inherit', textDecoration: 'none' }}>
+            <Link to={user ? `/users/${user.username}` : '/'} style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'inherit', textDecoration: 'none' }}>
               <IconDisc size={22} />
               <Title order={4}>SpinShare</Title>
             </Link>

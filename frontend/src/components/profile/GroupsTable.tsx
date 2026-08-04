@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
+  ActionIcon,
   Avatar,
   Badge,
   Button,
@@ -14,21 +15,64 @@ import {
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useQuery } from '@tanstack/react-query'
-import { IconChevronDown, IconChevronRight } from '@tabler/icons-react'
+import {
+  IconBolt,
+  IconChevronDown,
+  IconChevronRight,
+  IconDice5,
+  IconStar,
+  IconStarFilled,
+} from '@tabler/icons-react'
 import { useJoinGroup } from '../../hooks/useGroups'
 import { groupService } from '../../services/groupService'
 import { ApiError } from '../../services/apiClient'
 import type { UserGroupItem } from '../../types/auth'
+import type { GroupActivityItem } from '../../types/group'
+
+// A group "has activity" when the viewer can act on it today: an unreviewed
+// shared spin, or dealer rolls still available. Only meaningful on own profile.
+function hasActivity(a: GroupActivityItem | undefined): boolean {
+  if (!a) return false
+  return a.unreviewed_today > 0 || (a.rolls_remaining ?? 0) > 0
+}
+
+function ActivityBadge({ activity }: { activity?: GroupActivityItem }) {
+  if (!activity) return null
+  if ((activity.rolls_remaining ?? 0) > 0) {
+    return (
+      <Badge size="sm" variant="light" color="yellow" leftSection={<IconDice5 size={12} />}>
+        {activity.rolls_remaining} roll{activity.rolls_remaining !== 1 ? 's' : ''}
+      </Badge>
+    )
+  }
+  if (activity.unreviewed_today > 0) {
+    return (
+      <Badge size="sm" variant="light" color="yellow" leftSection={<IconBolt size={12} />}>
+        New
+      </Badge>
+    )
+  }
+  return null
+}
 
 interface GroupRowProps {
   group: UserGroupItem
+  ownProfile: boolean
+  activity?: GroupActivityItem
+  isFavorite: boolean
+  onToggleFavorite?: (groupId: number) => void
 }
 
-function GroupRow({ group }: GroupRowProps) {
+function GroupRow({ group, ownProfile, activity, isFavorite, onToggleFavorite }: GroupRowProps) {
   const [expanded, setExpanded] = useState(false)
   const navigate = useNavigate()
   const joinGroup = useJoinGroup()
   const inCommon = group.current_user_role !== null
+
+  // Highlight semantics differ by context: activity (yellow) on your own
+  // profile, shared-membership (green) when viewing someone else.
+  const highlighted = ownProfile ? hasActivity(activity) : inCommon
+  const highlightColor = ownProfile ? 'yellow.4' : 'green.4'
 
   const { data: members = [], isFetching: membersFetching } = useQuery({
     queryKey: ['groups', group.id, 'members'],
@@ -49,39 +93,48 @@ function GroupRow({ group }: GroupRowProps) {
 
   return (
     <>
-      <Table.Tr
-        style={{ cursor: 'pointer' }}
-        onClick={() => setExpanded((v) => !v)}
-      >
-        <Table.Td w={28}>
-          {expanded ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
+      <Table.Tr style={{ cursor: 'pointer' }} onClick={() => navigate(`/groups/${group.id}`)}>
+        <Table.Td w={28} onClick={(e) => e.stopPropagation()}>
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size="sm"
+            onClick={() => setExpanded((v) => !v)}
+            aria-label={expanded ? 'Hide members' : 'Show members'}
+          >
+            {expanded ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
+          </ActionIcon>
         </Table.Td>
         <Table.Td>
-          <Text
-            size="sm"
-            fw={inCommon ? 700 : 400}
-            c={inCommon ? 'green.4' : undefined}
-          >
-            {group.name}
-          </Text>
+          <Group gap="xs" wrap="nowrap">
+            <Text size="sm" fw={highlighted ? 700 : 400} c={highlighted ? highlightColor : undefined}>
+              {group.name}
+            </Text>
+            {ownProfile && <ActivityBadge activity={activity} />}
+          </Group>
         </Table.Td>
         <Table.Td>
           <Text size="sm" c="dimmed">
             {group.member_count} member{group.member_count !== 1 ? 's' : ''}
           </Text>
         </Table.Td>
-        <Table.Td>
-          {inCommon ? (
+        <Table.Td onClick={(e) => e.stopPropagation()}>
+          {ownProfile ? (
+            <ActionIcon
+              size="sm"
+              variant="subtle"
+              color={isFavorite ? 'yellow' : 'gray'}
+              onClick={() => onToggleFavorite?.(group.id)}
+              aria-label={isFavorite ? 'Unset default group' : 'Set as default group'}
+            >
+              {isFavorite ? <IconStarFilled size={14} /> : <IconStar size={14} />}
+            </ActionIcon>
+          ) : inCommon ? (
             <Badge size="sm" variant="light" color="green">
               {group.current_user_role}
             </Badge>
           ) : (
-            <Button
-              size="xs"
-              variant="light"
-              loading={joinGroup.isPending}
-              onClick={handleJoin}
-            >
+            <Button size="xs" variant="light" loading={joinGroup.isPending} onClick={handleJoin}>
               Join
             </Button>
           )}
@@ -132,9 +185,23 @@ function GroupRow({ group }: GroupRowProps) {
 interface Props {
   groups: UserGroupItem[]
   loading: boolean
+  /** Own-profile mode: yellow activity highlighting + badges + default-group star. */
+  ownProfile?: boolean
+  activityById?: Map<number, GroupActivityItem>
+  favoriteId?: number | null
+  onToggleFavorite?: (groupId: number) => void
+  emptyMessage?: string
 }
 
-export default function GroupsTable({ groups, loading }: Props) {
+export default function GroupsTable({
+  groups,
+  loading,
+  ownProfile = false,
+  activityById,
+  favoriteId = null,
+  onToggleFavorite,
+  emptyMessage = 'No public groups.',
+}: Props) {
   if (loading) {
     return (
       <Stack gap="xs">
@@ -144,14 +211,15 @@ export default function GroupsTable({ groups, loading }: Props) {
   }
 
   if (groups.length === 0) {
-    return <Text size="sm" c="dimmed">No public groups.</Text>
+    return <Text size="sm" c="dimmed">{emptyMessage}</Text>
   }
 
   const sorted = [...groups].sort((a, b) => {
-    // shared groups first, then alphabetical
-    if ((a.current_user_role !== null) !== (b.current_user_role !== null)) {
-      return a.current_user_role !== null ? -1 : 1
-    }
+    // Prioritized rows first (activity on own profile, shared membership elsewhere),
+    // then alphabetical.
+    const aPriority = ownProfile ? hasActivity(activityById?.get(a.id)) : a.current_user_role !== null
+    const bPriority = ownProfile ? hasActivity(activityById?.get(b.id)) : b.current_user_role !== null
+    if (aPriority !== bPriority) return aPriority ? -1 : 1
     return a.name.localeCompare(b.name)
   })
 
@@ -167,7 +235,14 @@ export default function GroupsTable({ groups, loading }: Props) {
       </Table.Thead>
       <Table.Tbody>
         {sorted.map((g) => (
-          <GroupRow key={g.id} group={g} />
+          <GroupRow
+            key={g.id}
+            group={g}
+            ownProfile={ownProfile}
+            activity={activityById?.get(g.id)}
+            isFavorite={favoriteId === g.id}
+            onToggleFavorite={onToggleFavorite}
+          />
         ))}
       </Table.Tbody>
     </Table>

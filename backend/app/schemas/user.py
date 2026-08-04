@@ -165,6 +165,19 @@ class UserGroupItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class GroupActivityItem(BaseModel):
+    """Per-group dashboard badge data for the current user.
+
+    ``unreviewed_today`` counts albums from the group's current spin (the most recent
+    scheduled draw) that the caller has not submitted a review for — 0 for dealer-mode
+    and global/bot groups. ``rolls_remaining`` is set only for dealer-mode groups.
+    """
+
+    group_id: int
+    unreviewed_today: int
+    rolls_remaining: int | None = None
+
+
 class UserReviewResponse(BaseModel):
     """Flat review entry for the public profile review history tab."""
 

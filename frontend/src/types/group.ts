@@ -29,6 +29,12 @@ export interface GroupDetailResponse extends GroupResponse {
   settings: GroupSettings | null
 }
 
+export interface GroupActivityItem {
+  group_id: number
+  unreviewed_today: number
+  rolls_remaining: number | null
+}
+
 export interface ParticipationResponse {
   threshold: number | null
   credits: number

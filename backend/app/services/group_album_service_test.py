@@ -1246,3 +1246,98 @@ class TestPrioritySelection:
         results = group_album_service.select_daily_albums(sample_group.id, n=1)
         assert len(results) == 1
         assert results[0].id == sample_group_album.id
+
+
+# ==================== GROUP ACTIVITY (DASHBOARD BADGES) ====================
+
+
+class TestGetGroupActivityForUser:
+    def _review(self, db_session, user, album, *, is_draft=False, rating=8.0):
+        from app.models import Review
+
+        review = Review(user_id=user.id, album_id=album.id, rating=rating, is_draft=is_draft)
+        db_session.add(review)
+        db_session.commit()
+        return review
+
+    def _item(self, items, group_id):
+        return next(i for i in items if i.group_id == group_id)
+
+    def test_unreviewed_current_spin_counts(
+        self, group_album_service, sample_group, sample_group_album, sample_user, db_session
+    ):
+        _mark_selected(db_session, sample_group_album)
+        items = group_album_service.get_group_activity_for_user(sample_user)
+        item = self._item(items, sample_group.id)
+        assert item.unreviewed_today == 1
+        assert item.rolls_remaining is None
+
+    def test_reviewed_spin_not_counted(
+        self, group_album_service, sample_group, sample_group_album, sample_album, sample_user, db_session
+    ):
+        _mark_selected(db_session, sample_group_album)
+        self._review(db_session, sample_user, sample_album)
+        items = group_album_service.get_group_activity_for_user(sample_user)
+        assert self._item(items, sample_group.id).unreviewed_today == 0
+
+    def test_draft_review_still_counts_as_unreviewed(
+        self, group_album_service, sample_group, sample_group_album, sample_album, sample_user, db_session
+    ):
+        _mark_selected(db_session, sample_group_album)
+        self._review(db_session, sample_user, sample_album, is_draft=True)
+        items = group_album_service.get_group_activity_for_user(sample_user)
+        assert self._item(items, sample_group.id).unreviewed_today == 1
+
+    def test_counts_standing_spin_on_off_day(
+        self, group_album_service, sample_group, sample_group_album, sample_user, db_session
+    ):
+        """A weekly group flags its standing (last-drawn) spin even on a non-draw day."""
+        from datetime import date
+
+        settings = db_session.query(GroupSettings).filter(
+            GroupSettings.group_id == sample_group.id
+        ).first()
+        settings.selection_days = [2]  # Wednesday only
+        db_session.commit()
+
+        sample_group_album.selected_date = datetime(2026, 1, 7, 12, 0, 0, tzinfo=timezone.utc)
+        db_session.commit()
+
+        thursday = date(2026, 1, 8)
+        with patch("app.services.group_album_service.group_today", return_value=thursday):
+            items = group_album_service.get_group_activity_for_user(sample_user)
+        assert self._item(items, sample_group.id).unreviewed_today == 1
+
+    def test_dealer_group_reports_rolls_not_reviews(
+        self, group_album_service, sample_group, sample_group_album, sample_user, db_session
+    ):
+        _mark_selected(db_session, sample_group_album)
+        settings = db_session.query(GroupSettings).filter(
+            GroupSettings.group_id == sample_group.id
+        ).first()
+        settings.dealer_mode = True
+        settings.dealer_rolls_per_day = 3
+        db_session.commit()
+
+        items = group_album_service.get_group_activity_for_user(sample_user)
+        item = self._item(items, sample_group.id)
+        assert item.rolls_remaining == 3
+        assert item.unreviewed_today == 0
+
+    def test_global_group_gets_no_badge(
+        self, group_album_service, global_group, sample_group_service, sample_album, sample_user, db_session
+    ):
+        sample_group_service.add_user(global_group.id, sample_user.id)
+        ga = GroupAlbum(
+            group_id=global_group.id,
+            album_id=sample_album.id,
+            added_by=sample_user.id,
+            selected_date=datetime.now(tz=timezone.utc),
+        )
+        db_session.add(ga)
+        db_session.commit()
+
+        items = group_album_service.get_group_activity_for_user(sample_user)
+        item = self._item(items, global_group.id)
+        assert item.unreviewed_today == 0
+        assert item.rolls_remaining is None
