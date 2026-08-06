@@ -337,6 +337,39 @@ class TestGetAlbumNominationCount:
         assert album_service.get_album_nomination_count(sample_album.id) == 0
 
 
+class TestGetAlbumGroupNominationCount:
+    def test_zero_when_never_nominated(self, album_service, sample_group, sample_album):
+        assert album_service.get_album_group_nomination_count(sample_group.id, sample_album.id) == 0
+
+    def test_counts_distinct_members_in_group_only(
+        self, album_service, sample_group_service, sample_album, sample_user, user_factory, db_session
+    ):
+        from app.schemas.group import GroupCreate
+
+        first_group = sample_group_service.create_group(GroupCreate(name="First"), sample_user)
+        second_group = sample_group_service.create_group(GroupCreate(name="Second"), sample_user)
+        other = user_factory(email="other@test.com", username="other_user")
+
+        db_session.add_all([
+            # first group: two distinct members nominate the album
+            GroupAlbum(group_id=first_group.id, album_id=sample_album.id, added_by=sample_user.id),
+            GroupAlbum(group_id=first_group.id, album_id=sample_album.id, added_by=other.id),
+            # second group: a single nomination that must not leak into first group's count
+            GroupAlbum(group_id=second_group.id, album_id=sample_album.id, added_by=sample_user.id),
+        ])
+        db_session.commit()
+
+        assert album_service.get_album_group_nomination_count(first_group.id, sample_album.id) == 2
+        assert album_service.get_album_group_nomination_count(second_group.id, sample_album.id) == 1
+
+    def test_ignores_null_nominators(self, album_service, sample_group, sample_album, db_session):
+        db_session.add(
+            GroupAlbum(group_id=sample_group.id, album_id=sample_album.id, added_by=None)
+        )
+        db_session.commit()
+        assert album_service.get_album_group_nomination_count(sample_group.id, sample_album.id) == 0
+
+
 class TestGetOrCreateMultiServiceId:
     def test_apple_only_album_created_and_returned(self, album_service):
         data = AlbumCreate(

@@ -8,12 +8,14 @@ from app.dependencies import (
     get_current_admin_user,
     get_current_user,
     get_current_user_optional,
+    get_group_service,
     get_review_service,
 )
 from app.models import User
 from app.schemas.album import (
     AlbumCreate,
     AlbumLinksUpdate,
+    AlbumNominationCountsResponse,
     AlbumResponse,
     AlbumReviewItem,
     AlbumSearchPage,
@@ -28,6 +30,7 @@ from app.schemas.album import (
     ReviewUpdate,
 )
 from app.services.album_service import AlbumService
+from app.services.group_service import GroupService
 from app.services.review_service import ReviewService
 from app.utils import apple_music_client, spotify_client, wikipedia_backfill
 from app.utils.album_search import merge_search_results, normalize_title_for_dedup
@@ -489,6 +492,41 @@ def get_album_stats(
     stats = review_service.get_album_stats(album_id)
     stats.nomination_count = album_service.get_album_nomination_count(album_id)
     return stats
+
+
+@albums_router.get("/{album_id}/nomination-counts", response_model=AlbumNominationCountsResponse)
+def get_album_nomination_counts(
+    album_id: int,
+    group_id: int | None = Query(None),
+    current_user: User | None = Depends(get_current_user_optional),
+    album_service: AlbumService = Depends(get_album_service),
+    group_service: GroupService = Depends(get_group_service),
+):
+    """Return nomination counts for an album. Publicly readable — no auth required.
+
+    ``total_count`` is the number of distinct users who nominated the album across all
+    groups. ``group_count`` (distinct members nominating within ``group_id``) is returned
+    only when a group is requested, that group is neither global nor a bot group, and the
+    caller is a member; otherwise it is null.
+    """
+    album_service.get_album_by_id(album_id)
+    total_count = album_service.get_album_nomination_count(album_id)
+
+    group_count: int | None = None
+    if group_id is not None:
+        group = group_service.get_group_by_id(group_id)
+        is_public_facing = group.is_global or bool(group.bot_sources)
+        is_member = current_user is not None and group_service.is_user_in_group(
+            current_user.id, group_id
+        )
+        # Chaos-mode groups pull albums from outside the pool, so a real member
+        # nomination count would give away chaos picks (and the guessing game).
+        # Withhold it — the client masks the group figure for these groups.
+        is_chaos = bool(group.settings and group.settings.chaos_mode)
+        if not is_public_facing and is_member and not is_chaos:
+            group_count = album_service.get_album_group_nomination_count(group_id, album_id)
+
+    return AlbumNominationCountsResponse(total_count=total_count, group_count=group_count)
 
 
 @albums_router.get("/{album_id}/reviews/me", response_model=ReviewResponse)

@@ -990,6 +990,118 @@ class TestAlbumStats:
         assert resp.status_code == status.HTTP_200_OK
 
 
+class TestAlbumNominationCounts:
+    def _override_group_service(self, mock_group_service):
+        from app.dependencies import get_group_service
+
+        app.dependency_overrides[get_group_service] = lambda: mock_group_service
+
+    def _mock_group_service(self, *, is_global=False, bot_sources=None, is_member=True, chaos_mode=False):
+        from app.services.group_service import GroupService
+
+        svc = MagicMock(spec=GroupService)
+        svc.get_group_by_id.return_value = MagicMock(
+            is_global=is_global,
+            bot_sources=bot_sources or [],
+            settings=MagicMock(chaos_mode=chaos_mode),
+        )
+        svc.is_user_in_group.return_value = is_member
+        return svc
+
+    def test_total_only_when_no_group_requested(self, client, mock_album_service):
+        self._override_group_service(self._mock_group_service())
+        mock_album_service.get_album_by_id.return_value = make_mock_album()
+        mock_album_service.get_album_nomination_count.return_value = 5
+
+        resp = client.get("/albums/1/nomination-counts")
+
+        assert resp.status_code == status.HTTP_200_OK
+        body = resp.json()
+        assert body["total_count"] == 5
+        assert body["group_count"] is None
+        mock_album_service.get_album_nomination_count.assert_called_once_with(1)
+        mock_album_service.get_album_group_nomination_count.assert_not_called()
+
+    def test_group_count_for_member_of_regular_group(self, client, mock_album_service):
+        self._override_group_service(self._mock_group_service(is_member=True))
+        mock_album_service.get_album_by_id.return_value = make_mock_album()
+        mock_album_service.get_album_nomination_count.return_value = 5
+        mock_album_service.get_album_group_nomination_count.return_value = 2
+
+        resp = client.get("/albums/1/nomination-counts?group_id=7")
+
+        assert resp.status_code == status.HTTP_200_OK
+        body = resp.json()
+        assert body["total_count"] == 5
+        assert body["group_count"] == 2
+        mock_album_service.get_album_group_nomination_count.assert_called_once_with(7, 1)
+
+    def test_group_count_null_for_global_group(self, client, mock_album_service):
+        self._override_group_service(self._mock_group_service(is_global=True))
+        mock_album_service.get_album_by_id.return_value = make_mock_album()
+        mock_album_service.get_album_nomination_count.return_value = 5
+
+        resp = client.get("/albums/1/nomination-counts?group_id=7")
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["group_count"] is None
+        mock_album_service.get_album_group_nomination_count.assert_not_called()
+
+    def test_group_count_null_for_bot_group(self, client, mock_album_service):
+        self._override_group_service(self._mock_group_service(bot_sources=[MagicMock()]))
+        mock_album_service.get_album_by_id.return_value = make_mock_album()
+        mock_album_service.get_album_nomination_count.return_value = 5
+
+        resp = client.get("/albums/1/nomination-counts?group_id=7")
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["group_count"] is None
+        mock_album_service.get_album_group_nomination_count.assert_not_called()
+
+    def test_group_count_null_for_chaos_group(self, client, mock_album_service):
+        self._override_group_service(self._mock_group_service(chaos_mode=True))
+        mock_album_service.get_album_by_id.return_value = make_mock_album()
+        mock_album_service.get_album_nomination_count.return_value = 5
+
+        resp = client.get("/albums/1/nomination-counts?group_id=7")
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["group_count"] is None
+        mock_album_service.get_album_group_nomination_count.assert_not_called()
+
+    def test_group_count_null_for_non_member(self, client, mock_album_service):
+        self._override_group_service(self._mock_group_service(is_member=False))
+        mock_album_service.get_album_by_id.return_value = make_mock_album()
+        mock_album_service.get_album_nomination_count.return_value = 5
+
+        resp = client.get("/albums/1/nomination-counts?group_id=7")
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["group_count"] is None
+        mock_album_service.get_album_group_nomination_count.assert_not_called()
+
+    def test_album_not_found(self, client, mock_album_service):
+        self._override_group_service(self._mock_group_service())
+        mock_album_service.get_album_by_id.side_effect = HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Not found"
+        )
+        resp = client.get("/albums/999/nomination-counts")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_works_without_authentication(self, unauthed_client, mock_album_service):
+        self._override_group_service(self._mock_group_service(is_member=False))
+        mock_album_service.get_album_by_id.return_value = make_mock_album()
+        mock_album_service.get_album_nomination_count.return_value = 5
+
+        # Anonymous caller is never a member, so no group count even with group_id.
+        resp = unauthed_client.get("/albums/1/nomination-counts?group_id=7")
+
+        assert resp.status_code == status.HTTP_200_OK
+        body = resp.json()
+        assert body["total_count"] == 5
+        assert body["group_count"] is None
+
+
 # ==================== ADMIN: UPDATE ALBUM LINKS ====================
 
 

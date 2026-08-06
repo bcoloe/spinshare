@@ -88,3 +88,15 @@ export function useNominationCount(groupId: number, enabled = true) {
     enabled: enabled && !!groupId,
   })
 }
+
+export function useAlbumNominationCounts(
+  albumId: number,
+  groupId?: number,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['albums', albumId, 'nomination-counts', groupId ?? null],
+    queryFn: () => albumService.getNominationCounts(albumId, groupId),
+    enabled: enabled && !!albumId,
+  })
+}
