@@ -1,7 +1,16 @@
-# Deploying `weekly_recap_generator` as a systemd Service
+# Deploying `weekly_recap_generator`
 
-This guide sets up the weekly recap generation as a systemd timer on a Linux
-production host. It mirrors `daily_album_selector_deployment.md`.
+This guide sets up the weekly recap generation on a Linux production host. Two
+options are documented:
+
+- **systemd timer, hourly (recommended, mirrors `daily_album_selector`)** — most
+  robust: idempotent, self-healing across host downtime and every group timezone.
+- **weekly crontab (simplest)** — a single Monday run; fine for a timezone-homogeneous
+  deployment. See "Alternative: weekly crontab" below.
+
+`generate_due` always snapshots the *most recently completed* Mon–Sun week for each
+group (in that group's timezone), so the recap is correct no matter when the job runs —
+the only difference between the two options is scheduling robustness.
 
 ## Prerequisites
 
@@ -62,6 +71,31 @@ sudo systemctl enable --now spinshare-weekly-recap.timer
 
 sudo systemctl list-timers spinshare-weekly-recap.timer
 ```
+
+## Alternative: weekly crontab
+
+If you'd rather run it once a week instead of hourly, a plain crontab works. Because
+the generator is idempotent and always targets the just-completed week, a single Monday
+run produces the same result:
+
+```cron
+# Mondays at 06:00 US Eastern — generate the recap for the week that just ended.
+CRON_TZ=America/New_York
+0 6 * * 1 cd /opt/spinshare/backend && .venv/bin/python scripts/weekly_recap_generator.py >> /var/log/spinshare-weekly-recap.log 2>&1
+```
+
+Trade-offs vs. the hourly systemd timer:
+
+- **No automatic catch-up.** If the host is down at 06:00 Monday, that week's recap is
+  skipped until you run it manually (systemd's `Persistent=true` would have caught up).
+- **Timezone assumption.** A single fixed run must fire *after* every group's local Monday
+  has begun. 06:00 Eastern is safe for North American and European groups; only groups in
+  far-western Pacific zones (≈ UTC−11 or west) could see their recap generated a day late.
+  If your groups span such timezones, prefer the hourly timer (or move the run later, e.g.
+  12:00 UTC).
+
+For a timezone-homogeneous (e.g. US-centric) deployment, the weekly crontab is perfectly
+adequate and the simplest thing to operate.
 
 ## Manual / backfill run
 

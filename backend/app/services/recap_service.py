@@ -9,7 +9,7 @@ payload shape and the plan in ``plans/`` for the design rationale.
 from datetime import date, timedelta
 
 from fastapi import HTTPException, status
-from sqlalchemy import case, func
+from sqlalchemy import and_, case, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -245,23 +245,26 @@ class RecapService:
 
     def _guess_accuracy(self, group_id: int, start, end) -> GuessAccuracy:
         """Nomination-guessing accuracy for guesses submitted during the week."""
-        base = (
-            self.db.query(NominationGuess)
+        correct_case = case((NominationGuess.correct.is_(True), 1), else_=0)
+
+        # Group totals in a single aggregate round-trip.
+        total, correct = (
+            self.db.query(
+                func.count(NominationGuess.id),
+                func.coalesce(func.sum(correct_case), 0),
+            )
             .join(GroupAlbum, GroupAlbum.id == NominationGuess.group_album_id)
             .filter(
                 GroupAlbum.group_id == group_id,
                 NominationGuess.created_at >= start,
                 NominationGuess.created_at < end,
             )
+            .one()
         )
-        total = base.count()
-        correct = base.filter(NominationGuess.correct.is_(True)).count()
+        total, correct = int(total), int(correct)
 
-        correct_sum = func.coalesce(
-            func.sum(case((NominationGuess.correct.is_(True), 1), else_=0)), 0
-        )
         member_rows = (
-            self.db.query(User.username, func.count(NominationGuess.id), correct_sum)
+            self.db.query(User.username, func.count(NominationGuess.id), func.coalesce(func.sum(correct_case), 0))
             .join(GroupAlbum, GroupAlbum.id == NominationGuess.group_album_id)
             .join(User, User.id == NominationGuess.guessing_user_id)
             .filter(
@@ -337,27 +340,56 @@ class RecapService:
             self.db.rollback()  # concurrent insert — already seen
 
     def pending_for_user(self, user: User) -> list[RecapSummary]:
-        """Latest unseen recap per group for the login pop-up."""
-        summaries: list[RecapSummary] = []
-        for group in UserService(self.db).get_user_groups(user.id):
-            recap = (
-                self.db.query(GroupRecap)
-                .filter(GroupRecap.group_id == group.id)
-                .order_by(GroupRecap.week_start.desc())
-                .first()
+        """Latest unseen recap per group for the login pop-up.
+
+        Runs on every page load, so it uses a constant number of queries
+        regardless of how many groups the user belongs to: one to fetch the
+        latest recap per group, one to check which of those are already seen.
+        """
+        groups = UserService(self.db).get_user_groups(user.id)
+        name_by_id = {g.id: g.name for g in groups}
+        if not name_by_id:
+            return []
+
+        # Latest recap (by week_start) for each of the user's groups, in one query.
+        latest_week = (
+            self.db.query(
+                GroupRecap.group_id,
+                func.max(GroupRecap.week_start).label("ws"),
             )
-            if recap is None or self._seen_recap_ids(user.id, [recap.id]):
-                continue
-            summaries.append(
-                RecapSummary(
-                    id=recap.id,
-                    group_id=group.id,
-                    group_name=group.name,
-                    week_start=recap.week_start,
-                    week_end=recap.week_end,
-                )
+            .filter(GroupRecap.group_id.in_(name_by_id.keys()))
+            .group_by(GroupRecap.group_id)
+            .subquery()
+        )
+        latest_recaps = (
+            self.db.query(GroupRecap)
+            .join(
+                latest_week,
+                and_(
+                    GroupRecap.group_id == latest_week.c.group_id,
+                    GroupRecap.week_start == latest_week.c.ws,
+                ),
             )
-        return summaries
+            .order_by(GroupRecap.week_start.desc())
+            .all()
+        )
+        if not latest_recaps:
+            return []
+
+        # A group is pending only if its *latest* recap is unseen (an older unseen
+        # recap must not resurface once the newest has been acknowledged).
+        seen = self._seen_recap_ids(user.id, [r.id for r in latest_recaps])
+        return [
+            RecapSummary(
+                id=r.id,
+                group_id=r.group_id,
+                group_name=name_by_id[r.group_id],
+                week_start=r.week_start,
+                week_end=r.week_end,
+            )
+            for r in latest_recaps
+            if r.id not in seen
+        ]
 
     # ==================== HELPERS ====================
 

@@ -1,6 +1,6 @@
 """Tests for RecapService — weekly recap computation, persistence, and reads."""
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -256,3 +256,16 @@ class TestReads:
 
         recap_service.mark_seen(scenario["group"].id, recap.id, alice)
         assert recap_service.pending_for_user(alice) == []
+
+    def test_pending_uses_latest_recap_only(self, recap_service, scenario):
+        # Two weeks generated; once the latest is seen, the group is no longer
+        # pending even though the older recap remains unseen.
+        older = recap_service.generate_for_group(scenario["group"].id, WEEK_START - timedelta(days=7))
+        latest = recap_service.generate_for_group(scenario["group"].id, WEEK_START)
+        alice = scenario["alice"]
+
+        assert [p.id for p in recap_service.pending_for_user(alice)] == [latest.id]
+        recap_service.mark_seen(scenario["group"].id, latest.id, alice)
+        assert recap_service.pending_for_user(alice) == []
+        # The older, still-unseen recap must not resurface.
+        assert older.id not in [p.id for p in recap_service.pending_for_user(alice)]
