@@ -1,8 +1,9 @@
-import { useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { ActionIcon, Badge, Button, Divider, Group, SimpleGrid, Skeleton, Stack, Text, Title, Tooltip } from '@mantine/core'
+import { useEffect, useMemo } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { ActionIcon, Badge, Button, Divider, Group, Modal, SimpleGrid, Skeleton, Stack, Text, Title, Tooltip } from '@mantine/core'
+import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { IconListDetails, IconX } from '@tabler/icons-react'
+import { IconListDetails, IconSparkles, IconX } from '@tabler/icons-react'
 import { ApiError } from '../../services/apiClient'
 import {
   Bar,
@@ -18,7 +19,9 @@ import {
 } from 'recharts'
 import ChartCarousel from '../profile/ChartCarousel'
 import MemberList from './MemberList'
+import WeeklyRecap from './WeeklyRecap'
 import { useGroupStats, useGroupPendingInvitations, useRevokeInvitation } from '../../hooks/useGroups'
+import { useGroupRecaps } from '../../hooks/useRecaps'
 import type { GroupDetailResponse, GuessHistogramBucket, MemberGuessAccuracyItem } from '../../types/group'
 
 // 20 visually distinct colors — enough headroom for any realistic group size.
@@ -185,6 +188,25 @@ export default function GroupInfo({ group }: Props) {
   const { data: pendingInvitations = [] } = useGroupPendingInvitations(group.id, canManage)
   const revokeInvitation = useRevokeInvitation(group.id)
 
+  // Weekly recaps only exist for regular member groups (not global/bot/dealer).
+  const recapEligible = !group.is_global && !group.is_bot_group && !group.settings?.dealer_mode
+  const { data: recaps } = useGroupRecaps(group.id, recapEligible)
+  const hasRecaps = recapEligible && !!recaps && recaps.length > 0
+  const [recapOpened, { open: openRecap, close: closeRecap }] = useDisclosure()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // Auto-open the recap overlay when arriving from the login pop-up's "View
+  // recap" action (?recap=open), then strip the param so a refresh or reopen
+  // doesn't force it open again.
+  useEffect(() => {
+    if (hasRecaps && searchParams.get('recap')) {
+      openRecap()
+      const next = new URLSearchParams(searchParams)
+      next.delete('recap')
+      setSearchParams(next, { replace: true })
+    }
+  }, [hasRecaps, searchParams, openRecap, setSearchParams])
+
   const handleRevokeInvitation = async (invitationId: number, email: string) => {
     try {
       await revokeInvitation.mutateAsync(invitationId)
@@ -212,6 +234,44 @@ export default function GroupInfo({ group }: Props) {
 
   return (
     <Stack gap="xl">
+      {hasRecaps && (
+        <>
+          <div>
+            <Group justify="space-between" align="center" wrap="wrap" gap="sm">
+              <div>
+                <Title order={5}>Weekly Recap</Title>
+                <Text size="sm" c="dimmed">See how the group's week played out.</Text>
+              </div>
+              <Button
+                variant="light"
+                color="violet"
+                leftSection={<IconSparkles size={16} />}
+                onClick={openRecap}
+              >
+                View weekly recap
+              </Button>
+            </Group>
+          </div>
+
+          <Modal
+            opened={recapOpened}
+            onClose={closeRecap}
+            title={
+              <Group gap="xs">
+                <IconSparkles size={18} />
+                <Text fw={600}>Weekly Recap · {group.name}</Text>
+              </Group>
+            }
+            size="xl"
+            centered
+          >
+            <WeeklyRecap groupId={group.id} />
+          </Modal>
+
+          <Divider />
+        </>
+      )}
+
       <div>
         <Title order={5} mb="sm">Group Stats</Title>
         {statsLoading ? (

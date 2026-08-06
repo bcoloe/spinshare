@@ -6,6 +6,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     DATABASE_URL: str
     SECRET_KEY: str
+    # Deployment environment. Non-"production" values (e.g. "test", "dev") unlock
+    # helpers such as on-demand recap generation for arbitrary past weeks.
+    ENVIRONMENT: str = "production"
     SPOTIFY_CLIENT_ID: str = ""
     SPOTIFY_CLIENT_SECRET: str = ""
     SPOTIFY_REDIRECT_URI: str = ""

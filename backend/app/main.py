@@ -14,6 +14,7 @@ from app.routers.notifications import router as notifications_router
 from app.routers.explore import router as explore_router
 from app.routers.feedback import router as feedback_router
 from app.routers.public import router as public_router
+from app.routers.recaps import router as recaps_router
 from app.routers.stats import router as stats_router
 
 settings = get_settings()
@@ -48,6 +49,7 @@ app.include_router(invitations_router)
 app.include_router(invite_links_router)
 app.include_router(notifications_router)
 app.include_router(stats_router)
+app.include_router(recaps_router)
 app.include_router(explore_router)
 app.include_router(feedback_router)
 app.include_router(public_router)

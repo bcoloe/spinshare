@@ -4,6 +4,7 @@ from .bot_source import BotSource
 from .genre import Genre, album_genres
 from .group import Group, group_members
 from .group_album import GroupAlbum
+from .group_recap import GroupRecap
 from .group_settings import GroupSettings
 from .invitation import GroupInvitation
 from .invite_link import GroupInviteLink
@@ -11,6 +12,7 @@ from .nomination_guess import NominationGuess
 from .notification import Notification
 from .participation import GroupParticipation, PriorityReviewCredit
 from .public_spin_draw import PublicSpinDraw
+from .recap_view import RecapView
 from .review import Review
 from .spotify_connection import SpotifyConnection
 from .user import User
@@ -24,6 +26,7 @@ __all__ = [
     "Group",
     "album_genres",
     "GroupAlbum",
+    "GroupRecap",
     "GroupSettings",
     "GroupInvitation",
     "GroupInviteLink",
@@ -32,6 +35,7 @@ __all__ = [
     "GroupParticipation",
     "PriorityReviewCredit",
     "PublicSpinDraw",
+    "RecapView",
     "Review",
     "SpotifyConnection",
     "User",

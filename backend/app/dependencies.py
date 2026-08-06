@@ -17,6 +17,7 @@ from app.services.participation_service import ParticipationService
 from app.services.review_service import ReviewService
 from app.services.explore_service import ExploreService
 from app.services.public_spin_service import PublicSpinService
+from app.services.recap_service import RecapService
 from app.services.stats_service import StatsService
 from app.services.user_service import UserService
 from app.utils.security import decode_access_token
@@ -83,6 +84,11 @@ def get_invite_link_service(db: Session = Depends(get_db)) -> InviteLinkService:
 def get_stats_service(db: Session = Depends(get_db)) -> StatsService:
     """Dependency to get StatsService"""
     return StatsService(db)
+
+
+def get_recap_service(db: Session = Depends(get_db)) -> RecapService:
+    """Dependency to get RecapService"""
+    return RecapService(db)
 
 
 def get_explore_service(db: Session = Depends(get_db)) -> ExploreService:

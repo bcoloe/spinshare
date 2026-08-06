@@ -50,6 +50,7 @@ import { useUnreadNotifications, useMarkNotificationRead, useMarkAllNotification
 import { usePlayer } from '../../context/PlayerContext'
 import { ApiError } from '../../services/apiClient'
 import CreateGroupModal from '../groups/CreateGroupModal'
+import RecapPopup from '../groups/RecapPopup'
 import FeedbackModal from '../feedback/FeedbackModal'
 import SearchModal from '../search/SearchModal'
 import PlayerBar from './PlayerBar'
@@ -498,6 +499,7 @@ export default function AppShell({ children }: AppShellProps) {
 
       {user && <CreateGroupModal opened={createOpened} onClose={closeCreate} />}
       {user && <FeedbackModal opened={feedbackOpened} onClose={closeFeedback} />}
+      {user && <RecapPopup />}
       <SearchModal opened={searchOpened} onClose={closeSearch} />
     </MantineAppShell>
   )
