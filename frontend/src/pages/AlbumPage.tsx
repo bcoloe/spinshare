@@ -51,6 +51,7 @@ import {
   YAxis,
 } from 'recharts'
 import AppShell from '../components/layout/AppShell'
+import NominationBadge from '../components/albums/NominationBadge'
 import PlaylistPickerModal, { type PickablePlaylist } from '../components/spin/PlaylistPickerModal'
 import ReviewForm from '../components/spin/ReviewForm'
 import GuestReviewPrompt from '../components/spin/GuestReviewPrompt'
@@ -628,6 +629,11 @@ export default function AlbumPage() {
                     <Badge key={g} size="xs" variant="light" color="violet">{g}</Badge>
                   ))}
                 </Group>
+                {stats && (
+                  <Group gap="xs" mt={2}>
+                    <NominationBadge total={stats.nomination_count} />
+                  </Group>
+                )}
                 {user?.is_admin && (
                   <Button
                     variant="subtle"
@@ -844,10 +850,6 @@ export default function AlbumPage() {
                   )}
                   <Text size="xs" c="dimmed">
                     {stats?.review_count ?? 0} review{stats?.review_count !== 1 ? 's' : ''}
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    Nominated by {stats?.nomination_count ?? 0}{' '}
-                    {stats?.nomination_count === 1 ? 'person' : 'people'}
                   </Text>
                 </Stack>
 

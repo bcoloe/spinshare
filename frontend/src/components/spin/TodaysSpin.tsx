@@ -93,7 +93,7 @@ function getNextDrawInfo(
 
 // ==================== SPIN COMPONENTS ====================
 
-function SpinSlide({ groupAlbum, groupId, allowGuessing = true }: { groupAlbum: GroupAlbumResponse; groupId: number; allowGuessing?: boolean }) {
+function SpinSlide({ groupAlbum, groupId, allowGuessing = true, showGroupCount = false, maskGroupCount = false }: { groupAlbum: GroupAlbumResponse; groupId: number; allowGuessing?: boolean; showGroupCount?: boolean; maskGroupCount?: boolean }) {
   const spotifyId = groupAlbum.album.spotify_album_id
   const appleMusicId = groupAlbum.album.apple_music_album_id
   const { startAlbum, playInAppleMusic, hasSpotify, hasAppleMusic, preferredService, status: playerStatus } = usePlayer()
@@ -123,7 +123,7 @@ function SpinSlide({ groupAlbum, groupId, allowGuessing = true }: { groupAlbum: 
   return (
     <Paper p="lg" radius="md" withBorder>
       <Stack gap="xl">
-        <AlbumCard album={groupAlbum.album} />
+        <AlbumCard album={groupAlbum.album} groupId={groupId} showGroupCount={showGroupCount} maskGroupCount={maskGroupCount} />
         <Stack gap={4}>
           <Group gap="sm" wrap="wrap">
             <Button
@@ -241,7 +241,7 @@ function SpinSlide({ groupAlbum, groupId, allowGuessing = true }: { groupAlbum: 
   )
 }
 
-function MultiAlbumSpin({ albums, groupId, allowGuessing = true }: { albums: GroupAlbumResponse[]; groupId: number; allowGuessing?: boolean }) {
+function MultiAlbumSpin({ albums, groupId, allowGuessing = true, showGroupCount = false, maskGroupCount = false }: { albums: GroupAlbumResponse[]; groupId: number; allowGuessing?: boolean; showGroupCount?: boolean; maskGroupCount?: boolean }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const { startAlbum, playInAppleMusic, hasSpotify, hasAppleMusic, preferredService, status: playerStatus, playingSpotifyAlbumId } = usePlayer()
 
@@ -299,7 +299,7 @@ function MultiAlbumSpin({ albums, groupId, allowGuessing = true }: { albums: Gro
       </Tabs>
       <Paper p="lg" radius="md" withBorder>
         <Stack gap="xl">
-          <AlbumCard album={activeAlbum.album} />
+          <AlbumCard album={activeAlbum.album} groupId={groupId} showGroupCount={showGroupCount} maskGroupCount={maskGroupCount} />
           <Stack gap={4}>
             <Group gap="sm" wrap="wrap">
               <Button
@@ -451,7 +451,7 @@ function AlbumTab({ albumId, title, coverUrl, isPlaying = false }: { albumId: nu
   )
 }
 
-function CatchUpSection({ albums, groupId, allowGuessing }: { albums: GroupAlbumResponse[]; groupId: number; allowGuessing: boolean }) {
+function CatchUpSection({ albums, groupId, allowGuessing, showGroupCount = false, maskGroupCount = false }: { albums: GroupAlbumResponse[]; groupId: number; allowGuessing: boolean; showGroupCount?: boolean; maskGroupCount?: boolean }) {
   const [activeId, setActiveId] = useState<number>(albums[0]?.id)
   const activeAlbum = albums.find((a) => a.id === activeId) ?? albums[0]
 
@@ -497,6 +497,8 @@ function CatchUpSection({ albums, groupId, allowGuessing }: { albums: GroupAlbum
           groupAlbum={activeAlbum}
           groupId={groupId}
           allowGuessing={allowGuessing}
+          showGroupCount={showGroupCount}
+          maskGroupCount={maskGroupCount}
         />
       )}
     </Stack>
@@ -569,6 +571,8 @@ function DealerSpin({ groupId, group }: { groupId: number; group: GroupDetailRes
   const { data, isLoading, isError } = useTodaysDeals(groupId, true)
   const rollDeal = useRollDeal(groupId)
   const allowGuessing = group.settings?.allow_guessing ?? true
+  const showGroupCount = !group.is_global && !group.is_bot_group
+  const maskGroupCount = group.settings?.chaos_mode ?? false
   const [isRolling, setIsRolling] = useState(false)
   const [diceFace, setDiceFace] = useState(4)
   const [, setSearchParams] = useSearchParams()
@@ -667,9 +671,9 @@ function DealerSpin({ groupId, group }: { groupId: number; group: GroupDetailRes
           Roll the bones to draw an album from the group pool — just for you.
         </Alert>
       ) : data.deals.length === 1 ? (
-        <SpinSlide key={data.deals[0].id} groupAlbum={data.deals[0]} groupId={groupId} allowGuessing={allowGuessing} />
+        <SpinSlide key={data.deals[0].id} groupAlbum={data.deals[0]} groupId={groupId} allowGuessing={allowGuessing} showGroupCount={showGroupCount} maskGroupCount={maskGroupCount} />
       ) : (
-        <MultiAlbumSpin albums={data.deals} groupId={groupId} allowGuessing={allowGuessing} />
+        <MultiAlbumSpin albums={data.deals} groupId={groupId} allowGuessing={allowGuessing} showGroupCount={showGroupCount} maskGroupCount={maskGroupCount} />
       )}
     </Stack>
   )
@@ -725,6 +729,8 @@ function SharedSpin({ groupId, group }: Props) {
   const triggerSelection = useTriggerDailySelection(groupId)
 
   const allowGuessing = group?.settings?.allow_guessing ?? true
+  const showGroupCount = !!group && !group.is_global && !group.is_bot_group
+  const maskGroupCount = group?.settings?.chaos_mode ?? false
   const canSelect =
     group?.current_user_role === 'owner' || group?.current_user_role === 'admin'
 
@@ -853,8 +859,8 @@ function SharedSpin({ groupId, group }: Props) {
       )}
     </Stack>
   ) : albums?.length === 1
-    ? <SpinSlide key={albums[0].album_id} groupAlbum={albums[0]} groupId={groupId} allowGuessing={allowGuessing} />
-    : <MultiAlbumSpin albums={albums!} groupId={groupId} allowGuessing={allowGuessing} />
+    ? <SpinSlide key={albums[0].album_id} groupAlbum={albums[0]} groupId={groupId} allowGuessing={allowGuessing} showGroupCount={showGroupCount} maskGroupCount={maskGroupCount} />
+    : <MultiAlbumSpin albums={albums!} groupId={groupId} allowGuessing={allowGuessing} showGroupCount={showGroupCount} maskGroupCount={maskGroupCount} />
 
   return (
     <>
@@ -876,7 +882,7 @@ function SharedSpin({ groupId, group }: Props) {
               </Tabs.List>
             </Tabs>
             {spinView === 'today' ? todayContent : (
-              <CatchUpSection albums={catchUpAlbums} groupId={groupId} allowGuessing={allowGuessing} />
+              <CatchUpSection albums={catchUpAlbums} groupId={groupId} allowGuessing={allowGuessing} showGroupCount={showGroupCount} maskGroupCount={maskGroupCount} />
             )}
           </>
         ) : todayContent}

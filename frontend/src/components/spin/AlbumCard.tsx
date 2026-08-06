@@ -1,13 +1,32 @@
 import { Anchor, Badge, Group, Image, Overlay, Stack, Text, Title } from '@mantine/core'
 import { Link } from 'react-router-dom'
+import { useAlbumNominationCounts } from '../../hooks/useAlbums'
 import type { AlbumResponse } from '../../types/album'
+import NominationBadge from '../albums/NominationBadge'
 
 interface Props {
   album: AlbumResponse
+  // The group whose spin this card is shown in. When provided together with
+  // showGroupCount, a "N in this group" nomination count is displayed.
+  groupId?: number
+  // Whether to request/show the group-scoped nomination count. False for the
+  // global and bot groups, which have no meaningful member nomination count.
+  showGroupCount?: boolean
+  // Mask the group figure as "??" (chaos-mode groups). Only relevant when
+  // showGroupCount is true.
+  maskGroupCount?: boolean
 }
 
-export default function AlbumCard({ album }: Props) {
+export default function AlbumCard({ album, groupId, showGroupCount = false, maskGroupCount = false }: Props) {
   const year = album.release_date ? album.release_date.slice(0, 4) : null
+  const { data: counts } = useAlbumNominationCounts(
+    album.id,
+    showGroupCount ? groupId : undefined,
+  )
+
+  const total = counts?.total_count
+  const groupCount = showGroupCount ? counts?.group_count ?? null : null
+  const maskGroup = showGroupCount && maskGroupCount
 
   return (
     <Group gap="lg" align="flex-start">
@@ -40,6 +59,11 @@ export default function AlbumCard({ album }: Props) {
                 {g}
               </Badge>
             ))}
+          </Group>
+        )}
+        {total !== undefined && (
+          <Group gap="xs">
+            <NominationBadge total={total} groupCount={groupCount} maskGroup={maskGroup} />
           </Group>
         )}
       </Stack>

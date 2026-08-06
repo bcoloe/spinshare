@@ -434,6 +434,22 @@ class AlbumService:
             or 0
         )
 
+    def get_album_group_nomination_count(self, group_id: int, album_id: int) -> int:
+        """Return the number of distinct members who have nominated this album in a group.
+
+        Nominations with no recorded nominator (added_by IS NULL) are ignored.
+        """
+        return (
+            self.db.query(func.count(func.distinct(GroupAlbum.added_by)))
+            .filter(
+                GroupAlbum.group_id == group_id,
+                GroupAlbum.album_id == album_id,
+                GroupAlbum.added_by.isnot(None),
+            )
+            .scalar()
+            or 0
+        )
+
     def get_album_by_title_artist(self, title: str, artist: str) -> Album | None:
         """Case-insensitive lookup by title and artist. Returns None if not found."""
         return (

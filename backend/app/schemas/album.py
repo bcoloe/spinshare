@@ -278,3 +278,11 @@ class AlbumStatsResponse(BaseModel):
     review_count: int
     nomination_count: int = 0  # distinct users who have nominated this album (any group)
     histogram: list[HistogramBucket]
+
+
+class AlbumNominationCountsResponse(BaseModel):
+    """Nomination counts for an album, optionally scoped to a group."""
+
+    total_count: int  # distinct users who have nominated this album (any group)
+    group_count: int | None = None  # distinct members nominating within the requested group;
+    # None when no group is requested, the group is global/bot, or the caller is not a member

@@ -1,5 +1,6 @@
 import { apiFetch } from './apiClient'
 import type {
+  AlbumNominationCounts,
   AlbumResponse,
   AlbumReviewItem,
   AlbumStatsResponse,
@@ -120,6 +121,11 @@ export const albumService = {
 
   getNominationCount(groupId: number): Promise<NominationCountResponse> {
     return apiFetch(`/groups/${groupId}/nominations/count`)
+  },
+
+  getNominationCounts(albumId: number, groupId?: number): Promise<AlbumNominationCounts> {
+    const query = groupId !== undefined ? `?group_id=${groupId}` : ''
+    return apiFetch(`/albums/${albumId}/nomination-counts${query}`)
   },
 
   getGuessOptions(groupId: number, groupAlbumId: number): Promise<GuessOptionsResponse> {

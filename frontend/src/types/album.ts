@@ -29,6 +29,11 @@ export interface GroupAlbumResponse {
   review_count: number
 }
 
+export interface AlbumNominationCounts {
+  total_count: number
+  group_count: number | null
+}
+
 export interface DealRollResponse {
   deal: GroupAlbumResponse
   rolls_used_today: number
