@@ -24,6 +24,37 @@ def date_in_tz(col, tz_name: str):
     return func.date(func.timezone(tz_name, col))
 
 
+def week_start_for(day: date) -> date:
+    """Return the Monday on or before ``day`` (ISO week start)."""
+    return day - timedelta(days=day.weekday())
+
+
+def completed_week_bounds(tz_name: str) -> tuple[date, date]:
+    """Return the most recently *finished* Mon–Sun week in the given timezone.
+
+    Returns ``(week_start, week_end_exclusive)`` where ``week_end_exclusive`` is
+    the Monday that begins the current (in-progress) week and ``week_start`` is
+    the Monday seven days earlier. Used by the weekly recap generator to decide
+    which week to snapshot once it has fully elapsed.
+    """
+    current_week_start = week_start_for(group_today(tz_name))
+    return current_week_start - timedelta(days=7), current_week_start
+
+
+def week_bounds_for(week_start: date, tz_name: str) -> tuple[datetime, datetime]:
+    """Return tz-aware UTC datetime bounds for the week beginning ``week_start``.
+
+    ``week_start`` is interpreted as midnight in ``tz_name``; the returned
+    half-open range ``[start, end)`` spans seven days and is expressed in UTC so
+    it can filter tz-aware UTC timestamp columns (added_at, reviewed_at,
+    selected_date, guess created_at) directly.
+    """
+    tz = ZoneInfo(tz_name)
+    start_local = datetime(week_start.year, week_start.month, week_start.day, tzinfo=tz)
+    end_local = start_local + timedelta(days=7)
+    return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
+
+
 def most_recent_scheduled_date(today: date, selection_days: list[int]) -> date | None:
     """Return the most recent calendar date (≤ today) that falls on a scheduled draw weekday.
 
