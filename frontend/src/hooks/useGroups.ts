@@ -57,6 +57,18 @@ export function useSetPriorityPick(groupId: number) {
   })
 }
 
+export function useClearPriorityPick(groupId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => groupService.clearPriorityPick(groupId),
+    onSuccess: (progress) => {
+      qc.setQueryData(['groups', groupId, 'participation'], progress)
+      // Withdrawing a promotion changes what the next draw may render.
+      qc.invalidateQueries({ queryKey: ['groups', groupId, 'albums'] })
+    },
+  })
+}
+
 export function useGroupStats(groupId: number) {
   return useQuery({
     queryKey: ['groups', groupId, 'stats'],

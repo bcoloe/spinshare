@@ -302,7 +302,21 @@ def set_priority_pick(
     current_user: User = Depends(get_current_user),
     participation_service: ParticipationService = Depends(get_participation_service),
 ):
-    """Promote one of the caller's pending nominations to the front of the line."""
+    """Promote one of the caller's pending nominations to the front of the line.
+
+    Also used to change a standing pick: re-posting with a different nomination
+    repoints the promotion (no cost, since credits are debited only at draw time).
+    """
     return participation_service.set_priority_pick(
         group_id, current_user.id, body.group_album_id
     )
+
+
+@router.delete("/{group_id}/participation/priority-pick", response_model=ParticipationResponse)
+def clear_priority_pick(
+    group_id: int,
+    current_user: User = Depends(get_current_user),
+    participation_service: ParticipationService = Depends(get_participation_service),
+):
+    """Cancel the caller's queued priority pick, if any. Idempotent."""
+    return participation_service.clear_priority_pick(group_id, current_user.id)

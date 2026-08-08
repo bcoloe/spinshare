@@ -235,6 +235,46 @@ class TestGetProgress:
         assert progress.can_pick is False
         assert progress.pending_pick is not None
         assert progress.pending_pick.id == sample_group_album.id
+        # Sole pick in the group — first in line.
+        assert progress.queue_position == 1
+        assert progress.queue_size == 1
+
+    def test_no_queue_position_without_pending_pick(self, participation_service, db_session, sample_group, sample_user):
+        _set_threshold(db_session, sample_group.id, 2)
+        db_session.add(GroupParticipation(group_id=sample_group.id, user_id=sample_user.id, credits=2))
+        db_session.commit()
+
+        progress = participation_service.get_progress(sample_group.id, sample_user.id)
+        assert progress.queue_position is None
+        assert progress.queue_size == 0
+
+    def test_queue_position_reflects_order(self, participation_service, db_session, sample_group, sample_user, sample_group_album, user_factory):
+        _set_threshold(db_session, sample_group.id, 1)
+        from app.models import Album
+
+        # An earlier pick by another member sits ahead of the caller in line.
+        other = user_factory(email="ahead@test.com", username="ahead")
+        other_album = Album(spotify_album_id="ahead-album", title="Amnesiac", artist="Radiohead")
+        db_session.add(other_album)
+        db_session.flush()
+        other_ga = GroupAlbum(group_id=sample_group.id, album_id=other_album.id, added_by=other.id)
+        db_session.add(other_ga)
+        db_session.flush()
+        db_session.add(GroupParticipation(
+            group_id=sample_group.id, user_id=other.id, credits=3,
+            priority_group_album_id=other_ga.id,
+            priority_queued_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+        ))
+        db_session.add(GroupParticipation(
+            group_id=sample_group.id, user_id=sample_user.id, credits=3,
+            priority_group_album_id=sample_group_album.id,
+            priority_queued_at=datetime(2020, 1, 2, tzinfo=timezone.utc),
+        ))
+        db_session.commit()
+
+        progress = participation_service.get_progress(sample_group.id, sample_user.id)
+        assert progress.queue_position == 2
+        assert progress.queue_size == 2
 
 
 class TestSetPriorityPick:
@@ -261,18 +301,50 @@ class TestSetPriorityPick:
         assert exc.value.status_code == status.HTTP_409_CONFLICT
         assert exc.value.detail == "insufficient_credits"
 
-    def test_already_queued(self, participation_service, db_session, sample_group, sample_user, sample_group_album):
+    def test_repick_same_album_is_noop(self, participation_service, db_session, sample_group, sample_user, sample_group_album):
         _set_threshold(db_session, sample_group.id, 2)
+        queued_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
         db_session.add(GroupParticipation(
             group_id=sample_group.id, user_id=sample_user.id, credits=5,
             priority_group_album_id=sample_group_album.id,
-            priority_queued_at=datetime.now(tz=timezone.utc),
+            priority_queued_at=queued_at,
         ))
         db_session.commit()
 
-        with pytest.raises(HTTPException) as exc:
-            participation_service.set_priority_pick(sample_group.id, sample_user.id, sample_group_album.id)
-        assert exc.value.detail == "pick_already_queued"
+        progress = participation_service.set_priority_pick(
+            sample_group.id, sample_user.id, sample_group_album.id
+        )
+        assert progress.pending_pick.id == sample_group_album.id
+        # Re-selecting the same album preserves the original queue position.
+        participation = participation_service._get(sample_group.id, sample_user.id)
+        assert participation.priority_queued_at == queued_at
+
+    def test_replace_queued_pick(self, participation_service, db_session, sample_group, sample_user, sample_group_album):
+        _set_threshold(db_session, sample_group.id, 2)
+        old_queued_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        db_session.add(GroupParticipation(
+            group_id=sample_group.id, user_id=sample_user.id, credits=5,
+            priority_group_album_id=sample_group_album.id,
+            priority_queued_at=old_queued_at,
+        ))
+        # A second pending nomination by the caller to switch to.
+        from app.models import Album
+        other_album = Album(spotify_album_id="other-album", title="Kid A", artist="Radiohead")
+        db_session.add(other_album)
+        db_session.flush()
+        new_ga = GroupAlbum(group_id=sample_group.id, album_id=other_album.id, added_by=sample_user.id)
+        db_session.add(new_ga)
+        db_session.commit()
+
+        progress = participation_service.set_priority_pick(
+            sample_group.id, sample_user.id, new_ga.id
+        )
+        assert progress.pending_pick.id == new_ga.id
+        # Switching albums keeps the member's place in line (queue time unchanged).
+        participation = participation_service._get(sample_group.id, sample_user.id)
+        assert participation.priority_queued_at == old_queued_at
+        # No credits spent — debit happens only at draw time.
+        assert progress.credits == 5
 
     def test_disabled(self, participation_service, db_session, sample_group, sample_user, sample_group_album):
         _set_threshold(db_session, sample_group.id, None)
@@ -309,6 +381,48 @@ class TestSetPriorityPick:
         with pytest.raises(HTTPException) as exc:
             participation_service.set_priority_pick(sample_group.id, sample_user.id, sample_group_album.id)
         assert exc.value.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestClearPriorityPick:
+    def test_clears_queued_pick(self, participation_service, db_session, sample_group, sample_user, sample_group_album):
+        _set_threshold(db_session, sample_group.id, 2)
+        db_session.add(GroupParticipation(
+            group_id=sample_group.id, user_id=sample_user.id, credits=5,
+            priority_group_album_id=sample_group_album.id,
+            priority_queued_at=datetime.now(tz=timezone.utc),
+        ))
+        db_session.commit()
+
+        progress = participation_service.clear_priority_pick(sample_group.id, sample_user.id)
+        assert progress.pending_pick is None
+        # Credits are untouched and, being at/over threshold, a new pick is unlocked.
+        assert progress.credits == 5
+        assert progress.can_pick is True
+        participation = participation_service._get(sample_group.id, sample_user.id)
+        assert participation.priority_group_album_id is None
+        assert participation.priority_queued_at is None
+
+    def test_no_pick_queued_is_noop(self, participation_service, db_session, sample_group, sample_user):
+        _set_threshold(db_session, sample_group.id, 2)
+        db_session.add(GroupParticipation(group_id=sample_group.id, user_id=sample_user.id, credits=1))
+        db_session.commit()
+
+        progress = participation_service.clear_priority_pick(sample_group.id, sample_user.id)
+        assert progress.pending_pick is None
+        assert progress.credits == 1
+
+    def test_disabled(self, participation_service, db_session, sample_group, sample_user):
+        _set_threshold(db_session, sample_group.id, None)
+        with pytest.raises(HTTPException) as exc:
+            participation_service.clear_priority_pick(sample_group.id, sample_user.id)
+        assert exc.value.detail == "priority_pick_disabled"
+
+    def test_non_member_forbidden(self, participation_service, db_session, sample_group, user_factory):
+        _set_threshold(db_session, sample_group.id, 1)
+        outsider = user_factory(email="out2@test.com", username="outsider2")
+        with pytest.raises(HTTPException) as exc:
+            participation_service.clear_priority_pick(sample_group.id, outsider.id)
+        assert exc.value.status_code == status.HTTP_403_FORBIDDEN
 
 
 class TestClaimPriorityPicks:
