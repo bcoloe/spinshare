@@ -40,6 +40,10 @@ export interface ParticipationResponse {
   credits: number
   can_pick: boolean
   pending_pick: import('./album').GroupAlbumResponse | null
+  // 1-based place in the group's shared priority queue (null when no pick is
+  // standing); queue_size is the total number of picks currently queued.
+  queue_position: number | null
+  queue_size: number
 }
 
 export interface GroupMemberResponse {

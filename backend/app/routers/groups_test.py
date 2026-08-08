@@ -387,3 +387,16 @@ class TestPriorityPick:
     def test_set_priority_pick_missing_body(self, client, mock_participation_service):
         resp = client.post("/groups/1/participation/priority-pick", json={})
         assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    def test_clear_priority_pick_success(self, client, mock_participation_service):
+        mock_participation_service.clear_priority_pick.return_value = self._progress(credits=3, can_pick=True)
+
+        resp = client.delete("/groups/1/participation/priority-pick")
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["can_pick"] is True
+        mock_participation_service.clear_priority_pick.assert_called_once_with(1, 1)
+
+    def test_clear_priority_pick_unauthenticated(self, unauthed_client):
+        resp = unauthed_client.delete("/groups/1/participation/priority-pick")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED

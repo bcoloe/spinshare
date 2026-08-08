@@ -157,7 +157,11 @@ class ParticipationService:
         """Return the caller's priority-pick standing in the group.
 
         ``threshold`` is None when the feature is disabled (global/dealer/unset),
-        in which case credits are reported as 0 and no pick can be made.
+        in which case credits are reported as 0 and no pick can be made. When the
+        caller has a pick queued, ``queue_position`` (1-based, by queue time) and
+        ``queue_size`` describe where it stands among all queued picks — draws
+        consume them in this order, so a member behind others may wait past the
+        next draw.
         """
         threshold = self._feature_threshold(group_id)
         if threshold is None:
@@ -170,11 +174,19 @@ class ParticipationService:
             if participation and participation.priority_group_album_id is not None
             else None
         )
+        queue_size = self._queue_size(group_id)
+        queue_position = (
+            self._queue_position(group_id, participation.priority_queued_at)
+            if pending is not None and participation.priority_queued_at is not None
+            else None
+        )
         return ParticipationResponse(
             threshold=threshold,
             credits=credits,
             can_pick=(credits >= threshold and pending is None),
             pending_pick=GroupAlbumResponse.from_orm(pending) if pending is not None else None,
+            queue_position=queue_position,
+            queue_size=queue_size,
         )
 
     # ==================== PROMOTING ====================
@@ -184,11 +196,17 @@ class ParticipationService:
     ) -> ParticipationResponse:
         """Promote one of the caller's pending nominations to the front of the line.
 
+        Callable whether or not a pick is already standing: re-picking repoints the
+        promotion at the new nomination. Because credits are only debited when the
+        promoted album is actually drawn, changing an un-drawn pick costs nothing.
+        Changing the album keeps the original queue time, so a member holds their place
+        in line when they swap picks; the clock only starts on the first pick (or the
+        first after a cancel). Use ``clear_priority_pick`` to give up the spot outright.
+
         Raises:
             HTTPException 403: Caller is not a group member.
             HTTPException 409 "priority_pick_disabled": Feature not enabled here.
             HTTPException 409 "insufficient_credits": Balance below the threshold.
-            HTTPException 409 "pick_already_queued": A pick is already standing.
             HTTPException 404: The album is not a pending nomination the caller added.
         """
         gs.GroupService(self.db).require_membership(user_id, group_id)
@@ -204,10 +222,6 @@ class ParticipationService:
         if credits < threshold:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail="insufficient_credits"
-            )
-        if participation is not None and participation.priority_group_album_id is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail="pick_already_queued"
             )
 
         group_album = (
@@ -227,9 +241,39 @@ class ParticipationService:
             )
 
         participation = participation or self._get_or_create(group_id, user_id)
-        participation.priority_group_album_id = group_album.id
-        participation.priority_queued_at = datetime.now(tz=timezone.utc)
-        self.db.commit()
+        if participation.priority_group_album_id != group_album.id:
+            participation.priority_group_album_id = group_album.id
+            # Preserve the member's place in line across changes: only stamp the
+            # queue time when there isn't one (first pick, or first after a cancel).
+            if participation.priority_queued_at is None:
+                participation.priority_queued_at = datetime.now(tz=timezone.utc)
+            self.db.commit()
+        return self.get_progress(group_id, user_id)
+
+    def clear_priority_pick(self, group_id: int, user_id: int) -> ParticipationResponse:
+        """Cancel the caller's queued priority pick, freeing them to promote again.
+
+        Idempotent — returns the caller's current standing whether or not a pick was
+        queued. No credits are affected: a pick only spends credits when its album is
+        drawn, so an un-drawn pick can be withdrawn at no cost.
+
+        Raises:
+            HTTPException 403: Caller is not a group member.
+            HTTPException 409 "priority_pick_disabled": Feature not enabled here.
+        """
+        gs.GroupService(self.db).require_membership(user_id, group_id)
+
+        threshold = self._feature_threshold(group_id)
+        if threshold is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="priority_pick_disabled"
+            )
+
+        participation = self._get(group_id, user_id)
+        if participation is not None and participation.priority_group_album_id is not None:
+            participation.priority_group_album_id = None
+            participation.priority_queued_at = None
+            self.db.commit()
         return self.get_progress(group_id, user_id)
 
     # ==================== DRAW HOOK ====================
@@ -298,6 +342,35 @@ class ParticipationService:
         if is_global:
             return None
         return settings.priority_pick_threshold
+
+    def _queue_size(self, group_id: int) -> int:
+        """Count priority picks currently queued in the group.
+
+        Mirrors the ordering used at draw time (``claim_priority_picks``). Stale
+        promotions (album gone or already selected) are still counted here — they are
+        only pruned when the next draw runs — so this is an upper bound on the line.
+        """
+        return (
+            self.db.query(GroupParticipation)
+            .filter(
+                GroupParticipation.group_id == group_id,
+                GroupParticipation.priority_group_album_id.isnot(None),
+            )
+            .count()
+        )
+
+    def _queue_position(self, group_id: int, queued_at: datetime) -> int:
+        """1-based place in line for a pick queued at ``queued_at`` (FIFO by queue time)."""
+        ahead = (
+            self.db.query(GroupParticipation)
+            .filter(
+                GroupParticipation.group_id == group_id,
+                GroupParticipation.priority_group_album_id.isnot(None),
+                GroupParticipation.priority_queued_at < queued_at,
+            )
+            .count()
+        )
+        return ahead + 1
 
     def _get(self, group_id: int, user_id: int) -> GroupParticipation | None:
         return (

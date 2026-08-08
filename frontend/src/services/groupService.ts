@@ -75,4 +75,10 @@ export const groupService = {
       body: JSON.stringify({ group_album_id: groupAlbumId }),
     })
   },
+
+  clearPriorityPick(groupId: number): Promise<ParticipationResponse> {
+    return apiFetch(`/groups/${groupId}/participation/priority-pick`, {
+      method: 'DELETE',
+    })
+  },
 }
