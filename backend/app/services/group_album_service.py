@@ -853,7 +853,9 @@ class GroupAlbumService:
 
         The pool always contains at least one nominator when one exists. Remaining slots
         are filled from other group members sorted by user_id, so every member sees the
-        same choices for a given album (idempotent across callers).
+        same choices for a given album (idempotent across callers). The final pool is then
+        shuffled with a per-album seed so the nominator does not always appear first while
+        every member still sees the options in the same order.
 
         Pool size is bounded by the group's ``guess_user_cap`` setting (default 5).
 
@@ -889,7 +891,8 @@ class GroupAlbumService:
             .all()
         )
 
-        # Nominators always appear first in the pool; fill the rest with non-nominators
+        # Nominators are prioritised when selecting the capped pool so at least one is
+        # always present; non-nominators fill any remaining slots.
         nominators = [u for u in all_members if u.id in nominator_ids]
         non_nominators = [u for u in all_members if u.id not in nominator_ids]
 
@@ -897,6 +900,10 @@ class GroupAlbumService:
         remaining = cap - len(pool)
         if remaining > 0:
             pool.extend(non_nominators[:remaining])
+
+        # Shuffle the presentation order with a per-album seed so the nominator is not
+        # always listed first, while every member still sees the same ordering.
+        random.Random(group_album.album_id).shuffle(pool)
 
         is_global = group.is_global if group else False
         show_name_in_context = not is_global and not user.is_bot
