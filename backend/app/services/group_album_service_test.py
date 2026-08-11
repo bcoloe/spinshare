@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
@@ -759,6 +759,82 @@ class TestGetGuessOptions:
         result_a = group_album_service.get_guess_options(sample_group.id, sample_group_album.id, other)
         result_b = group_album_service.get_guess_options(sample_group.id, sample_group_album.id, third)
         assert {o.user_id for o in result_a.options} == {o.user_id for o in result_b.options}
+
+    def test_order_is_deterministic_across_callers(
+        self,
+        group_album_service,
+        sample_group,
+        sample_group_album,
+        sample_group_service,
+        user_factory,
+    ):
+        """Every member sees the options in the same order for a given album."""
+        others = [
+            user_factory(email=f"member{i}@test.com", username=f"member{i}") for i in range(4)
+        ]
+        for u in others:
+            sample_group_service.add_user(sample_group.id, u.id)
+
+        result_a = group_album_service.get_guess_options(
+            sample_group.id, sample_group_album.id, others[0]
+        )
+        result_b = group_album_service.get_guess_options(
+            sample_group.id, sample_group_album.id, others[1]
+        )
+        assert [o.user_id for o in result_a.options] == [o.user_id for o in result_b.options]
+
+    def test_nominator_not_always_first(
+        self,
+        group_album_service,
+        sample_group,
+        sample_group_album,
+        sample_user,
+        sample_group_service,
+        user_factory,
+        db_session,
+    ):
+        """The nominator's position is shuffled rather than pinned to the front.
+
+        ``sample_user`` is the nominator of ``sample_group_album``. Across a spread of
+        albums (each seeding a different shuffle) the nominator should not land first
+        every time, and every option must still be present exactly once.
+        """
+        others = [
+            user_factory(email=f"shuf{i}@test.com", username=f"shuf{i}") for i in range(4)
+        ]
+        for u in others:
+            sample_group_service.add_user(sample_group.id, u.id)
+
+        # Build several group albums all nominated by sample_user; each has a distinct
+        # album_id, so each seeds a different presentation order.
+        first_positions = []
+        for i in range(12):
+            album = Album(
+                spotify_album_id=f"shuffle-album-{i}",
+                title=f"Shuffle {i}",
+                artist="Artist",
+            )
+            db_session.add(album)
+            db_session.flush()
+            ga = GroupAlbum(
+                group_id=sample_group.id,
+                album_id=album.id,
+                added_by=sample_user.id,
+                selected_date=date.today(),
+            )
+            db_session.add(ga)
+            db_session.flush()
+
+            result = group_album_service.get_guess_options(sample_group.id, ga.id, others[0])
+            option_ids = [o.user_id for o in result.options]
+            # Full membership fits under the default cap, so everyone is present once.
+            assert sorted(option_ids) == sorted(
+                [sample_user.id] + [u.id for u in others]
+            )
+            first_positions.append(option_ids[0])
+
+        # The nominator should not be first for every single album.
+        assert any(first != sample_user.id for first in first_positions)
 
     def test_non_member_forbidden(
         self,
