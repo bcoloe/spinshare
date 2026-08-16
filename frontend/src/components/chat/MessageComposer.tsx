@@ -4,6 +4,7 @@ import { ActionIcon, Group, Paper, Stack, Text, Textarea, UnstyledButton } from 
 import { IconSend } from '@tabler/icons-react'
 import { replaceShortcodes, searchEmoji } from '../../utils/emoji'
 import type { GroupMemberResponse } from '../../types/group'
+import EmojiPicker from './EmojiPicker'
 
 const MAX_MESSAGE_LENGTH = 2000
 const MAX_SUGGESTIONS = 6
@@ -93,6 +94,21 @@ export default function MessageComposer({ members, onSend, isSending, disabled }
 
     return []
   }, [mentionQuery, emojiQuery, members])
+
+  /** Drop text in at the caret, leaving what surrounds it alone. */
+  const insertAtCaret = (text: string) => {
+    // Escape parks the caret at -1 to dismiss the suggestion list; fall back to
+    // the end of the message rather than inserting at the start.
+    const at = caret >= 0 && caret <= value.length ? caret : value.length
+    const next = value.slice(0, at) + text + value.slice(at)
+    const after = at + text.length
+    setValue(next)
+    setCaret(after)
+    requestAnimationFrame(() => {
+      inputRef.current?.focus()
+      inputRef.current?.setSelectionRange(after, after)
+    })
+  }
 
   const applySuggestion = (suggestion: Suggestion) => {
     // Replace the partial token the caret is sitting in, leaving whatever
@@ -213,6 +229,8 @@ export default function MessageComposer({ members, onSend, isSending, disabled }
           onKeyUp={syncCaret}
           onClick={syncCaret}
         />
+        <EmojiPicker onSelect={insertAtCaret} disabled={disabled} />
+
         <ActionIcon
           size="lg"
           radius="xl"
