@@ -23,14 +23,6 @@ interface Props {
   members: GroupMemberResponse[]
   /** Hidden when the surrounding chrome already shows presence (the overlay header). */
   showPresence?: boolean
-  /**
-   * Whether the conversation is actually visible to the user right now.
-   *
-   * The panel stays mounted while the overlay is collapsed so its cache and
-   * scroll position survive — which means "mounted" is not the same as "being
-   * read", and only the latter should retire mention notifications.
-   */
-  active?: boolean
 }
 
 /**
@@ -40,12 +32,7 @@ interface Props {
  * container. `ChatOverlay` supplies the floating frame; this stays reusable if
  * chat ever needs a full-page or embedded home too.
  */
-export default function ChatPanel({
-  group,
-  members,
-  showPresence = true,
-  active = true,
-}: Props) {
+export default function ChatPanel({ group, members, showPresence = true }: Props) {
   const { user } = useAuth()
   const isMember = !!group.current_user_role
   const { online, onlineIds, isConnected } = useGroupPresence(group.id)
@@ -64,7 +51,9 @@ export default function ChatPanel({
   const canLoadOlder = hasOlder ?? messages.length >= CHAT_PAGE_SIZE
 
   const markSeen = useMarkChatSeen(group.id)
-  const isWatching = isMember && active && documentVisibility === 'visible'
+  // Mounted means on screen — the panel unmounts when the chat closes — but a
+  // backgrounded tab is still not being read.
+  const isWatching = isMember && documentVisibility === 'visible'
 
   // The newest message that pings this user — the thing whose notification the
   // user is, right now, demonstrably reading.
@@ -85,9 +74,9 @@ export default function ChatPanel({
   }, [group.id])
 
   useEffect(() => {
-    // Deliberately does not fire while collapsed or backgrounded: a mention
-    // that arrives then is still unread, and stays in the bell until the user
-    // comes back to the conversation.
+    // Deliberately does not fire while the tab is backgrounded: a mention that
+    // arrives then is still unread, and stays in the bell until the user comes
+    // back to the conversation.
     if (!isWatching) return
     if (acknowledged.current === latestMentionId) return
     acknowledged.current = latestMentionId

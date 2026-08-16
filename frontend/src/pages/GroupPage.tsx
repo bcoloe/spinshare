@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ActionIcon,
@@ -72,7 +72,6 @@ export default function GroupPage() {
   // Chat open state lives in the URL so a mention notification can deep-link
   // straight into an open conversation (/groups/:id?chat=1).
   const chatOpen = searchParams.get('chat') === '1'
-  const [chatMinimized, setChatMinimized] = useState(false)
 
   const setChatOpen = (open: boolean) => {
     setSearchParams((prev) => {
@@ -81,7 +80,6 @@ export default function GroupPage() {
       else next.delete('chat')
       return next
     }, { replace: true })
-    if (open) setChatMinimized(false)
   }
 
   const { favoriteId, toggleFavorite } = useFavoriteGroup()
@@ -172,16 +170,6 @@ export default function GroupPage() {
                       aria-label={favoriteId === gid ? 'Remove from favorites' : 'Set as favorite group'}
                     >
                       {favoriteId === gid ? <IconStarFilled size={18} /> : <IconStar size={18} />}
-                    </ActionIcon>
-                  </Tooltip>
-                  <Tooltip label={chatOpen ? 'Hide chat' : 'Open group chat'}>
-                    <ActionIcon
-                      variant={chatOpen ? 'filled' : 'subtle'}
-                      color="violet"
-                      onClick={() => setChatOpen(!chatOpen)}
-                      aria-label={chatOpen ? 'Hide chat' : 'Open group chat'}
-                    >
-                      <IconMessageCircle size={18} />
                     </ActionIcon>
                   </Tooltip>
                   {canInvite && (
@@ -327,13 +315,14 @@ export default function GroupPage() {
         </>
       )}
 
-      {/* The nominate FAB and the chat overlay both want the bottom-right
-          corner. On desktop the FAB steps aside; on mobile the overlay is a
-          full-width sheet, so the FAB stands down entirely while chat is up. */}
+      {/* The action stack and the chat overlay both want the bottom-right
+          corner. On desktop the stack steps aside so both stay reachable; on
+          mobile the overlay is a full-width sheet, so the stack stands down and
+          the panel's own close button is the way back out. */}
       {isMember && !(chatOpen && isMobile) && (
-        <>
-          <Tooltip label={canNominate ? 'Nominate an album' : nominateTooltip} position="left">
-            <Affix position={{ bottom: 24, right: chatOpen ? 420 : 24 }}>
+        <Affix position={{ bottom: 24, right: chatOpen ? 420 : 24 }}>
+          <Group gap="sm">
+            <Tooltip label={canNominate ? 'Nominate an album' : nominateTooltip} position="top">
               <ActionIcon
                 size="xl"
                 radius="xl"
@@ -345,11 +334,26 @@ export default function GroupPage() {
               >
                 <IconPlus size={22} />
               </ActionIcon>
-            </Affix>
-          </Tooltip>
+            </Tooltip>
 
-          <AlbumSearchModal groupId={gid} opened={nominateOpened} onClose={closeNominate} />
-        </>
+            <Tooltip label={chatOpen ? 'Hide chat' : 'Open group chat'} position="top">
+              <ActionIcon
+                size="xl"
+                radius="xl"
+                variant={chatOpen ? 'filled' : 'default'}
+                color="violet"
+                onClick={() => setChatOpen(!chatOpen)}
+                aria-label={chatOpen ? 'Hide chat' : 'Open group chat'}
+              >
+                <IconMessageCircle size={22} />
+              </ActionIcon>
+            </Tooltip>
+          </Group>
+        </Affix>
+      )}
+
+      {isMember && (
+        <AlbumSearchModal groupId={gid} opened={nominateOpened} onClose={closeNominate} />
       )}
 
       {group && isMember && (
@@ -357,9 +361,7 @@ export default function GroupPage() {
           group={group}
           members={members}
           opened={chatOpen}
-          minimized={chatMinimized}
           onClose={() => setChatOpen(false)}
-          onToggleMinimize={() => setChatMinimized((v) => !v)}
         />
       )}
     </AppShell>
