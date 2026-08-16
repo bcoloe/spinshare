@@ -27,15 +27,17 @@ import GroupInfo from '../components/groups/GroupInfo'
 import LeaveGroupModal from '../components/groups/LeaveGroupModal'
 import InviteUserModal from '../components/groups/InviteUserModal'
 import MyNominations from '../components/groups/MyNominations'
+import ChatPanel from '../components/chat/ChatPanel'
 import ParticipationMeter from '../components/groups/ParticipationMeter'
 import AlbumSearchModal from '../components/albums/AlbumSearchModal'
 import { useGroup, useGroupMembers, useJoinGroup } from '../hooks/useGroups'
+import { useGroupPresence } from '../hooks/useChat'
 import { useGroupHistory, useNominationCount } from '../hooks/useAlbums'
 import { useFavoriteGroup } from '../context/FavoriteGroupContext'
 import { useAuth } from '../hooks/useAuth'
 import { ApiError } from '../services/apiClient'
 
-type Tab = 'spin' | 'history' | 'info' | 'nominations'
+type Tab = 'spin' | 'history' | 'info' | 'nominations' | 'chat'
 
 const ROLE_COLOR = { owner: 'violet', admin: 'blue', member: 'gray' } as const
 
@@ -66,6 +68,8 @@ export default function GroupPage() {
   const { data: historyAlbums = [], isLoading: albumsLoading } = useGroupHistory(gid, isMember || canAnonymouslyView)
   const { data: nominationCount } = useNominationCount(gid, isMember)
   const joinGroup = useJoinGroup()
+  // Presence comes from the shared app socket; this costs no request.
+  const { online } = useGroupPresence(gid)
 
   const { favoriteId, toggleFavorite } = useFavoriteGroup()
 
@@ -248,6 +252,12 @@ export default function GroupPage() {
                     { label: "Today's Spin", value: 'spin' },
                     { label: 'Review History', value: 'history' },
                     ...(user ? [{ label: 'My Nominations', value: 'nominations' }] : []),
+                    ...(isMember
+                      ? [{
+                          label: online.length > 0 ? `Chat (${online.length} online)` : 'Chat',
+                          value: 'chat',
+                        }]
+                      : []),
                     { label: 'Group Info', value: 'info' },
                   ]}
                   styles={{ root: { background: 'transparent' } }}
@@ -274,6 +284,10 @@ export default function GroupPage() {
             {tab === 'info' && groupLoading && <Skeleton h={300} radius="md" />}
 
             {tab === 'nominations' && user && <MyNominations groupId={gid} />}
+
+            {tab === 'chat' && isMember && group && (
+              <ChatPanel group={group} members={members} />
+            )}
           </>
         )}
 

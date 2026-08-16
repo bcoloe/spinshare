@@ -8,6 +8,9 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8000',
         rewrite: (path) => path.replace(/^\/api/, ''),
+        // Lets the dev server proxy the chat WebSocket (/api/ws/chat) rather
+        // than answering the upgrade request itself.
+        ws: true,
       },
     },
   },

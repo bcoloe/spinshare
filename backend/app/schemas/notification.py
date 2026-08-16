@@ -12,6 +12,7 @@ class NotificationType(str, Enum):
     nomination_pool_low = "nomination_pool_low"
     member_reviewed_album = "member_reviewed_album"
     new_member_joined = "new_member_joined"
+    mentioned_in_chat = "mentioned_in_chat"
 
 
 class NotificationResponse(BaseModel):

@@ -179,3 +179,43 @@ def decode_password_reset_token(token: str) -> dict | None:
         return payload
     except JWTError:
         return None
+
+
+CHAT_TICKET_EXPIRE_SECONDS = 30
+
+
+def create_chat_ticket(user_id: int) -> str:
+    """Mint a short-lived credential for opening the chat WebSocket.
+
+    The browser WebSocket API cannot set request headers, so the credential has
+    to travel in the URL — where it lands in nginx access logs. Rather than put
+    the real 15-minute access token there, callers exchange an authenticated
+    request for this ticket: it expires in 30 seconds, is only accepted by the
+    socket handshake (``type`` = ``chat_ticket``), and grants nothing else.
+    """
+    now = datetime.now(UTC)
+    to_encode = {
+        "sub": str(user_id),
+        "type": "chat_ticket",
+        "exp": now + timedelta(seconds=CHAT_TICKET_EXPIRE_SECONDS),
+        "iat": now,
+        "jti": secrets.token_urlsafe(16),
+    }
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def decode_chat_ticket(token: str) -> dict | None:
+    """Decode and verify a chat ticket.
+
+    Returns the payload dict (``sub`` = user id) on success, or ``None`` if the
+    token is invalid, expired, or is any other kind of token. The explicit
+    ``type`` check is what stops an access or refresh token from being replayed
+    through the socket handshake.
+    """
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") != "chat_ticket":
+            return None
+        return payload
+    except JWTError:
+        return None

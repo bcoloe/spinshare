@@ -11,6 +11,7 @@ import { AuthProvider } from './context/AuthContext'
 import { FavoriteGroupProvider } from './context/FavoriteGroupContext'
 import { UnseenReviewsProvider } from './context/UnseenReviewsContext'
 import { PlayerProvider } from './context/PlayerContext'
+import { ChatSocketProvider } from './context/ChatSocketContext'
 import { ApiError } from './services/apiClient'
 import App from './App'
 
@@ -38,13 +39,17 @@ createRoot(document.getElementById('root')!).render(
       <Notifications position="top-right" />
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          <FavoriteGroupProvider>
-            <UnseenReviewsProvider>
-              <PlayerProvider>
-                <App />
-              </PlayerProvider>
-            </UnseenReviewsProvider>
-          </FavoriteGroupProvider>
+          {/* Inside AuthProvider (needs the session) and the QueryClient (writes
+              incoming messages into the cache). One socket for the whole app. */}
+          <ChatSocketProvider>
+            <FavoriteGroupProvider>
+              <UnseenReviewsProvider>
+                <PlayerProvider>
+                  <App />
+                </PlayerProvider>
+              </UnseenReviewsProvider>
+            </FavoriteGroupProvider>
+          </ChatSocketProvider>
         </AuthProvider>
       </QueryClientProvider>
     </MantineProvider>
