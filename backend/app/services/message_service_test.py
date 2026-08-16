@@ -2,7 +2,7 @@
 
 import pytest
 from app.models import Message, Notification
-from app.models.group import GroupRole
+from app.models.group import GroupRole, group_members
 from app.schemas.message import MessageCreate
 from app.schemas.notification import NotificationType
 from fastapi import HTTPException, status
@@ -191,6 +191,80 @@ class TestGetHistory:
         history = message_service.get_history(sample_group.id, sample_user)
 
         assert [m.body for m in history] == ["in first"]
+
+
+class TestMarkMentionsSeen:
+    def test_clears_unread_mentions_for_the_group(
+        self, message_service, sample_group, sample_user, group_member
+    ):
+        _post(message_service, sample_group, sample_user, f"@{group_member.username} listen")
+        assert len(message_service.notification_service.get_unread(group_member)) == 1
+
+        cleared = message_service.mark_mentions_seen(sample_group.id, group_member)
+
+        assert cleared == 1
+        assert message_service.notification_service.get_unread(group_member) == []
+
+    def test_leaves_other_groups_alone(
+        self, message_service, sample_group, sample_user, group_member, db_session, group_factory
+    ):
+        other = group_factory(name="Other", user=sample_user)
+        db_session.execute(
+            group_members.insert().values(
+                group_id=other.id, user_id=group_member.id, role=GroupRole.Member.value
+            )
+        )
+        db_session.commit()
+        _post(message_service, sample_group, sample_user, f"@{group_member.username} here")
+        _post(message_service, other, sample_user, f"@{group_member.username} and here")
+
+        message_service.mark_mentions_seen(sample_group.id, group_member)
+
+        remaining = message_service.notification_service.get_unread(group_member)
+        assert [n.group_id for n in remaining] == [other.id]
+
+    def test_leaves_other_notification_types_alone(
+        self, message_service, sample_group, group_member, db_session
+    ):
+        # Watching chat should not silently dismiss an unrelated notification
+        # that happens to point at the same group.
+        review = Notification(
+            user_id=group_member.id,
+            type=NotificationType.member_reviewed_album,
+            message="someone reviewed an album",
+            group_id=sample_group.id,
+        )
+        db_session.add(review)
+        db_session.commit()
+
+        cleared = message_service.mark_mentions_seen(sample_group.id, group_member)
+
+        assert cleared == 0
+        unread = message_service.notification_service.get_unread(group_member)
+        assert [n.type for n in unread] == [NotificationType.member_reviewed_album]
+
+    def test_leaves_other_users_alone(
+        self, message_service, sample_group, sample_user, group_member
+    ):
+        _post(message_service, sample_group, sample_user, f"@{group_member.username} hi")
+
+        message_service.mark_mentions_seen(sample_group.id, sample_user)
+
+        assert len(message_service.notification_service.get_unread(group_member)) == 1
+
+    def test_is_idempotent(self, message_service, sample_group, sample_user, group_member):
+        _post(message_service, sample_group, sample_user, f"@{group_member.username} hi")
+
+        assert message_service.mark_mentions_seen(sample_group.id, group_member) == 1
+        assert message_service.mark_mentions_seen(sample_group.id, group_member) == 0
+
+    def test_non_member_cannot_clear(self, message_service, sample_group, user_factory):
+        outsider = user_factory(email="out@test.com", username="outsider")
+
+        with pytest.raises(HTTPException) as exc:
+            message_service.mark_mentions_seen(sample_group.id, outsider)
+
+        assert exc.value.status_code == status.HTTP_403_FORBIDDEN
 
 
 class TestDeleteMessage:

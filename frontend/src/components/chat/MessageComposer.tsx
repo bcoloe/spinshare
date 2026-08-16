@@ -2,16 +2,39 @@ import { useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { ActionIcon, Group, Paper, Stack, Text, Textarea, UnstyledButton } from '@mantine/core'
 import { IconSend } from '@tabler/icons-react'
+import { replaceShortcodes, searchEmoji } from '../../utils/emoji'
 import type { GroupMemberResponse } from '../../types/group'
 
 const MAX_MESSAGE_LENGTH = 2000
-const MAX_SUGGESTIONS = 5
+const MAX_SUGGESTIONS = 6
+
+/** The token before the caret that a chosen suggestion replaces. */
+const MENTION_TOKEN = /@[\w.-]*$/
+const EMOJI_TOKEN = /:[a-z0-9_+-]*$/i
 
 interface Props {
   members: GroupMemberResponse[]
   onSend: (body: string) => void
   isSending: boolean
   disabled?: boolean
+}
+
+/**
+ * A completion offer for the partial token the caret is sitting in.
+ *
+ * Mentions and emoji are normalised into one shape so the keyboard handling,
+ * highlight tracking and insertion logic stay single-path — the two triggers
+ * differ only in what they search and what they leave behind.
+ */
+interface Suggestion {
+  key: string
+  /** Replaces the partial token in the textarea. */
+  insert: string
+  /** Which token pattern the insert replaces. */
+  token: RegExp
+  /** Leading glyph in the dropdown (the emoji itself, or nothing). */
+  icon?: string
+  label: string
 }
 
 /** The partial `@handle` immediately before the caret, if we're in one. */
@@ -23,26 +46,58 @@ function activeMentionQuery(value: string, caret: number): string | null {
   return match ? match[1] : null
 }
 
+/** The partial `:shortcode` immediately before the caret, if we're in one. */
+function activeEmojiQuery(value: string, caret: number): string | null {
+  const upToCaret = value.slice(0, caret)
+  // Require the ':' to start a word and be followed by at least two characters.
+  // A lone or mid-word colon is far too common in ordinary prose — and in
+  // timestamps and URLs — to be worth opening a picker for.
+  const match = upToCaret.match(/(?:^|\s):([a-z0-9_+-]{2,})$/i)
+  return match ? match[1] : null
+}
+
 export default function MessageComposer({ members, onSend, isSending, disabled }: Props) {
   const [value, setValue] = useState('')
   const [caret, setCaret] = useState(0)
   const [highlighted, setHighlighted] = useState(0)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  const query = activeMentionQuery(value, caret)
+  const mentionQuery = activeMentionQuery(value, caret)
+  const emojiQuery = activeEmojiQuery(value, caret)
 
-  const suggestions = useMemo(() => {
-    if (query === null) return []
-    const needle = query.toLowerCase()
-    return members
-      .filter((m) => m.username.toLowerCase().startsWith(needle))
-      .slice(0, MAX_SUGGESTIONS)
-  }, [query, members])
+  const suggestions = useMemo<Suggestion[]>(() => {
+    if (mentionQuery !== null) {
+      const needle = mentionQuery.toLowerCase()
+      return members
+        .filter((m) => m.username.toLowerCase().startsWith(needle))
+        .slice(0, MAX_SUGGESTIONS)
+        .map((m) => ({
+          key: `mention-${m.user_id}`,
+          insert: `@${m.username}`,
+          token: MENTION_TOKEN,
+          label: `@${m.username}`,
+        }))
+    }
 
-  const applySuggestion = (username: string) => {
-    // Replace the partial handle the caret is sitting in, leaving whatever
+    if (emojiQuery !== null) {
+      return searchEmoji(emojiQuery, MAX_SUGGESTIONS).map((e) => ({
+        key: `emoji-${e.slug}`,
+        // The emoji itself goes into the message, not the shortcode — so what
+        // gets stored is plain Unicode that reads the same everywhere.
+        insert: e.char,
+        token: EMOJI_TOKEN,
+        icon: e.char,
+        label: `:${e.slug}:`,
+      }))
+    }
+
+    return []
+  }, [mentionQuery, emojiQuery, members])
+
+  const applySuggestion = (suggestion: Suggestion) => {
+    // Replace the partial token the caret is sitting in, leaving whatever
     // follows the caret untouched.
-    const before = value.slice(0, caret).replace(/@[\w.-]*$/, `@${username} `)
+    const before = value.slice(0, caret).replace(suggestion.token, `${suggestion.insert} `)
     const next = before + value.slice(caret)
     setValue(next)
     setCaret(before.length)
@@ -53,7 +108,9 @@ export default function MessageComposer({ members, onSend, isSending, disabled }
   }
 
   const submit = () => {
-    const body = value.trim()
+    // Substitute over the whole body rather than only what the picker inserted,
+    // so shortcodes that were typed out in full or pasted in still resolve.
+    const body = replaceShortcodes(value).trim()
     if (!body || isSending || disabled) return
     onSend(body)
     setValue('')
@@ -74,7 +131,7 @@ export default function MessageComposer({ members, onSend, isSending, disabled }
       }
       if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey)) {
         event.preventDefault()
-        applySuggestion(suggestions[highlighted].username)
+        applySuggestion(suggestions[highlighted])
         setHighlighted(0)
         return
       }
@@ -105,14 +162,14 @@ export default function MessageComposer({ members, onSend, isSending, disabled }
           style={{ position: 'absolute', bottom: '100%', left: 0, right: 0, zIndex: 3 }}
         >
           <Stack gap={0}>
-            {suggestions.map((m, i) => (
+            {suggestions.map((suggestion, i) => (
               <UnstyledButton
-                key={m.user_id}
+                key={suggestion.key}
                 onMouseDown={(e) => {
                   // mousedown, not click — click would blur the textarea first
                   // and lose the caret position we need.
                   e.preventDefault()
-                  applySuggestion(m.username)
+                  applySuggestion(suggestion)
                 }}
                 onMouseEnter={() => setHighlighted(i)}
                 p="xs"
@@ -122,7 +179,12 @@ export default function MessageComposer({ members, onSend, isSending, disabled }
                     i === highlighted ? 'var(--mantine-color-dark-5)' : 'transparent',
                 }}
               >
-                <Text size="sm">@{m.username}</Text>
+                <Group gap="xs" wrap="nowrap">
+                  {suggestion.icon && <Text size="sm">{suggestion.icon}</Text>}
+                  <Text size="sm" truncate>
+                    {suggestion.label}
+                  </Text>
+                </Group>
               </UnstyledButton>
             ))}
           </Stack>
@@ -137,7 +199,9 @@ export default function MessageComposer({ members, onSend, isSending, disabled }
           minRows={1}
           maxRows={5}
           maxLength={MAX_MESSAGE_LENGTH}
-          placeholder={disabled ? 'Join this group to chat' : 'Message the group — @ to mention'}
+          placeholder={
+            disabled ? 'Join this group to chat' : 'Message the group — @ to mention, : for emoji'
+          }
           value={value}
           disabled={disabled}
           onChange={(e) => {

@@ -65,6 +65,14 @@ describe('messageService', () => {
     expect(mockFetch.mock.calls[0][1].method).toBe('DELETE')
   })
 
+  it('marks a group chat seen by POST', async () => {
+    mockFetch.mockResolvedValue(new Response(null, { status: 204 }))
+    await messageService.markChatSeen(7)
+
+    expect(requestedUrl()).toBe('/api/groups/7/chat/seen')
+    expect(mockFetch.mock.calls[0][1].method).toBe('POST')
+  })
+
   it('requests a socket ticket by POST', async () => {
     mockFetch.mockResolvedValue(jsonResponse({ ticket: 't', expires_in: 30 }))
     const result = await messageService.createTicket()

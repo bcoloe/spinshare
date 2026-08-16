@@ -137,7 +137,12 @@ export default function ChatOverlay({
           display: minimized ? 'none' : 'block',
         }}
       >
-        <ChatPanel group={group} members={members} showPresence={false} />
+        <ChatPanel
+          group={group}
+          members={members}
+          showPresence={false}
+          active={!minimized}
+        />
       </div>
     </Paper>
   )

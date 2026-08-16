@@ -26,6 +26,14 @@ export const messageService = {
     return apiFetch(`/messages/${messageId}`, { method: 'DELETE' })
   },
 
+  /**
+   * Tell the server this group's chat is on screen, retiring its unread
+   * @mention notifications. Idempotent — clearing nothing is a normal outcome.
+   */
+  markChatSeen(groupId: number): Promise<void> {
+    return apiFetch(`/groups/${groupId}/chat/seen`, { method: 'POST' })
+  },
+
   /** Fallback for clients that could not open a socket — normally unused. */
   getPresence(groupId: number): Promise<PresenceMember[]> {
     return apiFetch(`/groups/${groupId}/presence`)

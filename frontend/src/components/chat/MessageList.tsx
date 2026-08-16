@@ -1,8 +1,11 @@
 import { Fragment, useEffect, useRef } from 'react'
-import { ActionIcon, Avatar, Group, Stack, Text, Tooltip } from '@mantine/core'
+import { ActionIcon, Avatar, Group, Loader, Stack, Text, Tooltip } from '@mantine/core'
 import { IconTrash } from '@tabler/icons-react'
 import { useNavigate } from 'react-router-dom'
 import type { MessageResponse } from '../../types/message'
+
+/** How close to the top counts as "asking for more". */
+const LOAD_OLDER_THRESHOLD_PX = 60
 
 interface Props {
   messages: MessageResponse[]
@@ -11,6 +14,10 @@ interface Props {
   canModerate: boolean
   onlineIds: Set<number>
   onDelete: (messageId: number) => void
+  /** Whether a page of older messages may still exist above the current window. */
+  hasOlder: boolean
+  isLoadingOlder: boolean
+  onLoadOlder: () => void
 }
 
 function formatTime(iso: string): string {
@@ -76,6 +83,9 @@ export default function MessageList({
   canModerate,
   onlineIds,
   onDelete,
+  hasOlder,
+  isLoadingOlder,
+  onLoadOlder,
 }: Props) {
   const navigate = useNavigate()
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -83,14 +93,39 @@ export default function MessageList({
   // Only auto-scroll when the reader is already at the bottom, so a new message
   // never yanks someone out of the scrollback they're reading.
   const pinnedToBottom = useRef(true)
+  // Scroll height captured just before a backwards page is requested, so the
+  // prepended messages can be offset back out again.
+  const anchorHeight = useRef<number | null>(null)
+  const firstMessageId = useRef<number | null>(null)
 
   const handleScroll = () => {
     const el = containerRef.current
     if (!el) return
     pinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+
+    if (el.scrollTop < LOAD_OLDER_THRESHOLD_PX && hasOlder && !isLoadingOlder) {
+      anchorHeight.current = el.scrollHeight
+      onLoadOlder()
+    }
   }
 
   useEffect(() => {
+    const el = containerRef.current
+    const first = messages[0]?.id ?? null
+    // A smaller leading id means a page was prepended rather than appended.
+    const prepended =
+      firstMessageId.current !== null && first !== null && first < firstMessageId.current
+    firstMessageId.current = first
+
+    if (prepended && el && anchorHeight.current !== null) {
+      // Push the viewport down by exactly the height that was inserted above
+      // it, so the reader stays on the message they were looking at instead of
+      // being thrown to the top of the newly loaded page.
+      el.scrollTop += el.scrollHeight - anchorHeight.current
+      anchorHeight.current = null
+      return
+    }
+
     if (pinnedToBottom.current) {
       bottomRef.current?.scrollIntoView({ block: 'end' })
     }
@@ -118,6 +153,16 @@ export default function MessageList({
       style={{ overflowY: 'auto', height: '100%' }}
     >
       <Stack gap="xs" p="xs">
+        {isLoadingOlder ? (
+          <Group justify="center" py="xs">
+            <Loader size="xs" />
+          </Group>
+        ) : !hasOlder ? (
+          <Text size="xs" c="dimmed" ta="center" py="xs">
+            Beginning of the conversation
+          </Text>
+        ) : null}
+
         {messages.map((message) => {
           const day = formatDay(message.created_at)
           const showDay = day !== lastDay

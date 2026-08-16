@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MantineProvider } from '@mantine/core'
 import { MemoryRouter } from 'react-router-dom'
 import MessageList from './MessageList'
@@ -31,6 +31,9 @@ function renderList(messages: MessageResponse[], props: Partial<Parameters<typeo
           canModerate={false}
           onlineIds={new Set()}
           onDelete={vi.fn()}
+          hasOlder={false}
+          isLoadingOlder={false}
+          onLoadOlder={vi.fn()}
           {...props}
         />
       </MemoryRouter>
@@ -42,6 +45,58 @@ describe('MessageList', () => {
   it('shows an empty state when there are no messages', () => {
     renderList([])
     expect(screen.getByText('No messages yet')).toBeInTheDocument()
+  })
+
+  describe('scrollback', () => {
+    it('marks the top of the list when there is nothing older', () => {
+      renderList([makeMessage()], { hasOlder: false })
+      expect(screen.getByText('Beginning of the conversation')).toBeInTheDocument()
+    })
+
+    it('does not claim the beginning while older pages may exist', () => {
+      renderList([makeMessage()], { hasOlder: true })
+      expect(screen.queryByText('Beginning of the conversation')).not.toBeInTheDocument()
+    })
+
+    it('shows a loader instead of the beginning marker while paging back', () => {
+      renderList([makeMessage()], { hasOlder: true, isLoadingOlder: true })
+      expect(screen.queryByText('Beginning of the conversation')).not.toBeInTheDocument()
+      expect(document.querySelector('.mantine-Loader-root')).toBeInTheDocument()
+    })
+
+    it('requests an older page when the reader scrolls to the top', () => {
+      const onLoadOlder = vi.fn()
+      const { container } = renderList([makeMessage()], { hasOlder: true, onLoadOlder })
+
+      const scroller = container.querySelector('[style*="overflow-y"]') as HTMLElement
+      fireEvent.scroll(scroller, { target: { scrollTop: 0 } })
+
+      expect(onLoadOlder).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not request another page while one is already in flight', () => {
+      const onLoadOlder = vi.fn()
+      const { container } = renderList([makeMessage()], {
+        hasOlder: true,
+        isLoadingOlder: true,
+        onLoadOlder,
+      })
+
+      const scroller = container.querySelector('[style*="overflow-y"]') as HTMLElement
+      fireEvent.scroll(scroller, { target: { scrollTop: 0 } })
+
+      expect(onLoadOlder).not.toHaveBeenCalled()
+    })
+
+    it('does not request an older page once the start is known', () => {
+      const onLoadOlder = vi.fn()
+      const { container } = renderList([makeMessage()], { hasOlder: false, onLoadOlder })
+
+      const scroller = container.querySelector('[style*="overflow-y"]') as HTMLElement
+      fireEvent.scroll(scroller, { target: { scrollTop: 0 } })
+
+      expect(onLoadOlder).not.toHaveBeenCalled()
+    })
   })
 
   it('renders a message body and author', () => {

@@ -6,7 +6,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 MAX_MESSAGE_LENGTH = 2000
 MAX_HISTORY_LIMIT = 100
-DEFAULT_HISTORY_LIMIT = 50
+# One screen's worth of scrollback. Chat opens on the most recent conversation
+# and pages backwards on demand rather than loading a room's whole history —
+# which for an old group would be a large query nobody asked for. Clients send
+# `limit` explicitly, so this is the floor for a caller that omits it.
+DEFAULT_HISTORY_LIMIT = 30
 
 
 class MessageCreate(BaseModel):

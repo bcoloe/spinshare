@@ -191,6 +191,38 @@ class TestDeleteMessage:
         assert resp.status_code == 401
 
 
+class TestMarkChatSeen:
+    def test_clears_mentions_for_the_group(self, chat_client, mock_message_service, mock_user):
+        mock_message_service.mark_mentions_seen.return_value = 2
+
+        resp = chat_client.post("/groups/7/chat/seen")
+
+        assert resp.status_code == 204
+        mock_message_service.mark_mentions_seen.assert_called_once_with(7, mock_user)
+
+    def test_clearing_nothing_still_succeeds(self, chat_client, mock_message_service):
+        # The client fires this on every chat open, so "no unread mentions" is
+        # the common case and must not read as an error.
+        mock_message_service.mark_mentions_seen.return_value = 0
+
+        resp = chat_client.post("/groups/7/chat/seen")
+
+        assert resp.status_code == 204
+
+    def test_enforces_membership(self, chat_client, mock_message_service):
+        mock_message_service.mark_mentions_seen.side_effect = HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="You must be a member of this group"
+        )
+
+        resp = chat_client.post("/groups/7/chat/seen")
+
+        assert resp.status_code == 403
+
+    def test_requires_auth(self, unauthed_chat_client):
+        resp = unauthed_chat_client.post("/groups/7/chat/seen")
+        assert resp.status_code == 401
+
+
 class TestPresence:
     def test_returns_online_members(self, chat_client, mock_message_service):
         with patch("app.routers.messages.manager") as mock_manager:

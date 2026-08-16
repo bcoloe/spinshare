@@ -215,6 +215,30 @@ class MessageService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
         return message
 
+    # ==================== UPDATE ====================
+
+    def mark_mentions_seen(self, group_id: int, user: User) -> int:
+        """Retire this user's unread mention notifications for a group's chat.
+
+        Called when the chat is actually on screen. A mention is a pointer to a
+        message; once the user is looking at the conversation the pointer has
+        served its purpose, so leaving it in the bell just makes them dismiss
+        something they have already read.
+
+        Only ``mentioned_in_chat`` notifications are touched — sitting in chat
+        never clears a review or invitation notification for the same group.
+
+        Raises:
+            HTTPException 403: If the user is not a member of the group
+
+        Returns:
+            How many notifications were still unread and got cleared.
+        """
+        self.group_service.require_membership(user.id, group_id)
+        return self.notification_service.mark_read_for_group(
+            user, group_id, NotificationType.mentioned_in_chat
+        )
+
     # ==================== DELETE ====================
 
     def delete_message(self, message_id: int, user: User) -> Message:
