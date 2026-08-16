@@ -4,6 +4,7 @@ export type NotificationType =
   | 'nomination_pool_low'
   | 'member_reviewed_album'
   | 'new_member_joined'
+  | 'mentioned_in_chat'
 
 export interface NotificationResponse {
   id: number

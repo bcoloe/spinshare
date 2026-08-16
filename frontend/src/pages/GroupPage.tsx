@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ActionIcon,
@@ -19,7 +19,7 @@ import {
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useDisclosure, useMediaQuery } from '@mantine/hooks'
-import { IconDoorExit, IconLock, IconPlus, IconSettings, IconStar, IconStarFilled, IconUserPlus, IconUsersGroup } from '@tabler/icons-react'
+import { IconDoorExit, IconLock, IconMessageCircle, IconPlus, IconSettings, IconStar, IconStarFilled, IconUserPlus, IconUsersGroup } from '@tabler/icons-react'
 import AppShell from '../components/layout/AppShell'
 import TodaysSpin from '../components/spin/TodaysSpin'
 import ReviewHistory from '../components/groups/ReviewHistory'
@@ -27,17 +27,17 @@ import GroupInfo from '../components/groups/GroupInfo'
 import LeaveGroupModal from '../components/groups/LeaveGroupModal'
 import InviteUserModal from '../components/groups/InviteUserModal'
 import MyNominations from '../components/groups/MyNominations'
-import ChatPanel from '../components/chat/ChatPanel'
+import ChatOverlay from '../components/chat/ChatOverlay'
+import PresenceBadge from '../components/chat/PresenceBadge'
 import ParticipationMeter from '../components/groups/ParticipationMeter'
 import AlbumSearchModal from '../components/albums/AlbumSearchModal'
 import { useGroup, useGroupMembers, useJoinGroup } from '../hooks/useGroups'
-import { useGroupPresence } from '../hooks/useChat'
 import { useGroupHistory, useNominationCount } from '../hooks/useAlbums'
 import { useFavoriteGroup } from '../context/FavoriteGroupContext'
 import { useAuth } from '../hooks/useAuth'
 import { ApiError } from '../services/apiClient'
 
-type Tab = 'spin' | 'history' | 'info' | 'nominations' | 'chat'
+type Tab = 'spin' | 'history' | 'info' | 'nominations'
 
 const ROLE_COLOR = { owner: 'violet', admin: 'blue', member: 'gray' } as const
 
@@ -68,8 +68,21 @@ export default function GroupPage() {
   const { data: historyAlbums = [], isLoading: albumsLoading } = useGroupHistory(gid, isMember || canAnonymouslyView)
   const { data: nominationCount } = useNominationCount(gid, isMember)
   const joinGroup = useJoinGroup()
-  // Presence comes from the shared app socket; this costs no request.
-  const { online } = useGroupPresence(gid)
+
+  // Chat open state lives in the URL so a mention notification can deep-link
+  // straight into an open conversation (/groups/:id?chat=1).
+  const chatOpen = searchParams.get('chat') === '1'
+  const [chatMinimized, setChatMinimized] = useState(false)
+
+  const setChatOpen = (open: boolean) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (open) next.set('chat', '1')
+      else next.delete('chat')
+      return next
+    }, { replace: true })
+    if (open) setChatMinimized(false)
+  }
 
   const { favoriteId, toggleFavorite } = useFavoriteGroup()
 
@@ -139,10 +152,13 @@ export default function GroupPage() {
                   </Badge>
                 )}
               </Group>
-              <Text size="sm" c="dimmed">
-                {group?.is_public ? 'Public' : 'Private'} · {group?.member_count} member
-                {group?.member_count !== 1 ? 's' : ''}
-              </Text>
+              <Group gap="xs">
+                <Text size="sm" c="dimmed">
+                  {group?.is_public ? 'Public' : 'Private'} · {group?.member_count} member
+                  {group?.member_count !== 1 ? 's' : ''}
+                </Text>
+                {isMember && <PresenceBadge groupId={gid} size="xs" onClick={() => setChatOpen(true)} />}
+              </Group>
             </div>
 
             <Group gap="xs">
@@ -156,6 +172,16 @@ export default function GroupPage() {
                       aria-label={favoriteId === gid ? 'Remove from favorites' : 'Set as favorite group'}
                     >
                       {favoriteId === gid ? <IconStarFilled size={18} /> : <IconStar size={18} />}
+                    </ActionIcon>
+                  </Tooltip>
+                  <Tooltip label={chatOpen ? 'Hide chat' : 'Open group chat'}>
+                    <ActionIcon
+                      variant={chatOpen ? 'filled' : 'subtle'}
+                      color="violet"
+                      onClick={() => setChatOpen(!chatOpen)}
+                      aria-label={chatOpen ? 'Hide chat' : 'Open group chat'}
+                    >
+                      <IconMessageCircle size={18} />
                     </ActionIcon>
                   </Tooltip>
                   {canInvite && (
@@ -252,12 +278,6 @@ export default function GroupPage() {
                     { label: "Today's Spin", value: 'spin' },
                     { label: 'Review History', value: 'history' },
                     ...(user ? [{ label: 'My Nominations', value: 'nominations' }] : []),
-                    ...(isMember
-                      ? [{
-                          label: online.length > 0 ? `Chat (${online.length} online)` : 'Chat',
-                          value: 'chat',
-                        }]
-                      : []),
                     { label: 'Group Info', value: 'info' },
                   ]}
                   styles={{ root: { background: 'transparent' } }}
@@ -284,10 +304,6 @@ export default function GroupPage() {
             {tab === 'info' && groupLoading && <Skeleton h={300} radius="md" />}
 
             {tab === 'nominations' && user && <MyNominations groupId={gid} />}
-
-            {tab === 'chat' && isMember && group && (
-              <ChatPanel group={group} members={members} />
-            )}
           </>
         )}
 
@@ -311,10 +327,13 @@ export default function GroupPage() {
         </>
       )}
 
-      {isMember && (
+      {/* The nominate FAB and the chat overlay both want the bottom-right
+          corner. On desktop the FAB steps aside; on mobile the overlay is a
+          full-width sheet, so the FAB stands down entirely while chat is up. */}
+      {isMember && !(chatOpen && isMobile) && (
         <>
           <Tooltip label={canNominate ? 'Nominate an album' : nominateTooltip} position="left">
-            <Affix position={{ bottom: 24, right: 24 }}>
+            <Affix position={{ bottom: 24, right: chatOpen ? 420 : 24 }}>
               <ActionIcon
                 size="xl"
                 radius="xl"
@@ -331,6 +350,17 @@ export default function GroupPage() {
 
           <AlbumSearchModal groupId={gid} opened={nominateOpened} onClose={closeNominate} />
         </>
+      )}
+
+      {group && isMember && (
+        <ChatOverlay
+          group={group}
+          members={members}
+          opened={chatOpen}
+          minimized={chatMinimized}
+          onClose={() => setChatOpen(false)}
+          onToggleMinimize={() => setChatMinimized((v) => !v)}
+        />
       )}
     </AppShell>
   )

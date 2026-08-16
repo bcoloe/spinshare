@@ -47,7 +47,8 @@ import { useAuth } from '../../hooks/useAuth'
 import { useMyGroups, useMyPendingInvitations, useAcceptInvitation, useDeclineInvitation } from '../../hooks/useGroups'
 import { useFavoriteGroup } from '../../context/FavoriteGroupContext'
 import { useUnreadNotifications, useMarkNotificationRead, useMarkAllNotificationsRead, useNotificationHistory } from '../../hooks/useNotifications'
-import { usePlayer } from '../../context/PlayerContext'
+import { useFooterOffset } from '../../hooks/useFooterOffset'
+import { notificationTarget } from '../../utils/notificationTarget'
 import { ApiError } from '../../services/apiClient'
 import CreateGroupModal from '../groups/CreateGroupModal'
 import RecapPopup from '../groups/RecapPopup'
@@ -61,9 +62,10 @@ interface AppShellProps {
 
 export default function AppShell({ children }: AppShellProps) {
   const { user, logout } = useAuth()
-  const { status: playerStatus, playingAlbumMeta, minimized } = usePlayer()
-  const showFooter = playingAlbumMeta !== null && (playerStatus === 'ready' || playerStatus === 'playing' || playerStatus === 'paused')
-  const footerHeight = minimized ? 48 : 220
+  // Shared with anything floating above the page (e.g. the chat overlay) so the
+  // reserved space and the clearance above it can never disagree.
+  const footerHeight = useFooterOffset()
+  const showFooter = footerHeight > 0
   const navigate = useNavigate()
   const location = useLocation()
   const [mobileOpened, { toggle: toggleMobile, close: closeMobile }] = useDisclosure()
@@ -240,18 +242,13 @@ export default function AppShell({ children }: AppShellProps) {
                             <Text
                               size="sm"
                               py={6}
-                              style={{ cursor: n.group_id ? 'pointer' : 'default' }}
+                              style={{ cursor: notificationTarget(n) ? 'pointer' : 'default' }}
                               onClick={() => {
-                                if (n.group_id) {
+                                const target = notificationTarget(n)
+                                if (target) {
                                   markNotificationRead.mutate(n.id)
                                   closeBell()
-                                  if (n.type === 'member_reviewed_album') {
-                                    const params = new URLSearchParams({ tab: 'history' })
-                                    if (n.album_id) params.set('album', String(n.album_id))
-                                    navigate(`/groups/${n.group_id}?${params.toString()}`)
-                                  } else {
-                                    navigate(`/groups/${n.group_id}`)
-                                  }
+                                  navigate(target)
                                 }
                               }}
                             >
@@ -295,17 +292,12 @@ export default function AppShell({ children }: AppShellProps) {
                                     size="sm"
                                     py={6}
                                     c={n.read_at ? 'dimmed' : undefined}
-                                    style={{ cursor: n.group_id ? 'pointer' : 'default' }}
+                                    style={{ cursor: notificationTarget(n) ? 'pointer' : 'default' }}
                                     onClick={() => {
-                                      if (n.group_id) {
+                                      const target = notificationTarget(n)
+                                      if (target) {
                                         closeBell()
-                                        if (n.type === 'member_reviewed_album') {
-                                          const params = new URLSearchParams({ tab: 'history' })
-                                          if (n.album_id) params.set('album', String(n.album_id))
-                                          navigate(`/groups/${n.group_id}?${params.toString()}`)
-                                        } else {
-                                          navigate(`/groups/${n.group_id}`)
-                                        }
+                                        navigate(target)
                                       }
                                     }}
                                   >

@@ -1,4 +1,4 @@
-import { Badge, Group, Paper, Skeleton, Stack, Text, Tooltip } from '@mantine/core'
+import { Badge, Group, Skeleton, Stack, Text, Tooltip } from '@mantine/core'
 import { IconCircleFilled, IconPlugConnectedX } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
 import { useAuth } from '../../hooks/useAuth'
@@ -11,14 +11,23 @@ import MessageList from './MessageList'
 interface Props {
   group: GroupDetailResponse
   members: GroupMemberResponse[]
+  /** Hidden when the surrounding chrome already shows presence (the overlay header). */
+  showPresence?: boolean
 }
 
-export default function ChatPanel({ group, members }: Props) {
+/**
+ * The chat conversation itself — list plus composer.
+ *
+ * Deliberately chrome-free and height-agnostic so it can be dropped into any
+ * container. `ChatOverlay` supplies the floating frame; this stays reusable if
+ * chat ever needs a full-page or embedded home too.
+ */
+export default function ChatPanel({ group, members, showPresence = true }: Props) {
   const { user } = useAuth()
   const isMember = !!group.current_user_role
   const { online, onlineIds, isConnected } = useGroupPresence(group.id)
 
-  // The panel being mounted is what enables the query — so the fallback poll
+  // Mounting this component is what enables the query — so the fallback poll
   // only ever runs while someone is actually looking at the chat.
   const { data: messages = [], isLoading } = useChatMessages(group.id, isMember)
   const sendMessage = useSendMessage(group.id)
@@ -51,24 +60,19 @@ export default function ChatPanel({ group, members }: Props) {
       : 'Nobody else is here right now'
 
   return (
-    <Paper withBorder radius="md" p="xs">
-      <Stack gap="xs" h={520}>
-        <Group justify="space-between" px="xs" pt={4}>
-          <Group gap="xs">
-            <Text size="sm" fw={600}>
-              Group chat
-            </Text>
-            <Tooltip label={onlineLabel} multiline maw={280}>
-              <Badge
-                size="sm"
-                variant="light"
-                color={online.length > 0 ? 'teal' : 'gray'}
-                leftSection={<IconCircleFilled size={7} />}
-              >
-                {online.length} online
-              </Badge>
-            </Tooltip>
-          </Group>
+    <Stack gap="xs" h="100%">
+      {showPresence && (
+        <Group justify="space-between" px="xs">
+          <Tooltip label={onlineLabel} multiline maw={280}>
+            <Badge
+              size="sm"
+              variant="light"
+              color={online.length > 0 ? 'teal' : 'gray'}
+              leftSection={<IconCircleFilled size={7} />}
+            >
+              {online.length} online
+            </Badge>
+          </Tooltip>
 
           {!isConnected && (
             <Tooltip label="Live updates unavailable — falling back to periodic refresh">
@@ -79,33 +83,33 @@ export default function ChatPanel({ group, members }: Props) {
             </Tooltip>
           )}
         </Group>
+      )}
 
-        <div style={{ flex: 1, minHeight: 0 }}>
-          {isLoading ? (
-            <Stack gap="xs" p="xs">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} h={36} radius="sm" />
-              ))}
-            </Stack>
-          ) : (
-            <MessageList
-              messages={messages}
-              currentUserId={user?.id}
-              currentUsername={user?.username}
-              canModerate={canModerate}
-              onlineIds={onlineIds}
-              onDelete={handleDelete}
-            />
-          )}
-        </div>
+      <div style={{ flex: 1, minHeight: 0 }}>
+        {isLoading ? (
+          <Stack gap="xs" p="xs">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} h={36} radius="sm" />
+            ))}
+          </Stack>
+        ) : (
+          <MessageList
+            messages={messages}
+            currentUserId={user?.id}
+            currentUsername={user?.username}
+            canModerate={canModerate}
+            onlineIds={onlineIds}
+            onDelete={handleDelete}
+          />
+        )}
+      </div>
 
-        <MessageComposer
-          members={members}
-          onSend={handleSend}
-          isSending={sendMessage.isPending}
-          disabled={!isMember}
-        />
-      </Stack>
-    </Paper>
+      <MessageComposer
+        members={members}
+        onSend={handleSend}
+        isSending={sendMessage.isPending}
+        disabled={!isMember}
+      />
+    </Stack>
   )
 }
