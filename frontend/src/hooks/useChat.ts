@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChatSocketContext } from '../context/ChatSocketContext'
 import { messageService } from '../services/messageService'
 import type { MessageResponse } from '../types/message'
+import type { NotificationResponse } from '../types/notification'
+import { notificationKeys } from './useNotifications'
 import { chatKeys } from './chatKeys'
 
 export { chatKeys }
@@ -156,7 +158,21 @@ export function useMarkChatSeen(groupId: number) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () => messageService.markChatSeen(groupId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
+    onSuccess: () => {
+      // Patch the bell's cache rather than invalidating it. This fires whenever
+      // a chat is on screen — usually with nothing to clear — and the unread
+      // query deliberately does not poll so the database can stay asleep; an
+      // invalidate here would reintroduce exactly the traffic that was removed.
+      // We know precisely which rows the server just cleared, so we can say so.
+      qc.setQueryData<NotificationResponse[]>(notificationKeys.unread, (existing) =>
+        existing?.filter(
+          (n) => !(n.type === 'mentioned_in_chat' && n.group_id === groupId),
+        ),
+      )
+      // History is only fetched while its panel is expanded, so marking it stale
+      // refreshes it when someone looks and costs nothing when nobody does.
+      qc.invalidateQueries({ queryKey: notificationKeys.history })
+    },
   })
 }
 
