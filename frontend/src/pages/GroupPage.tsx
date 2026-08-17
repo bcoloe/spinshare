@@ -7,6 +7,7 @@ import {
   Box,
   Button,
   Group,
+  Indicator,
   Paper,
   ScrollArea,
   SegmentedControl,
@@ -33,6 +34,7 @@ import ParticipationMeter from '../components/groups/ParticipationMeter'
 import AlbumSearchModal from '../components/albums/AlbumSearchModal'
 import { useGroup, useGroupMembers, useJoinGroup } from '../hooks/useGroups'
 import { useGroupHistory, useNominationCount } from '../hooks/useAlbums'
+import { useChatUnread } from '../hooks/useChat'
 import { useFavoriteGroup } from '../context/FavoriteGroupContext'
 import { useAuth } from '../hooks/useAuth'
 import { ApiError } from '../services/apiClient'
@@ -72,6 +74,13 @@ export default function GroupPage() {
   // Chat open state lives in the URL so a mention notification can deep-link
   // straight into an open conversation (/groups/:id?chat=1).
   const chatOpen = searchParams.get('chat') === '1'
+
+  const unreadChat = useChatUnread(gid)
+  const chatTooltip = chatOpen
+    ? 'Hide chat'
+    : unreadChat > 0
+      ? `${unreadChat} new message${unreadChat === 1 ? '' : 's'}`
+      : 'Open group chat'
 
   const setChatOpen = (open: boolean) => {
     setSearchParams((prev) => {
@@ -336,17 +345,25 @@ export default function GroupPage() {
               </ActionIcon>
             </Tooltip>
 
-            <Tooltip label={chatOpen ? 'Hide chat' : 'Open group chat'} position="top">
-              <ActionIcon
-                size="xl"
-                radius="xl"
-                variant={chatOpen ? 'filled' : 'default'}
+            <Tooltip label={chatTooltip} position="top">
+              <Indicator
+                disabled={unreadChat === 0}
+                label={unreadChat > 99 ? '99+' : unreadChat}
+                size={18}
+                offset={4}
                 color="violet"
-                onClick={() => setChatOpen(!chatOpen)}
-                aria-label={chatOpen ? 'Hide chat' : 'Open group chat'}
               >
-                <IconMessageCircle size={22} />
-              </ActionIcon>
+                <ActionIcon
+                  size="xl"
+                  radius="xl"
+                  variant={chatOpen ? 'filled' : 'default'}
+                  color="violet"
+                  onClick={() => setChatOpen(!chatOpen)}
+                  aria-label={chatOpen ? 'Hide chat' : 'Open group chat'}
+                >
+                  <IconMessageCircle size={22} />
+                </ActionIcon>
+              </Indicator>
             </Tooltip>
           </Group>
         </Affix>

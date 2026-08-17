@@ -60,6 +60,23 @@ class MessageResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ChatSeenRequest(BaseModel):
+    """How far the client has read in a group's chat.
+
+    Optional: a caller that only wants to clear mention notifications — or that
+    is looking at an empty room — can omit it and leave the marker alone.
+    """
+
+    last_message_id: int | None = Field(None, ge=1)
+
+
+class GroupUnread(BaseModel):
+    """Unread message count for one group. Only non-zero groups are returned."""
+
+    group_id: int
+    count: int
+
+
 class PresenceMember(BaseModel):
     """A user currently holding an open socket."""
 

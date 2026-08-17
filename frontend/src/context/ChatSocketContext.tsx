@@ -1,6 +1,6 @@
 import { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth'
 import { messageService } from '../services/messageService'
 import type {
@@ -24,6 +24,16 @@ interface ChatSocketValue {
   /** Online members by group id. Empty until the snapshot arrives. */
   presenceByGroup: Record<number, PresenceMember[]>
   onlineUserIds: (groupId: number) => Set<number>
+  /** Unread message counts by group id. Groups with nothing unread are absent. */
+  unreadByGroup: Record<number, number>
+  /**
+   * Declare which group's chat is currently on screen, or null for none.
+   *
+   * Messages arriving for that group are not counted as unread — the user is
+   * watching them land. Also zeroes whatever had accumulated, since opening the
+   * conversation is what "reading it" means.
+   */
+  setActiveGroup: (groupId: number | null) => void
 }
 
 export const ChatSocketContext = createContext<ChatSocketValue | null>(null)
@@ -39,12 +49,44 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
   const [isConnected, setIsConnected] = useState(false)
   const [presenceByGroup, setPresenceByGroup] = useState<Record<number, PresenceMember[]>>({})
 
+  // Unread counts live in the query cache rather than component state so the
+  // seeded fetch and the socket's live increments write to one place — two
+  // sources would drift the moment a message landed mid-fetch.
+  const { data: unreadByGroup = {} } = useQuery({
+    queryKey: chatKeys.unread(),
+    queryFn: () => messageService.getUnreadCounts(),
+    enabled: !!user,
+  })
+
+  // Read inside the socket handler, which closes over its own render's props.
+  const activeGroupRef = useRef<number | null>(null)
+  // Highest message id already counted toward the unread badge, per group.
+  const countedThroughRef = useRef<Record<number, number>>({})
+  const userIdRef = useRef<number | undefined>(user?.id)
+  userIdRef.current = user?.id
+
+  const setActiveGroup = useCallback(
+    (groupId: number | null) => {
+      activeGroupRef.current = groupId
+      if (groupId === null) return
+      queryClient.setQueryData<Record<number, number>>(chatKeys.unread(), (prev) => {
+        if (!prev?.[groupId]) return prev
+        const next = { ...prev }
+        delete next[groupId]
+        return next
+      })
+    },
+    [queryClient],
+  )
+
   const socketRef = useRef<WebSocket | null>(null)
   const retryRef = useRef<number>(0)
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Guards against a reconnect scheduled by an old socket resurrecting itself
   // after the user has logged out or the component has unmounted.
   const cancelledRef = useRef(false)
+  // True from the start of a connection attempt until its socket exists.
+  const connectingRef = useRef(false)
 
   const applyEvent = useCallback(
     (event: ChatSocketEvent) => {
@@ -94,6 +136,25 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
               return [...existing, message]
             },
           )
+
+          // Your own messages are not news, and neither are messages in the
+          // conversation you already have open in front of you.
+          const isMine =
+            message.user_id !== null && message.user_id === userIdRef.current
+
+          // Counting is an increment, so unlike every other handler here it is
+          // not idempotent — the same frame arriving twice would inflate the
+          // badge. Message ids only ever increase, so refusing to count one we
+          // have already counted makes a duplicate delivery harmless.
+          const alreadyCounted = message.id <= (countedThroughRef.current[message.group_id] ?? 0)
+
+          if (!isMine && !alreadyCounted && activeGroupRef.current !== message.group_id) {
+            countedThroughRef.current[message.group_id] = message.id
+            queryClient.setQueryData<Record<number, number>>(
+              chatKeys.unread(),
+              (prev) => ({ ...prev, [message.group_id]: (prev?.[message.group_id] ?? 0) + 1 }),
+            )
+          }
           break
         }
         case 'message.deleted': {
@@ -134,8 +195,14 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
 
   const connect = useCallback(async () => {
     if (cancelledRef.current) return
-    if (socketRef.current) return
+    // `socketRef` is only assigned after the ticket round trip, so it cannot on
+    // its own stop two overlapping attempts from both reaching the constructor
+    // and leaving a second, unreferenced socket open forever. React's dev
+    // double-mount does exactly that: the first attempt is in flight when the
+    // second starts, and each ends up delivering its own copy of every frame.
+    if (socketRef.current || connectingRef.current) return
 
+    connectingRef.current = true
     let ticket: string
     try {
       ticket = (await messageService.createTicket()).ticket
@@ -144,6 +211,10 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
       // the app works without the socket, it just falls back to polling.
       scheduleRetry()
       return
+    } finally {
+      // Released here rather than after the constructor: no await separates the
+      // two, so nothing can interleave, and every exit path is covered.
+      connectingRef.current = false
     }
     if (cancelledRef.current) return
 
@@ -234,8 +305,8 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
   )
 
   const value = useMemo(
-    () => ({ isConnected, presenceByGroup, onlineUserIds }),
-    [isConnected, presenceByGroup, onlineUserIds],
+    () => ({ isConnected, presenceByGroup, onlineUserIds, unreadByGroup, setActiveGroup }),
+    [isConnected, presenceByGroup, onlineUserIds, unreadByGroup, setActiveGroup],
   )
 
   return <ChatSocketContext.Provider value={value}>{children}</ChatSocketContext.Provider>

@@ -1,5 +1,10 @@
 import { apiFetch } from './apiClient'
-import type { ChatTicketResponse, MessageResponse, PresenceMember } from '../types/message'
+import type {
+  ChatTicketResponse,
+  GroupUnread,
+  MessageResponse,
+  PresenceMember,
+} from '../types/message'
 
 export const messageService = {
   /** Chat history, oldest-first. `before` pages backwards; `after` fetches the delta. */
@@ -27,11 +32,26 @@ export const messageService = {
   },
 
   /**
-   * Tell the server this group's chat is on screen, retiring its unread
-   * @mention notifications. Idempotent — clearing nothing is a normal outcome.
+   * Tell the server this group's chat is on screen: advances the read marker to
+   * `lastMessageId` and retires the group's unread @mention notifications.
+   * Idempotent — clearing nothing is a normal outcome.
    */
-  markChatSeen(groupId: number): Promise<void> {
-    return apiFetch(`/groups/${groupId}/chat/seen`, { method: 'POST' })
+  markChatSeen(groupId: number, lastMessageId?: number): Promise<void> {
+    return apiFetch(`/groups/${groupId}/chat/seen`, {
+      method: 'POST',
+      body: JSON.stringify({ last_message_id: lastMessageId ?? null }),
+    })
+  },
+
+  /**
+   * Unread message counts keyed by group id, for every group the user is in.
+   *
+   * Groups with nothing unread are absent rather than zero, so the map only
+   * carries what there is to show.
+   */
+  async getUnreadCounts(): Promise<Record<number, number>> {
+    const rows: GroupUnread[] = await apiFetch('/chat/unread')
+    return Object.fromEntries(rows.map((r) => [r.group_id, r.count]))
   },
 
   /** Fallback for clients that could not open a socket — normally unused. */

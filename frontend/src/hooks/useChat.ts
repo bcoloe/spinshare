@@ -39,6 +39,12 @@ export function useChatSocket() {
   return ctx
 }
 
+/** How many messages have arrived in a group since this user last read it. */
+export function useChatUnread(groupId: number): number {
+  const { unreadByGroup } = useChatSocket()
+  return unreadByGroup[groupId] ?? 0
+}
+
 /** Online members of a group, straight from the socket's presence state. */
 export function useGroupPresence(groupId: number) {
   const { presenceByGroup, onlineUserIds, isConnected } = useChatSocket()
@@ -147,17 +153,19 @@ export function useLoadOlderMessages(groupId: number) {
 }
 
 /**
- * Retire this group's unread @mention notifications.
+ * Record that this group's chat is on screen.
  *
- * Called while the chat is actually on screen: once the user is looking at the
- * conversation, a notification pointing them at it has nothing left to tell
- * them, and leaving it in the bell just means dismissing something they have
- * already read.
+ * Advances the server-side read marker to the newest message the client holds,
+ * and retires the group's unread @mention notifications: once the user is
+ * looking at the conversation, a notification pointing them at it has nothing
+ * left to tell them, and leaving it in the bell just means dismissing something
+ * they have already read.
  */
 export function useMarkChatSeen(groupId: number) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: () => messageService.markChatSeen(groupId),
+    mutationFn: (lastMessageId?: number) =>
+      messageService.markChatSeen(groupId, lastMessageId),
     onSuccess: () => {
       // Patch the bell's cache rather than invalidating it. This fires whenever
       // a chat is on screen — usually with nothing to clear — and the unread

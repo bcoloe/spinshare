@@ -22,6 +22,12 @@ export interface PresenceMember {
   username: string
 }
 
+/** Unread message count for one group. Only non-zero groups are returned. */
+export interface GroupUnread {
+  group_id: number
+  count: number
+}
+
 export interface ChatTicketResponse {
   ticket: string
   expires_in: number

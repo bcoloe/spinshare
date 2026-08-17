@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { Badge, Group, Skeleton, Stack, Text, Tooltip } from '@mantine/core'
 import { IconCircleFilled, IconPlugConnectedX } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
@@ -9,6 +9,7 @@ import {
   useChatMessages,
   useDeleteMessage,
   useGroupPresence,
+  useChatSocket,
   useLoadOlderMessages,
   useMarkChatSeen,
   useSendMessage,
@@ -17,6 +18,12 @@ import { ApiError } from '../../services/apiClient'
 import type { GroupDetailResponse, GroupMemberResponse } from '../../types/group'
 import MessageComposer from './MessageComposer'
 import MessageList from './MessageList'
+
+/**
+ * How long to let a burst of messages settle before persisting the read marker.
+ * Short enough that closing the panel right after reading still records it.
+ */
+const SEEN_DEBOUNCE_MS = 800
 
 interface Props {
   group: GroupDetailResponse
@@ -51,37 +58,45 @@ export default function ChatPanel({ group, members, showPresence = true }: Props
   const canLoadOlder = hasOlder ?? messages.length >= CHAT_PAGE_SIZE
 
   const markSeen = useMarkChatSeen(group.id)
+  const { setActiveGroup } = useChatSocket()
   // Mounted means on screen — the panel unmounts when the chat closes — but a
   // backgrounded tab is still not being read.
   const isWatching = isMember && documentVisibility === 'visible'
 
-  // The newest message that pings this user — the thing whose notification the
-  // user is, right now, demonstrably reading.
-  const latestMentionId = useMemo(() => {
-    if (!user) return 0
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].mentions.some((m) => m.user_id === user.id)) return messages[i].id
-    }
-    return 0
-  }, [messages, user])
+  // Claim this group while the panel is up, so messages arriving in the
+  // conversation the user is watching are not counted as unread behind it.
+  useEffect(() => {
+    setActiveGroup(group.id)
+    return () => setActiveGroup(null)
+  }, [group.id, setActiveGroup])
 
-  // Acknowledged up to this mention id. Null means "nothing acknowledged for
+  const latestMessageId = messages.length ? messages[messages.length - 1].id : 0
+
+  // Acknowledged up to this message id. Null means "nothing acknowledged for
   // this group yet", which is what makes opening the chat clear whatever was
-  // already waiting in the bell.
+  // already waiting.
   const acknowledged = useRef<number | null>(null)
   useEffect(() => {
     acknowledged.current = null
   }, [group.id])
 
   useEffect(() => {
-    // Deliberately does not fire while the tab is backgrounded: a mention that
-    // arrives then is still unread, and stays in the bell until the user comes
-    // back to the conversation.
+    // Deliberately does not fire while the tab is backgrounded: a message that
+    // arrives then is still unread, and stays counted until the user comes back
+    // to the conversation.
     if (!isWatching) return
-    if (acknowledged.current === latestMentionId) return
-    acknowledged.current = latestMentionId
-    markSeen.mutate()
-  }, [isWatching, latestMentionId, markSeen.mutate])
+    if (acknowledged.current === latestMessageId) return
+
+    // Debounced because the marker now advances on every message rather than
+    // only on mentions — a brisk exchange would otherwise be one write per
+    // message. The cleanup restarts the timer, so a burst settles into one call.
+    const timer = setTimeout(() => {
+      acknowledged.current = latestMessageId
+      // An empty room has no message to mark, but its mentions can still clear.
+      markSeen.mutate(latestMessageId || undefined)
+    }, SEEN_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [isWatching, latestMessageId, markSeen.mutate])
 
   const canModerate =
     group.current_user_role === 'owner' || group.current_user_role === 'admin'

@@ -16,7 +16,7 @@ from app.schemas.notification import NotificationType
 from app.services.group_service import GroupService
 from app.services.notification_service import NotificationService
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 # Candidate @mention spans. Usernames are stored lowercase and constrained only
@@ -215,15 +215,48 @@ class MessageService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
         return message
 
+    def unread_counts(self, user: User) -> dict[int, int]:
+        """Unread message counts per group for one user.
+
+        Counts messages newer than the reader's marker, from anyone but
+        themselves, that still exist. Returned as a mapping so the caller can
+        ask about any of the user's groups from a single query rather than one
+        request per group.
+
+        Groups with nothing unread are omitted entirely.
+        """
+        stmt = (
+            select(Message.group_id, func.count(Message.id))
+            .join(group_members, group_members.c.group_id == Message.group_id)
+            .where(
+                group_members.c.user_id == user.id,
+                # is_distinct_from, not !=: a message whose author deleted their
+                # account has a null user_id, and `null != me` is null, which
+                # would silently drop it from the count.
+                Message.user_id.is_distinct_from(user.id),
+                Message.deleted_at.is_(None),
+                # A null marker means the member joined an empty room, so
+                # everything since counts. Joining a room that already had
+                # history starts the marker at its newest message instead —
+                # see GroupService._start_chat_read_marker.
+                Message.id > func.coalesce(group_members.c.last_read_message_id, 0),
+            )
+            .group_by(Message.group_id)
+        )
+        return {group_id: count for group_id, count in self.db.execute(stmt).all()}
+
     # ==================== UPDATE ====================
 
-    def mark_mentions_seen(self, group_id: int, user: User) -> int:
-        """Retire this user's unread mention notifications for a group's chat.
+    def mark_chat_seen(
+        self, group_id: int, user: User, last_message_id: int | None = None
+    ) -> int:
+        """Record that the user is looking at a group's chat.
 
-        Called when the chat is actually on screen. A mention is a pointer to a
-        message; once the user is looking at the conversation the pointer has
-        served its purpose, so leaving it in the bell just makes them dismiss
-        something they have already read.
+        Does two things that always belong together: advances their read marker
+        so the unread badge clears, and retires the mention notifications that
+        were pointing them here. A mention is a pointer to a message; once they
+        are reading the conversation the pointer has served its purpose, and
+        leaving it in the bell just makes them dismiss what they have read.
 
         Only ``mentioned_in_chat`` notifications are touched — sitting in chat
         never clears a review or invitation notification for the same group.
@@ -235,6 +268,23 @@ class MessageService:
             How many notifications were still unread and got cleared.
         """
         self.group_service.require_membership(user.id, group_id)
+
+        if last_message_id is not None:
+            self.db.execute(
+                update(group_members)
+                .where(
+                    group_members.c.group_id == group_id,
+                    group_members.c.user_id == user.id,
+                    # Only ever forwards. Two tabs, or a second device that has
+                    # read further, must not be able to rewind the marker and
+                    # resurrect messages the user has already seen.
+                    func.coalesce(group_members.c.last_read_message_id, 0)
+                    < last_message_id,
+                )
+                .values(last_read_message_id=last_message_id)
+            )
+            self.db.commit()
+
         return self.notification_service.mark_read_for_group(
             user, group_id, NotificationType.mentioned_in_chat
         )

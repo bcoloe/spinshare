@@ -6,6 +6,7 @@ from app.models.group import GroupRole, group_members
 from app.schemas.message import MessageCreate
 from app.schemas.notification import NotificationType
 from fastapi import HTTPException, status
+from sqlalchemy import select
 
 
 def _post(service, group, user, body: str) -> Message:
@@ -193,14 +194,189 @@ class TestGetHistory:
         assert [m.body for m in history] == ["in first"]
 
 
-class TestMarkMentionsSeen:
+class TestUnreadCounts:
+    def test_counts_messages_from_others(
+        self, message_service, sample_group, sample_user, group_member
+    ):
+        for body in ("one", "two", "three"):
+            _post(message_service, sample_group, sample_user, body)
+
+        assert message_service.unread_counts(group_member) == {sample_group.id: 3}
+
+    def test_ignores_your_own_messages(
+        self, message_service, sample_group, sample_user, group_member
+    ):
+        _post(message_service, sample_group, sample_user, "mine")
+        _post(message_service, sample_group, group_member, "also mine")
+
+        # sample_user sees only group_member's message, and vice versa.
+        assert message_service.unread_counts(sample_user) == {sample_group.id: 1}
+        assert message_service.unread_counts(group_member) == {sample_group.id: 1}
+
+    def test_groups_with_nothing_unread_are_omitted(
+        self, message_service, sample_group, group_member
+    ):
+        assert message_service.unread_counts(group_member) == {}
+
+    def test_marking_seen_clears_the_count(
+        self, message_service, sample_group, sample_user, group_member
+    ):
+        posted = [_post(message_service, sample_group, sample_user, str(i)) for i in range(3)]
+
+        message_service.mark_chat_seen(sample_group.id, group_member, posted[-1].id)
+
+        assert message_service.unread_counts(group_member) == {}
+
+    def test_counts_only_what_arrived_after_the_marker(
+        self, message_service, sample_group, sample_user, group_member
+    ):
+        posted = [_post(message_service, sample_group, sample_user, str(i)) for i in range(5)]
+
+        message_service.mark_chat_seen(sample_group.id, group_member, posted[1].id)
+
+        assert message_service.unread_counts(group_member) == {sample_group.id: 3}
+
+    def test_deleted_messages_do_not_count(
+        self, message_service, sample_group, sample_user, group_member
+    ):
+        first = _post(message_service, sample_group, sample_user, "oops")
+        _post(message_service, sample_group, sample_user, "kept")
+
+        message_service.delete_message(first.id, sample_user)
+
+        assert message_service.unread_counts(group_member) == {sample_group.id: 1}
+
+    def test_a_deleted_authors_message_still_counts(
+        self, message_service, db_session, sample_group, sample_user, group_member
+    ):
+        # user_id goes null when the author deletes their account. A naive
+        # `user_id != me` would evaluate to null and silently drop the row.
+        message = _post(message_service, sample_group, sample_user, "orphaned")
+        message.user_id = None
+        db_session.commit()
+
+        assert message_service.unread_counts(group_member) == {sample_group.id: 1}
+
+    def test_counts_are_reported_per_group(
+        self, message_service, db_session, sample_group, sample_user, group_member, group_factory
+    ):
+        other = group_factory(name="Other", user=sample_user)
+        db_session.execute(
+            group_members.insert().values(
+                group_id=other.id, user_id=group_member.id, role=GroupRole.Member.value
+            )
+        )
+        db_session.commit()
+        _post(message_service, sample_group, sample_user, "here")
+        for body in ("a", "b"):
+            _post(message_service, other, sample_user, body)
+
+        assert message_service.unread_counts(group_member) == {
+            sample_group.id: 1,
+            other.id: 2,
+        }
+
+    def test_groups_you_are_not_in_are_invisible(
+        self, message_service, sample_group, sample_user, user_factory
+    ):
+        outsider = user_factory(email="out@test.com", username="outsider")
+        _post(message_service, sample_group, sample_user, "members only")
+
+        assert message_service.unread_counts(outsider) == {}
+
+    def test_a_new_member_does_not_inherit_the_backlog(
+        self, message_service, sample_group, sample_user, user_factory
+    ):
+        for body in ("old one", "old two"):
+            _post(message_service, sample_group, sample_user, body)
+
+        # Joining through the real path, after those messages were posted.
+        latecomer = user_factory(email="late@test.com", username="latecomer")
+        message_service.group_service.add_user(sample_group.id, latecomer.id)
+
+        assert message_service.unread_counts(latecomer) == {}
+
+        _post(message_service, sample_group, sample_user, "after you joined")
+        assert message_service.unread_counts(latecomer) == {sample_group.id: 1}
+
+    def test_joining_an_empty_room_counts_everything_after(
+        self, message_service, sample_group, sample_user, user_factory
+    ):
+        early = user_factory(email="early@test.com", username="earlybird")
+        message_service.group_service.add_user(sample_group.id, early.id)
+
+        _post(message_service, sample_group, sample_user, "first ever")
+
+        assert message_service.unread_counts(early) == {sample_group.id: 1}
+
+
+class TestReadMarker:
+    def _marker(self, db_session, group_id, user_id):
+        return db_session.execute(
+            select(group_members.c.last_read_message_id).where(
+                group_members.c.group_id == group_id,
+                group_members.c.user_id == user_id,
+            )
+        ).scalar()
+
+    def test_advances_to_the_given_message(
+        self, message_service, db_session, sample_group, sample_user, group_member
+    ):
+        message = _post(message_service, sample_group, sample_user, "hello")
+
+        message_service.mark_chat_seen(sample_group.id, group_member, message.id)
+
+        assert self._marker(db_session, sample_group.id, group_member.id) == message.id
+
+    def test_never_moves_backwards(
+        self, message_service, db_session, sample_group, sample_user, group_member
+    ):
+        posted = [_post(message_service, sample_group, sample_user, str(i)) for i in range(3)]
+
+        message_service.mark_chat_seen(sample_group.id, group_member, posted[2].id)
+        # A stale second tab reports an older position — it must not rewind.
+        message_service.mark_chat_seen(sample_group.id, group_member, posted[0].id)
+
+        assert self._marker(db_session, sample_group.id, group_member.id) == posted[2].id
+
+    def test_omitting_the_id_leaves_the_marker_alone(
+        self, message_service, db_session, sample_group, sample_user, group_member
+    ):
+        message = _post(message_service, sample_group, sample_user, "hello")
+        message_service.mark_chat_seen(sample_group.id, group_member, message.id)
+
+        message_service.mark_chat_seen(sample_group.id, group_member)
+
+        assert self._marker(db_session, sample_group.id, group_member.id) == message.id
+
+    def test_is_per_member(
+        self, message_service, db_session, sample_group, sample_user, group_member
+    ):
+        message = _post(message_service, sample_group, sample_user, "hello")
+
+        message_service.mark_chat_seen(sample_group.id, group_member, message.id)
+
+        assert self._marker(db_session, sample_group.id, sample_user.id) is None
+
+    def test_non_member_cannot_advance_a_marker(
+        self, message_service, sample_group, user_factory
+    ):
+        outsider = user_factory(email="out@test.com", username="outsider")
+
+        with pytest.raises(HTTPException) as exc:
+            message_service.mark_chat_seen(sample_group.id, outsider, 1)
+
+        assert exc.value.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestMarkChatSeen:
     def test_clears_unread_mentions_for_the_group(
         self, message_service, sample_group, sample_user, group_member
     ):
         _post(message_service, sample_group, sample_user, f"@{group_member.username} listen")
         assert len(message_service.notification_service.get_unread(group_member)) == 1
 
-        cleared = message_service.mark_mentions_seen(sample_group.id, group_member)
+        cleared = message_service.mark_chat_seen(sample_group.id, group_member)
 
         assert cleared == 1
         assert message_service.notification_service.get_unread(group_member) == []
@@ -218,7 +394,7 @@ class TestMarkMentionsSeen:
         _post(message_service, sample_group, sample_user, f"@{group_member.username} here")
         _post(message_service, other, sample_user, f"@{group_member.username} and here")
 
-        message_service.mark_mentions_seen(sample_group.id, group_member)
+        message_service.mark_chat_seen(sample_group.id, group_member)
 
         remaining = message_service.notification_service.get_unread(group_member)
         assert [n.group_id for n in remaining] == [other.id]
@@ -237,7 +413,7 @@ class TestMarkMentionsSeen:
         db_session.add(review)
         db_session.commit()
 
-        cleared = message_service.mark_mentions_seen(sample_group.id, group_member)
+        cleared = message_service.mark_chat_seen(sample_group.id, group_member)
 
         assert cleared == 0
         unread = message_service.notification_service.get_unread(group_member)
@@ -248,21 +424,21 @@ class TestMarkMentionsSeen:
     ):
         _post(message_service, sample_group, sample_user, f"@{group_member.username} hi")
 
-        message_service.mark_mentions_seen(sample_group.id, sample_user)
+        message_service.mark_chat_seen(sample_group.id, sample_user)
 
         assert len(message_service.notification_service.get_unread(group_member)) == 1
 
     def test_is_idempotent(self, message_service, sample_group, sample_user, group_member):
         _post(message_service, sample_group, sample_user, f"@{group_member.username} hi")
 
-        assert message_service.mark_mentions_seen(sample_group.id, group_member) == 1
-        assert message_service.mark_mentions_seen(sample_group.id, group_member) == 0
+        assert message_service.mark_chat_seen(sample_group.id, group_member) == 1
+        assert message_service.mark_chat_seen(sample_group.id, group_member) == 0
 
     def test_non_member_cannot_clear(self, message_service, sample_group, user_factory):
         outsider = user_factory(email="out@test.com", username="outsider")
 
         with pytest.raises(HTTPException) as exc:
-            message_service.mark_mentions_seen(sample_group.id, outsider)
+            message_service.mark_chat_seen(sample_group.id, outsider)
 
         assert exc.value.status_code == status.HTTP_403_FORBIDDEN
 

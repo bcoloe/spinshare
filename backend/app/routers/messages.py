@@ -6,7 +6,9 @@ from app.realtime.connection_manager import manager
 from app.schemas.message import (
     DEFAULT_HISTORY_LIMIT,
     MAX_HISTORY_LIMIT,
+    ChatSeenRequest,
     ChatTicketResponse,
+    GroupUnread,
     MessageCreate,
     MessageResponse,
     PresenceMember,
@@ -84,16 +86,37 @@ def delete_message(
 @router.post("/groups/{group_id}/chat/seen", status_code=status.HTTP_204_NO_CONTENT)
 def mark_chat_seen(
     group_id: int,
+    data: ChatSeenRequest | None = None,
     current_user: User = Depends(get_current_user),
     message_service: MessageService = Depends(get_message_service),
 ):
-    """Clear unread @mention notifications for a group whose chat is on screen.
+    """Record that a group's chat is on screen.
 
-    The client calls this when the chat panel is open and visible, so mentions
-    the user has demonstrably already read never pile up in the notification
-    bell. Idempotent — clearing nothing is a normal, successful outcome.
+    The client calls this while the chat panel is open and visible. It advances
+    the caller's read marker so the unread badge clears, and retires the
+    @mention notifications that were pointing them at this conversation, so
+    neither piles up behind someone who is already reading.
+
+    Idempotent — a call that clears nothing is a normal, successful outcome.
     """
-    message_service.mark_mentions_seen(group_id, current_user)
+    message_service.mark_chat_seen(
+        group_id, current_user, data.last_message_id if data else None
+    )
+
+
+@router.get("/chat/unread", response_model=list[GroupUnread])
+def get_unread_counts(
+    current_user: User = Depends(get_current_user),
+    message_service: MessageService = Depends(get_message_service),
+):
+    """Unread chat counts across every group the caller belongs to.
+
+    Answered in one query for all groups rather than one request per group, so
+    a badge can be shown anywhere the user's groups are listed without the
+    number of requests growing with the number of groups.
+    """
+    counts = message_service.unread_counts(current_user)
+    return [GroupUnread(group_id=gid, count=count) for gid, count in counts.items()]
 
 
 @router.get("/groups/{group_id}/presence", response_model=list[PresenceMember])

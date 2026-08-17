@@ -193,24 +193,45 @@ class TestDeleteMessage:
 
 class TestMarkChatSeen:
     def test_clears_mentions_for_the_group(self, chat_client, mock_message_service, mock_user):
-        mock_message_service.mark_mentions_seen.return_value = 2
+        mock_message_service.mark_chat_seen.return_value = 2
 
         resp = chat_client.post("/groups/7/chat/seen")
 
         assert resp.status_code == 204
-        mock_message_service.mark_mentions_seen.assert_called_once_with(7, mock_user)
+        mock_message_service.mark_chat_seen.assert_called_once_with(7, mock_user, None)
+
+    def test_advances_the_read_marker(self, chat_client, mock_message_service, mock_user):
+        mock_message_service.mark_chat_seen.return_value = 0
+
+        resp = chat_client.post("/groups/7/chat/seen", json={"last_message_id": 42})
+
+        assert resp.status_code == 204
+        mock_message_service.mark_chat_seen.assert_called_once_with(7, mock_user, 42)
+
+    def test_null_marker_is_accepted(self, chat_client, mock_message_service, mock_user):
+        # An empty room has no message to mark, but its mentions can still clear.
+        resp = chat_client.post("/groups/7/chat/seen", json={"last_message_id": None})
+
+        assert resp.status_code == 204
+        mock_message_service.mark_chat_seen.assert_called_once_with(7, mock_user, None)
+
+    def test_nonsense_marker_is_rejected(self, chat_client, mock_message_service):
+        resp = chat_client.post("/groups/7/chat/seen", json={"last_message_id": 0})
+
+        assert resp.status_code == 422
+        mock_message_service.mark_chat_seen.assert_not_called()
 
     def test_clearing_nothing_still_succeeds(self, chat_client, mock_message_service):
         # The client fires this on every chat open, so "no unread mentions" is
         # the common case and must not read as an error.
-        mock_message_service.mark_mentions_seen.return_value = 0
+        mock_message_service.mark_chat_seen.return_value = 0
 
         resp = chat_client.post("/groups/7/chat/seen")
 
         assert resp.status_code == 204
 
     def test_enforces_membership(self, chat_client, mock_message_service):
-        mock_message_service.mark_mentions_seen.side_effect = HTTPException(
+        mock_message_service.mark_chat_seen.side_effect = HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="You must be a member of this group"
         )
 
@@ -220,6 +241,29 @@ class TestMarkChatSeen:
 
     def test_requires_auth(self, unauthed_chat_client):
         resp = unauthed_chat_client.post("/groups/7/chat/seen")
+        assert resp.status_code == 401
+
+
+class TestUnreadCounts:
+    def test_returns_a_count_per_group(self, chat_client, mock_message_service, mock_user):
+        mock_message_service.unread_counts.return_value = {3: 5, 7: 1}
+
+        resp = chat_client.get("/chat/unread")
+
+        assert resp.status_code == 200
+        assert {r["group_id"]: r["count"] for r in resp.json()} == {3: 5, 7: 1}
+        mock_message_service.unread_counts.assert_called_once_with(mock_user)
+
+    def test_nothing_unread_is_an_empty_list(self, chat_client, mock_message_service):
+        mock_message_service.unread_counts.return_value = {}
+
+        resp = chat_client.get("/chat/unread")
+
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_requires_auth(self, unauthed_chat_client):
+        resp = unauthed_chat_client.get("/chat/unread")
         assert resp.status_code == 401
 
 

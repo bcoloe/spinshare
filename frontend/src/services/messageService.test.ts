@@ -73,6 +73,39 @@ describe('messageService', () => {
     expect(mockFetch.mock.calls[0][1].method).toBe('POST')
   })
 
+  it('sends the read marker when one is given', async () => {
+    mockFetch.mockResolvedValue(new Response(null, { status: 204 }))
+    await messageService.markChatSeen(7, 42)
+
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ last_message_id: 42 })
+  })
+
+  it('sends an explicit null marker when none is given', async () => {
+    mockFetch.mockResolvedValue(new Response(null, { status: 204 }))
+    await messageService.markChatSeen(7)
+
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ last_message_id: null })
+  })
+
+  it('keys unread counts by group id', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse([
+        { group_id: 3, count: 5 },
+        { group_id: 7, count: 1 },
+      ]),
+    )
+
+    const counts = await messageService.getUnreadCounts()
+
+    expect(requestedUrl()).toBe('/api/chat/unread')
+    expect(counts).toEqual({ 3: 5, 7: 1 })
+  })
+
+  it('returns an empty map when nothing is unread', async () => {
+    mockFetch.mockResolvedValue(jsonResponse([]))
+    expect(await messageService.getUnreadCounts()).toEqual({})
+  })
+
   it('requests a socket ticket by POST', async () => {
     mockFetch.mockResolvedValue(jsonResponse({ ticket: 't', expires_in: 30 }))
     const result = await messageService.createTicket()

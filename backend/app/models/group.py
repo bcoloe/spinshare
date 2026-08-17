@@ -42,6 +42,19 @@ group_members = Table(
     Column("user_id", Integer, ForeignKey("users.id")),
     Column("joined_at", DateTime(timezone=True), server_default=func.now()),
     Column("role", String, nullable=False, server_default=GroupRole.Member.value),
+    # How far this member has read in the group's chat. Null means "never
+    # opened it", which is read as no-messages-seen and bounded by joined_at
+    # so a new member does not inherit the whole backlog as unread.
+    #
+    # Lives here rather than in its own table because this row already *is*
+    # the user-in-group relationship, and read position is an attribute of
+    # exactly that: it should come into being and be cleaned up with the
+    # membership, which a foreign key to a separate table would not guarantee.
+    #
+    # Intentionally not a foreign key to messages.id — a read marker pointing
+    # at a message that was later hard-deleted should decay to "read up to
+    # roughly here", not cascade or block the delete.
+    Column("last_read_message_id", Integer, nullable=True),
 )
 
 

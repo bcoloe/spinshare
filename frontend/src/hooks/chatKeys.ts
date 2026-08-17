@@ -8,4 +8,6 @@
 export const chatKeys = {
   messages: (groupId: number) => ['chat', groupId, 'messages'] as const,
   presence: (groupId: number) => ['chat', groupId, 'presence'] as const,
+  /** Unread counts for every group at once, keyed by group id. */
+  unread: () => ['chat', 'unread'] as const,
 }
