@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Badge, Group, Skeleton, Stack, Text, Tooltip } from '@mantine/core'
 import { IconCircleFilled, IconPlugConnectedX } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
@@ -20,10 +20,13 @@ import MessageComposer from './MessageComposer'
 import MessageList from './MessageList'
 
 /**
- * How long to let a burst of messages settle before persisting the read marker.
- * Short enough that closing the panel right after reading still records it.
+ * How often an open conversation records its read position as a fallback.
+ *
+ * The real triggers are opening and closing the panel; this only covers the
+ * sessions that never get to close cleanly — a killed tab, a sleeping laptop.
+ * Long enough that sitting in chat all afternoon is a handful of writes.
  */
-const SEEN_DEBOUNCE_MS = 800
+const SEEN_SAFETY_NET_MS = 60_000
 
 interface Props {
   group: GroupDetailResponse
@@ -72,6 +75,17 @@ export default function ChatPanel({ group, members, showPresence = true }: Props
 
   const latestMessageId = messages.length ? messages[messages.length - 1].id : 0
 
+  // The newest message that pings this user. Mentions are the one thing worth
+  // writing promptly for, because clearing them is what empties the bell — and
+  // they are rare enough to cost nothing.
+  const latestMentionId = useMemo(() => {
+    if (!user) return 0
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].mentions.some((m) => m.user_id === user.id)) return messages[i].id
+    }
+    return 0
+  }, [messages, user])
+
   // Acknowledged up to this message id. Null means "nothing acknowledged for
   // this group yet", which is what makes opening the chat clear whatever was
   // already waiting.
@@ -80,23 +94,47 @@ export default function ChatPanel({ group, members, showPresence = true }: Props
     acknowledged.current = null
   }, [group.id])
 
-  useEffect(() => {
-    // Deliberately does not fire while the tab is backgrounded: a message that
-    // arrives then is still unread, and stays counted until the user comes back
-    // to the conversation.
-    if (!isWatching) return
+  // Held in a ref so every trigger below reads the current position without
+  // each of them having to re-subscribe when a message arrives — which is the
+  // whole point: a message landing must not itself cause a write.
+  const flushRef = useRef<() => void>(() => {})
+  flushRef.current = () => {
+    if (!isMember) return
     if (acknowledged.current === latestMessageId) return
+    acknowledged.current = latestMessageId
+    // An empty room has no message to mark, but its mentions can still clear.
+    markSeen.mutate(latestMessageId || undefined)
+  }
 
-    // Debounced because the marker now advances on every message rather than
-    // only on mentions — a brisk exchange would otherwise be one write per
-    // message. The cleanup restarts the timer, so a burst settles into one call.
-    const timer = setTimeout(() => {
-      acknowledged.current = latestMessageId
-      // An empty room has no message to mark, but its mentions can still clear.
-      markSeen.mutate(latestMessageId || undefined)
-    }, SEEN_DEBOUNCE_MS)
-    return () => clearTimeout(timer)
-  }, [isWatching, latestMessageId, markSeen.mutate])
+  // Opening the conversation, and returning to the tab. Deliberately not on
+  // every message: while the panel is open the badge is already clear locally,
+  // so the marker only has to be durable, not instant.
+  //
+  // Waits for the first page, since flushing before it lands would spend a
+  // write recording a position we do not know yet.
+  useEffect(() => {
+    if (!isWatching || isLoading) return
+    flushRef.current()
+  }, [isWatching, isLoading])
+
+  // A mention is the exception — the bell should empty while they are reading.
+  useEffect(() => {
+    if (!isWatching || !latestMentionId) return
+    flushRef.current()
+  }, [isWatching, latestMentionId])
+
+  // Safety net for a long reading session. A tab that is closed abruptly, or a
+  // laptop that sleeps, never runs the cleanup below, so progress would
+  // otherwise be lost back to whatever was last recorded.
+  useEffect(() => {
+    if (!isWatching) return
+    const timer = setInterval(() => flushRef.current(), SEEN_SAFETY_NET_MS)
+    return () => clearInterval(timer)
+  }, [isWatching])
+
+  // Leaving the conversation — the ordinary path, and the one that records the
+  // final position.
+  useEffect(() => () => flushRef.current(), [group.id])
 
   const canModerate =
     group.current_user_role === 'owner' || group.current_user_role === 'admin'

@@ -75,11 +75,11 @@ export default function GroupPage() {
   // straight into an open conversation (/groups/:id?chat=1).
   const chatOpen = searchParams.get('chat') === '1'
 
-  const unreadChat = useChatUnread(gid)
+  const hasUnreadChat = useChatUnread(gid) > 0
   const chatTooltip = chatOpen
     ? 'Hide chat'
-    : unreadChat > 0
-      ? `${unreadChat} new message${unreadChat === 1 ? '' : 's'}`
+    : hasUnreadChat
+      ? 'New messages'
       : 'Open group chat'
 
   const setChatOpen = (open: boolean) => {
@@ -346,12 +346,16 @@ export default function GroupPage() {
             </Tooltip>
 
             <Tooltip label={chatTooltip} position="top">
+              {/* A plain dot, not a count: the only thing worth conveying is
+                  whether there is anything new. An exact number invites reading
+                  it as a to-do list, and it would be wrong the moment someone
+                  reads on another device. */}
               <Indicator
-                disabled={unreadChat === 0}
-                label={unreadChat > 99 ? '99+' : unreadChat}
-                size={18}
-                offset={4}
+                disabled={!hasUnreadChat}
+                size={12}
+                offset={5}
                 color="violet"
+                withBorder
               >
                 <ActionIcon
                   size="xl"
