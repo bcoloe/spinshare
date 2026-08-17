@@ -6,7 +6,13 @@ After=network.target
 Type=simple
 User=spinshare
 WorkingDirectory=/opt/spinshare/backend
-ExecStart=/opt/spinshare/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2
+# Must stay at one worker. Chat presence and message fan-out are held in
+# process memory, so each additional worker is an island: two members whose
+# sockets land on different workers never see each other online and never
+# receive each other's messages. It fails quietly — everything looks up, the
+# room just appears empty — which is why this is pinned rather than tuned.
+# Raising it requires moving fan-out to a shared broker (e.g. Redis pub/sub).
+ExecStart=/opt/spinshare/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 EnvironmentFile=/opt/spinshare/backend/.env
 Restart=always
 RestartSec=3
