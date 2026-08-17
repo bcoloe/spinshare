@@ -8,6 +8,7 @@ from .group_recap import GroupRecap
 from .group_settings import GroupSettings
 from .invitation import GroupInvitation
 from .invite_link import GroupInviteLink
+from .message import Message, MessageMention
 from .nomination_guess import NominationGuess
 from .notification import Notification
 from .participation import GroupParticipation, PriorityReviewCredit
@@ -30,6 +31,8 @@ __all__ = [
     "GroupSettings",
     "GroupInvitation",
     "GroupInviteLink",
+    "Message",
+    "MessageMention",
     "NominationGuess",
     "Notification",
     "GroupParticipation",

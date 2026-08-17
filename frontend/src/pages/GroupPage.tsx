@@ -7,6 +7,7 @@ import {
   Box,
   Button,
   Group,
+  Indicator,
   Paper,
   ScrollArea,
   SegmentedControl,
@@ -19,7 +20,7 @@ import {
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useDisclosure, useMediaQuery } from '@mantine/hooks'
-import { IconDoorExit, IconLock, IconPlus, IconSettings, IconStar, IconStarFilled, IconUserPlus, IconUsersGroup } from '@tabler/icons-react'
+import { IconDoorExit, IconLock, IconMessageCircle, IconPlus, IconSettings, IconStar, IconStarFilled, IconUserPlus, IconUsersGroup } from '@tabler/icons-react'
 import AppShell from '../components/layout/AppShell'
 import TodaysSpin from '../components/spin/TodaysSpin'
 import ReviewHistory from '../components/groups/ReviewHistory'
@@ -27,10 +28,13 @@ import GroupInfo from '../components/groups/GroupInfo'
 import LeaveGroupModal from '../components/groups/LeaveGroupModal'
 import InviteUserModal from '../components/groups/InviteUserModal'
 import MyNominations from '../components/groups/MyNominations'
+import ChatOverlay from '../components/chat/ChatOverlay'
+import PresenceBadge from '../components/chat/PresenceBadge'
 import ParticipationMeter from '../components/groups/ParticipationMeter'
 import AlbumSearchModal from '../components/albums/AlbumSearchModal'
 import { useGroup, useGroupMembers, useJoinGroup } from '../hooks/useGroups'
 import { useGroupHistory, useNominationCount } from '../hooks/useAlbums'
+import { useChatUnread } from '../hooks/useChat'
 import { useFavoriteGroup } from '../context/FavoriteGroupContext'
 import { useAuth } from '../hooks/useAuth'
 import { ApiError } from '../services/apiClient'
@@ -66,6 +70,26 @@ export default function GroupPage() {
   const { data: historyAlbums = [], isLoading: albumsLoading } = useGroupHistory(gid, isMember || canAnonymouslyView)
   const { data: nominationCount } = useNominationCount(gid, isMember)
   const joinGroup = useJoinGroup()
+
+  // Chat open state lives in the URL so a mention notification can deep-link
+  // straight into an open conversation (/groups/:id?chat=1).
+  const chatOpen = searchParams.get('chat') === '1'
+
+  const hasUnreadChat = useChatUnread(gid) > 0
+  const chatTooltip = chatOpen
+    ? 'Hide chat'
+    : hasUnreadChat
+      ? 'New messages'
+      : 'Open group chat'
+
+  const setChatOpen = (open: boolean) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (open) next.set('chat', '1')
+      else next.delete('chat')
+      return next
+    }, { replace: true })
+  }
 
   const { favoriteId, toggleFavorite } = useFavoriteGroup()
 
@@ -135,10 +159,13 @@ export default function GroupPage() {
                   </Badge>
                 )}
               </Group>
-              <Text size="sm" c="dimmed">
-                {group?.is_public ? 'Public' : 'Private'} · {group?.member_count} member
-                {group?.member_count !== 1 ? 's' : ''}
-              </Text>
+              <Group gap="xs">
+                <Text size="sm" c="dimmed">
+                  {group?.is_public ? 'Public' : 'Private'} · {group?.member_count} member
+                  {group?.member_count !== 1 ? 's' : ''}
+                </Text>
+                {isMember && <PresenceBadge groupId={gid} size="xs" onClick={() => setChatOpen(true)} />}
+              </Group>
             </div>
 
             <Group gap="xs">
@@ -297,10 +324,14 @@ export default function GroupPage() {
         </>
       )}
 
-      {isMember && (
-        <>
-          <Tooltip label={canNominate ? 'Nominate an album' : nominateTooltip} position="left">
-            <Affix position={{ bottom: 24, right: 24 }}>
+      {/* The action stack and the chat overlay both want the bottom-right
+          corner. On desktop the stack steps aside so both stay reachable; on
+          mobile the overlay is a full-width sheet, so the stack stands down and
+          the panel's own close button is the way back out. */}
+      {isMember && !(chatOpen && isMobile) && (
+        <Affix position={{ bottom: 24, right: chatOpen ? 420 : 24 }}>
+          <Group gap="sm">
+            <Tooltip label={canNominate ? 'Nominate an album' : nominateTooltip} position="top">
               <ActionIcon
                 size="xl"
                 radius="xl"
@@ -312,11 +343,47 @@ export default function GroupPage() {
               >
                 <IconPlus size={22} />
               </ActionIcon>
-            </Affix>
-          </Tooltip>
+            </Tooltip>
 
-          <AlbumSearchModal groupId={gid} opened={nominateOpened} onClose={closeNominate} />
-        </>
+            <Tooltip label={chatTooltip} position="top">
+              {/* A plain dot, not a count: the only thing worth conveying is
+                  whether there is anything new. An exact number invites reading
+                  it as a to-do list, and it would be wrong the moment someone
+                  reads on another device. */}
+              <Indicator
+                disabled={!hasUnreadChat}
+                size={12}
+                offset={5}
+                color="violet"
+                withBorder
+              >
+                <ActionIcon
+                  size="xl"
+                  radius="xl"
+                  variant={chatOpen ? 'filled' : 'default'}
+                  color="violet"
+                  onClick={() => setChatOpen(!chatOpen)}
+                  aria-label={chatOpen ? 'Hide chat' : 'Open group chat'}
+                >
+                  <IconMessageCircle size={22} />
+                </ActionIcon>
+              </Indicator>
+            </Tooltip>
+          </Group>
+        </Affix>
+      )}
+
+      {isMember && (
+        <AlbumSearchModal groupId={gid} opened={nominateOpened} onClose={closeNominate} />
+      )}
+
+      {group && isMember && (
+        <ChatOverlay
+          group={group}
+          members={members}
+          opened={chatOpen}
+          onClose={() => setChatOpen(false)}
+        />
       )}
     </AppShell>
   )

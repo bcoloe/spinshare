@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.models import User
@@ -87,6 +87,34 @@ class NotificationService:
         self.db.commit()
         self.db.refresh(notification)
         return notification
+
+    def mark_read_for_group(self, user: User, group_id: int, type: NotificationType) -> int:
+        """Mark this user's unread notifications of one type in one group as read.
+
+        Backs "reading the thing clears the badge" flows, where the UI that shows
+        the underlying activity can retire its own notifications instead of
+        making the user dismiss them one by one. Scoped to a single type so, say,
+        watching chat never silently clears an unrelated review notification.
+
+        Issued as a single UPDATE rather than a select-then-loop: this runs on a
+        UI signal (a panel opening, a message arriving) rather than a user
+        action, so it should cost one round trip no matter how many rows match.
+
+        Returns:
+            The number of notifications that were still unread and got marked.
+        """
+        result = self.db.execute(
+            update(Notification)
+            .where(
+                Notification.user_id == user.id,
+                Notification.group_id == group_id,
+                Notification.type == type.value,
+                Notification.read_at.is_(None),
+            )
+            .values(read_at=datetime.now(timezone.utc))
+        )
+        self.db.commit()
+        return result.rowcount
 
     def mark_all_read(self, user: User) -> None:
         """Mark all unread notifications for a user as read."""

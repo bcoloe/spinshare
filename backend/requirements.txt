@@ -2,6 +2,10 @@ SQLAlchemy ~= 2.0.46
 alembic ~= 1.16.0
 httpx ~= 0.28.0
 uvicorn ~= 0.34.0
+# Required for uvicorn to serve WebSockets (the chat socket). Without it uvicorn
+# starts fine and then rejects every upgrade request, so it is not optional.
+# Also supplies the protocol-level ping/pong that reaps half-open connections.
+websockets ~= 15.0
 psycopg2-binary ~= 2.9.11
 pydantic-settings ~= 2.12.0
 pydantic[email] ~= 2.12.0

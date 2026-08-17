@@ -13,12 +13,20 @@ def notification_service(db_session):
     return NotificationService(db_session)
 
 
-def _make_notification(db_session, *, user_id, read=False):
+def _make_notification(
+    db_session,
+    *,
+    user_id,
+    read=False,
+    type=NotificationType.invitation_accepted,
+    group_id=None,
+):
     from datetime import datetime, timezone
     n = Notification(
         user_id=user_id,
-        type=NotificationType.invitation_accepted,
+        type=type,
         message="alice accepted your invitation",
+        group_id=group_id,
         read_at=datetime.now(timezone.utc) if read else None,
     )
     db_session.add(n)
@@ -154,3 +162,97 @@ class TestMarkAllRead:
 
         other_unread = notification_service.get_unread(other)
         assert len(other_unread) == 1
+
+
+class TestMarkReadForGroup:
+    def test_marks_matching_type_and_group(
+        self, db_session, notification_service, sample_user, group_factory
+    ):
+        group = group_factory(name="Bees", user=sample_user)
+        _make_notification(
+            db_session,
+            user_id=sample_user.id,
+            type=NotificationType.mentioned_in_chat,
+            group_id=group.id,
+        )
+
+        cleared = notification_service.mark_read_for_group(
+            sample_user, group.id, NotificationType.mentioned_in_chat
+        )
+
+        assert cleared == 1
+        assert notification_service.get_unread(sample_user) == []
+
+    def test_ignores_other_types_in_the_same_group(
+        self, db_session, notification_service, sample_user, group_factory
+    ):
+        group = group_factory(name="Bees", user=sample_user)
+        _make_notification(
+            db_session,
+            user_id=sample_user.id,
+            type=NotificationType.member_reviewed_album,
+            group_id=group.id,
+        )
+
+        cleared = notification_service.mark_read_for_group(
+            sample_user, group.id, NotificationType.mentioned_in_chat
+        )
+
+        assert cleared == 0
+        assert len(notification_service.get_unread(sample_user)) == 1
+
+    def test_ignores_the_same_type_in_another_group(
+        self, db_session, notification_service, sample_user, group_factory
+    ):
+        group = group_factory(name="Bees", user=sample_user)
+        other = group_factory(name="Wasps", user=sample_user)
+        _make_notification(
+            db_session,
+            user_id=sample_user.id,
+            type=NotificationType.mentioned_in_chat,
+            group_id=other.id,
+        )
+
+        cleared = notification_service.mark_read_for_group(
+            sample_user, group.id, NotificationType.mentioned_in_chat
+        )
+
+        assert cleared == 0
+        assert len(notification_service.get_unread(sample_user)) == 1
+
+    def test_ignores_other_users(
+        self, db_session, notification_service, sample_user, user_factory, group_factory
+    ):
+        group = group_factory(name="Bees", user=sample_user)
+        other = user_factory(email="other@test.com", username="other")
+        _make_notification(
+            db_session,
+            user_id=other.id,
+            type=NotificationType.mentioned_in_chat,
+            group_id=group.id,
+        )
+
+        cleared = notification_service.mark_read_for_group(
+            sample_user, group.id, NotificationType.mentioned_in_chat
+        )
+
+        assert cleared == 0
+        assert len(notification_service.get_unread(other)) == 1
+
+    def test_already_read_notifications_are_not_recounted(
+        self, db_session, notification_service, sample_user, group_factory
+    ):
+        group = group_factory(name="Bees", user=sample_user)
+        _make_notification(
+            db_session,
+            user_id=sample_user.id,
+            type=NotificationType.mentioned_in_chat,
+            group_id=group.id,
+            read=True,
+        )
+
+        cleared = notification_service.mark_read_for_group(
+            sample_user, group.id, NotificationType.mentioned_in_chat
+        )
+
+        assert cleared == 0

@@ -1,9 +1,10 @@
-import { ActionIcon, Avatar, Badge, Group, Skeleton, Stack, Text, UnstyledButton } from '@mantine/core'
+import { ActionIcon, Avatar, Badge, Group, Indicator, Skeleton, Stack, Text, Tooltip, UnstyledButton } from '@mantine/core'
 import { IconUserMinus } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
 import { useNavigate } from 'react-router-dom'
 import { useGroupMembers, useRemoveMember } from '../../hooks/useGroups'
 import { useAuth } from '../../hooks/useAuth'
+import { useGroupPresence } from '../../hooks/useChat'
 import type { GroupDetailResponse } from '../../types/group'
 import { ApiError } from '../../services/apiClient'
 
@@ -18,6 +19,8 @@ export default function MemberList({ group }: Props) {
   const navigate = useNavigate()
   const { data: members, isLoading } = useGroupMembers(group.id)
   const removeMember = useRemoveMember()
+  // Presence is pushed over the shared app socket — no request is made here.
+  const { onlineIds } = useGroupPresence(group.id)
 
   const canManage = group.current_user_role === 'owner' || group.current_user_role === 'admin'
 
@@ -53,9 +56,20 @@ export default function MemberList({ group }: Props) {
           <Group key={m.user_id} justify="space-between">
             <UnstyledButton onClick={() => navigate(`/users/${m.username}`)}>
               <Group gap="sm">
-                <Avatar size="sm" radius="xl" color="violet">
-                  {m.username[0].toUpperCase()}
-                </Avatar>
+                <Tooltip label={onlineIds.has(m.user_id) ? 'Online now' : 'Offline'}>
+                  <Indicator
+                    size={9}
+                    offset={3}
+                    position="bottom-end"
+                    color="teal"
+                    withBorder
+                    disabled={!onlineIds.has(m.user_id)}
+                  >
+                    <Avatar size="sm" radius="xl" color="violet">
+                      {m.username[0].toUpperCase()}
+                    </Avatar>
+                  </Indicator>
+                </Tooltip>
                 <Stack gap={0}>
                   <Group gap="xs">
                     <Text size="sm">{m.username}</Text>

@@ -10,6 +10,7 @@ from app.services.album_service import AlbumService
 from app.services.artist_service import ArtistService
 from app.services.dealer_service import DealerService
 from app.services.group_album_service import GroupAlbumService
+from app.services.message_service import MessageService
 from app.services.review_service import ReviewService
 from app.services.stats_service import StatsService
 from sqlalchemy import update
@@ -132,6 +133,28 @@ def dealer_service(db_session) -> DealerService:
 @pytest.fixture(scope="function")
 def stats_service(db_session) -> StatsService:
     return StatsService(db_session)
+
+
+@pytest.fixture(scope="function")
+def message_service(db_session) -> MessageService:
+    return MessageService(db_session)
+
+
+@pytest.fixture(scope="function")
+def group_member(db_session, sample_group, user_factory) -> User:
+    """A second, non-owner member of ``sample_group``.
+
+    Chat tests need two people in a room far more often than one, and mention
+    resolution is only meaningful against another member.
+    """
+    member = _insert_user(db_session, email="member@test.com", username="member_user")
+    db_session.execute(
+        group_members.insert().values(
+            group_id=sample_group.id, user_id=member.id, role=GroupRole.Member.value
+        )
+    )
+    db_session.commit()
+    return member
 
 
 @pytest.fixture(scope="function")

@@ -8,16 +8,17 @@ from app.models import User
 from app.services.album_service import AlbumService
 from app.services.artist_service import ArtistService
 from app.services.dealer_service import DealerService
+from app.services.explore_service import ExploreService
 from app.services.group_album_service import GroupAlbumService
 from app.services.group_service import GroupService
 from app.services.invitation_service import InvitationService
 from app.services.invite_link_service import InviteLinkService
+from app.services.message_service import MessageService
 from app.services.notification_service import NotificationService
 from app.services.participation_service import ParticipationService
-from app.services.review_service import ReviewService
-from app.services.explore_service import ExploreService
 from app.services.public_spin_service import PublicSpinService
 from app.services.recap_service import RecapService
+from app.services.review_service import ReviewService
 from app.services.stats_service import StatsService
 from app.services.user_service import UserService
 from app.utils.security import decode_access_token
@@ -79,6 +80,11 @@ def get_invitation_service(db: Session = Depends(get_db)) -> InvitationService:
 def get_invite_link_service(db: Session = Depends(get_db)) -> InviteLinkService:
     """Dependency to get InviteLinkService"""
     return InviteLinkService(db)
+
+
+def get_message_service(db: Session = Depends(get_db)) -> MessageService:
+    """Dependency to get MessageService"""
+    return MessageService(db)
 
 
 def get_stats_service(db: Session = Depends(get_db)) -> StatsService:

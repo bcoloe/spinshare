@@ -3,7 +3,16 @@
 from collections import Counter, defaultdict
 from datetime import datetime
 
-from app.models import AlbumDeal, Group, GroupAlbum, GroupSettings, NominationGuess, User, group_members
+from app.models import (
+    AlbumDeal,
+    Group,
+    GroupAlbum,
+    GroupSettings,
+    Message,
+    NominationGuess,
+    User,
+    group_members,
+)
 from app.models.group import GroupRole
 from app.schemas.group import (
     GroupCreate,
@@ -66,6 +75,36 @@ class GroupService:
 
     # ==================== ADD ====================
 
+    def _start_chat_read_marker(self, group_id: int, user_id: int) -> None:
+        """Start a new member's chat read position at the group's newest message.
+
+        Joining a conversation means starting from now. Without this the member
+        would arrive to a badge counting every message the group has ever sent,
+        and would have to open the chat purely to dismiss a backlog that was
+        never theirs to read.
+
+        Anchored to a message id rather than to ``joined_at`` so the whole
+        feature reasons about one monotonic ordering. Timestamps would put a
+        second, fuzzier rule next to it — and ``now()`` is the transaction
+        start in Postgres, so a join and a message written close together are
+        not reliably ordered by it.
+        """
+        newest = self.db.execute(
+            select(func.max(Message.id)).where(Message.group_id == group_id)
+        ).scalar()
+        if newest is None:
+            return  # No messages yet; null already reads as "nothing unread".
+
+        self.db.execute(
+            update(group_members)
+            .where(
+                group_members.c.group_id == group_id,
+                group_members.c.user_id == user_id,
+            )
+            .values(last_read_message_id=newest)
+        )
+        self.db.commit()
+
     def add_user(self, group_id: int, user_id: int):
         """Add a user to the group."""
         if self.is_user_in_group(user_id, group_id):
@@ -90,6 +129,8 @@ class GroupService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Add user failed due to constraint violation",
             ) from None
+
+        self._start_chat_read_marker(group_id, user_id)
 
         if existing_member_ids:
             ns = NotificationService(self.db)
