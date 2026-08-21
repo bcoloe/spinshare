@@ -134,6 +134,8 @@ export function useCheckGuess(groupId: number, groupAlbumId: number) {
           return key[0] === 'groups' && key[2] === 'guesses'
         },
       })
+      // Peer guesses are withheld until you've guessed — refetch now that they aren't.
+      qc.invalidateQueries({ queryKey: ['stats', groupId, 'albums', groupAlbumId, 'guesses'] })
     },
   })
 }

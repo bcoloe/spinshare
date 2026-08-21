@@ -125,26 +125,91 @@ class TestAlbumGuessStats:
         _add_guess(db_session, sample_group_album, other, sample_user)   # correct
         _add_guess(db_session, sample_group_album, third, other)          # wrong
 
-        result = stats_service.get_album_guess_stats(sample_group.id, sample_group_album.id)
+        result = stats_service.get_album_guess_stats(
+            sample_group.id, sample_group_album.id, other.id
+        )
 
         assert result.group_album_id == sample_group_album.id
         assert result.nominator_user_id == sample_user.id
         assert result.total_guesses == 2
         assert result.correct_guesses == 1
         assert len(result.guesses) == 2
+        assert result.revealed is True
 
-    def test_album_guess_stats_not_found(self, stats_service, sample_group):
+    def test_album_guess_stats_not_found(self, stats_service, sample_group, sample_user):
         with pytest.raises(HTTPException) as exc_info:
-            stats_service.get_album_guess_stats(sample_group.id, 99999)
+            stats_service.get_album_guess_stats(sample_group.id, 99999, sample_user.id)
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
 
     def test_no_guesses_returns_empty(
-        self, stats_service, sample_group, sample_group_album
+        self, stats_service, sample_group, sample_group_album, sample_user
     ):
-        result = stats_service.get_album_guess_stats(sample_group.id, sample_group_album.id)
+        result = stats_service.get_album_guess_stats(
+            sample_group.id, sample_group_album.id, sample_user.id
+        )
         assert result.total_guesses == 0
         assert result.correct_guesses == 0
         assert result.guesses == []
+        assert result.revealed is True
+
+    def test_hidden_from_member_who_has_not_guessed(
+        self, stats_service, sample_group, sample_group_album, sample_user,
+        sample_group_service, user_factory, db_session,
+    ):
+        other = user_factory(email="other@test.com", username="other_user")
+        third = user_factory(email="third@test.com", username="third_user")
+        sample_group_service.add_user(sample_group.id, other.id)
+        sample_group_service.add_user(sample_group.id, third.id)
+        _mark_selected(db_session, sample_group_album)
+        _add_guess(db_session, sample_group_album, other, sample_user)  # correct
+
+        result = stats_service.get_album_guess_stats(
+            sample_group.id, sample_group_album.id, third.id
+        )
+
+        assert result.revealed is False
+        assert result.guesses == []
+        assert result.total_guesses == 0
+        assert result.correct_guesses == 0
+        assert result.nominator_user_id is None
+        assert result.nominator_username is None
+
+    def test_revealed_once_viewer_has_guessed(
+        self, stats_service, sample_group, sample_group_album, sample_user,
+        sample_group_service, user_factory, db_session,
+    ):
+        other = user_factory(email="other@test.com", username="other_user")
+        third = user_factory(email="third@test.com", username="third_user")
+        sample_group_service.add_user(sample_group.id, other.id)
+        sample_group_service.add_user(sample_group.id, third.id)
+        _mark_selected(db_session, sample_group_album)
+        _add_guess(db_session, sample_group_album, other, sample_user)  # correct
+        _add_guess(db_session, sample_group_album, third, other)         # wrong
+
+        result = stats_service.get_album_guess_stats(
+            sample_group.id, sample_group_album.id, third.id
+        )
+
+        assert result.revealed is True
+        assert len(result.guesses) == 2
+        assert result.nominator_user_id == sample_user.id
+
+    def test_revealed_to_nominator_without_guessing(
+        self, stats_service, sample_group, sample_group_album, sample_user,
+        sample_group_service, user_factory, db_session,
+    ):
+        other = user_factory(email="other@test.com", username="other_user")
+        sample_group_service.add_user(sample_group.id, other.id)
+        _mark_selected(db_session, sample_group_album)
+        _add_guess(db_session, sample_group_album, other, sample_user)
+
+        # sample_user nominated the album, so cannot guess it — nothing to protect
+        result = stats_service.get_album_guess_stats(
+            sample_group.id, sample_group_album.id, sample_user.id
+        )
+
+        assert result.revealed is True
+        assert len(result.guesses) == 1
 
     def test_chaos_guess_in_stats(
         self, stats_service, sample_group, sample_group_album, sample_user,
@@ -162,7 +227,9 @@ class TestAlbumGuessStats:
         db_session.add(chaos_guess)
         db_session.commit()
 
-        result = stats_service.get_album_guess_stats(sample_group.id, sample_group_album.id)
+        result = stats_service.get_album_guess_stats(
+            sample_group.id, sample_group_album.id, other.id
+        )
 
         assert result.total_guesses == 1
         assert len(result.guesses) == 1

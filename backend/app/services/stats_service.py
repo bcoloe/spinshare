@@ -49,8 +49,14 @@ class StatsService:
             accuracy=accuracy,
         )
 
-    def get_album_guess_stats(self, group_id: int, group_album_id: int) -> AlbumGuessStatsResponse:
+    def get_album_guess_stats(
+        self, group_id: int, group_album_id: int, viewer_id: int
+    ) -> AlbumGuessStatsResponse:
         """Per-member guess breakdown for a specific group album.
+
+        Results are withheld until the viewer's own guess is settled — that is,
+        until they have submitted a guess or are the nominator (and so cannot
+        guess). Otherwise the breakdown would hand them the answer.
 
         Raises:
             HTTPException 404: If group album not found.
@@ -64,6 +70,17 @@ class StatsService:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Group album {group_album_id} not found in group {group_id}",
+            )
+
+        if not self._guesses_revealed_to(group_album, viewer_id):
+            return AlbumGuessStatsResponse(
+                group_album_id=group_album_id,
+                nominator_user_id=None,
+                nominator_username=None,
+                total_guesses=0,
+                correct_guesses=0,
+                guesses=[],
+                revealed=False,
             )
 
         guesses = [
@@ -84,11 +101,32 @@ class StatsService:
 
         return AlbumGuessStatsResponse(
             group_album_id=group_album_id,
-            nominator_user_id=nominator.id,
-            nominator_username=nominator.username,
+            nominator_user_id=nominator.id if nominator else None,
+            nominator_username=nominator.username if nominator else None,
             total_guesses=total,
             correct_guesses=correct,
             guesses=guesses,
+            revealed=True,
+        )
+
+    def _guesses_revealed_to(self, group_album: GroupAlbum, viewer_id: int) -> bool:
+        """Whether this album's guesses may be shown to ``viewer_id``.
+
+        True once the viewer can no longer be given an unfair advantage: they
+        have already guessed, or they nominated the album and so are barred
+        from guessing it.
+        """
+        if group_album.added_by == viewer_id:
+            return True
+
+        return (
+            self.db.query(NominationGuess.id)
+            .filter(
+                NominationGuess.group_album_id == group_album.id,
+                NominationGuess.guessing_user_id == viewer_id,
+            )
+            .first()
+            is not None
         )
 
     # ==================== REVIEW SCORES ====================
