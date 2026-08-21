@@ -37,9 +37,12 @@ export interface MemberGuessResult {
 
 export interface AlbumGuessStatsResponse {
   group_album_id: number
-  nominator_user_id: number
-  nominator_username: string
+  nominator_user_id: number | null
+  nominator_username: string | null
   total_guesses: number
   correct_guesses: number
   guesses: MemberGuessResult[]
+  // False when the viewer has yet to guess — the backend withholds the
+  // nominator and per-member results so they cannot be used to cheat.
+  revealed: boolean
 }

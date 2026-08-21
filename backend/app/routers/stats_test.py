@@ -71,6 +71,26 @@ class TestAlbumGuessStats:
         assert body["total_guesses"] == 3
         assert body["correct_guesses"] == 2
         assert body["nominator_username"] == "test_user"
+        assert body["revealed"] is True
+        # current user's id is passed so the service can withhold unsettled guesses
+        mock_svc.get_album_guess_stats.assert_called_once_with(1, 1, 1)
+
+    def test_withheld_response(self, client, mock_svc):
+        mock_svc.get_album_guess_stats.return_value = AlbumGuessStatsResponse(
+            group_album_id=1,
+            nominator_user_id=None,
+            nominator_username=None,
+            total_guesses=0,
+            correct_guesses=0,
+            guesses=[],
+            revealed=False,
+        )
+        resp = client.get("/stats/groups/1/albums/1/guesses")
+        assert resp.status_code == status.HTTP_200_OK
+        body = resp.json()
+        assert body["revealed"] is False
+        assert body["guesses"] == []
+        assert body["nominator_username"] is None
 
     def test_not_found(self, client, mock_svc):
         mock_svc.get_album_guess_stats.side_effect = HTTPException(

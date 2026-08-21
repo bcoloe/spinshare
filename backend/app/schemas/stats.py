@@ -22,11 +22,14 @@ class MemberGuessResult(BaseModel):
 
 class AlbumGuessStatsResponse(BaseModel):
     group_album_id: int
-    nominator_user_id: int
-    nominator_username: str
+    nominator_user_id: int | None
+    nominator_username: str | None
     total_guesses: int
     correct_guesses: int
     guesses: list[MemberGuessResult]
+    # False when the viewer has yet to guess: nominator and per-member results
+    # are withheld so the breakdown cannot be used to cheat.
+    revealed: bool = True
 
 
 class AlbumReviewStatsResponse(BaseModel):

@@ -37,8 +37,11 @@ def get_album_guess_stats(
     current_user: User = Depends(get_current_user),
     svc: StatsService = Depends(get_stats_service),
 ):
-    """Per-member guess breakdown for a group album. Requires group membership."""
-    return svc.get_album_guess_stats(group_id, group_album_id)
+    """Per-member guess breakdown for a group album. Requires group membership.
+
+    Withheld until the caller's own guess is settled (see the service).
+    """
+    return svc.get_album_guess_stats(group_id, group_album_id, current_user.id)
 
 
 @router.get("/albums/{album_id}/reviews", response_model=AlbumReviewStatsResponse)

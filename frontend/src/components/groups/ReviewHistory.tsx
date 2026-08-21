@@ -395,10 +395,16 @@ function PeerReviewPanel({ ga, review, members, groupId, allowGuessing, guessRes
     queryFn: () => albumService.getAllReviews(ga.album_id, groupId),
   })
 
+  const isSelfNominated = currentUserId !== undefined && currentUserId === ga.added_by
+  const canGuess = allowGuessing && !isSelfNominated
+  // Peer guesses would give away the nominator, so only ask for them once this
+  // member's own guess is settled. The backend withholds them regardless.
+  const guessesSettled = !canGuess || guessResult !== undefined
+
   const { data: guessStats } = useQuery({
     queryKey: ['stats', groupId, 'albums', ga.id, 'guesses'],
     queryFn: () => statsService.getAlbumGuessStats(groupId, ga.id),
-    enabled: allowGuessing,
+    enabled: allowGuessing && guessesSettled,
   })
 
   const memberGuessLookup = useMemo(() => {
@@ -431,9 +437,6 @@ function PeerReviewPanel({ ga, review, members, groupId, allowGuessing, guessRes
   )
   const displayReviews = memberReviews.length > 0 ? memberReviews : [review]
 
-  const isSelfNominated = currentUserId !== undefined && currentUserId === ga.added_by
-  const canGuess = allowGuessing && !isSelfNominated
-
   const handleSave = async () => {
     try {
       await updateReview.mutateAsync({
@@ -464,7 +467,7 @@ function PeerReviewPanel({ ga, review, members, groupId, allowGuessing, guessRes
           const isMine = r.user_id === review.user_id
           const isCardExpanded = expandedCards.has(r.id) || (isMine && editMode)
           const previewLine = r.comment?.split('\n')[0]
-          const memberGuess = allowGuessing ? memberGuessLookup.get(r.user_id) : undefined
+          const memberGuess = allowGuessing && guessesSettled ? memberGuessLookup.get(r.user_id) : undefined
 
           return (
             <Paper key={r.id} withBorder p="sm" style={{ background: ratingBg(r.rating ?? 0) }}>
