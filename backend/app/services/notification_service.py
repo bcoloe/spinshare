@@ -1,5 +1,6 @@
 """Notification service."""
 
+from collections.abc import Sequence
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
@@ -37,6 +38,38 @@ class NotificationService:
         self.db.commit()
         self.db.refresh(notification)
         return notification
+
+    def create_many(
+        self,
+        user_ids: Sequence[int],
+        type: NotificationType,
+        message: str,
+        group_id: int | None = None,
+        album_id: int | None = None,
+    ) -> int:
+        """Create the same notification for many users in one transaction.
+
+        ``create`` commits per call, so fanning out to N recipients that way costs
+        N round trips. Every notification with more than one recipient is identical
+        apart from ``user_id``, so they can all go in a single insert + commit.
+
+        Returns the number of notifications created.
+        """
+        if not user_ids:
+            return 0
+
+        self.db.add_all([
+            Notification(
+                user_id=user_id,
+                type=type,
+                message=message,
+                group_id=group_id,
+                album_id=album_id,
+            )
+            for user_id in user_ids
+        ])
+        self.db.commit()
+        return len(user_ids)
 
     # ==================== READ ====================
 

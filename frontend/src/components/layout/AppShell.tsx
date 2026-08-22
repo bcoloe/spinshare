@@ -5,6 +5,7 @@ import {
   Anchor,
   AppShell as MantineAppShell,
   Avatar,
+  Badge,
   Burger,
   Button,
   Divider,
@@ -35,6 +36,7 @@ import {
   IconMessageReport,
   IconPlus,
   IconSearch,
+  IconShield,
   IconStar,
   IconStarFilled,
   IconUser,
@@ -48,6 +50,7 @@ import { useMyGroups, useMyPendingInvitations, useAcceptInvitation, useDeclineIn
 import { useFavoriteGroup } from '../../context/FavoriteGroupContext'
 import { useUnreadNotifications, useMarkNotificationRead, useMarkAllNotificationsRead, useNotificationHistory } from '../../hooks/useNotifications'
 import { useFooterOffset } from '../../hooks/useFooterOffset'
+import { useOpenLinkReportCount } from '../../hooks/useAdmin'
 import { notificationTarget } from '../../utils/notificationTarget'
 import { ApiError } from '../../services/apiClient'
 import CreateGroupModal from '../groups/CreateGroupModal'
@@ -68,6 +71,9 @@ export default function AppShell({ children }: AppShellProps) {
   const showFooter = footerHeight > 0
   const navigate = useNavigate()
   const location = useLocation()
+  // Admins only — nobody else pays for the request.
+  const { data: openReports } = useOpenLinkReportCount(!!user?.is_admin)
+  const openReportCount = openReports?.open_count ?? 0
   const [mobileOpened, { toggle: toggleMobile, close: closeMobile }] = useDisclosure()
   const [desktopOpened, { toggle: toggleDesktop }] = useDisclosure(true)
   const [createOpened, { open: openCreate, close: closeCreate }] = useDisclosure()
@@ -467,6 +473,26 @@ export default function AppShell({ children }: AppShellProps) {
             >
               About
             </Button>
+            {user?.is_admin && (
+              <Button
+                fullWidth
+                variant="subtle"
+                justify="start"
+                leftSection={<IconShield size={16} />}
+                component={Link}
+                to="/admin"
+                color={location.pathname.startsWith('/admin') ? 'orange' : 'gray'}
+                rightSection={
+                  openReportCount > 0 ? (
+                    <Badge size="sm" color="orange" circle>
+                      {openReportCount}
+                    </Badge>
+                  ) : null
+                }
+              >
+                Admin
+              </Button>
+            )}
             {user && (
               <Button
                 fullWidth

@@ -5,6 +5,7 @@ export type NotificationType =
   | 'member_reviewed_album'
   | 'new_member_joined'
   | 'mentioned_in_chat'
+  | 'link_report_submitted'
 
 export interface NotificationResponse {
   id: number

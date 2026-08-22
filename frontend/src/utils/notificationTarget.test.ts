@@ -47,4 +47,11 @@ describe('notificationTarget', () => {
     )
     expect(target).toBeNull()
   })
+
+  it('routes a link report to the admin queue despite having no group', () => {
+    const target = notificationTarget(
+      makeNotification({ type: 'link_report_submitted', group_id: null, album_id: 42 }),
+    )
+    expect(target).toBe('/admin?tab=reports')
+  })
 })

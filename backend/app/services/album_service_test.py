@@ -642,6 +642,39 @@ class TestAlbumServiceUpdateLinks:
             album_service.update_album_links(99999, data)
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_explicit_null_clears_link(self, album_service, sample_album):
+        assert sample_album.spotify_album_id is not None
+
+        data = AlbumLinksUpdate(spotify_album_id=None)
+        result = album_service.update_album_links(sample_album.id, data)
+
+        assert result.spotify_album_id is None
+
+    def test_omitted_field_left_unchanged(self, album_service, sample_album):
+        original = sample_album.spotify_album_id
+
+        # spotify_album_id is absent from the payload entirely, unlike above.
+        data = AlbumLinksUpdate(wikipedia_url="https://en.wikipedia.org/wiki/OK_Computer")
+        result = album_service.update_album_links(sample_album.id, data)
+
+        assert result.spotify_album_id == original
+
+    def test_clearing_skips_conflict_lookup(self, album_service, sample_album):
+        """Nothing can collide with an absent value, so no lookup should happen."""
+        data = AlbumLinksUpdate(spotify_album_id=None)
+        with patch.object(album_service, "get_album_by_spotify_id") as mock_lookup:
+            album_service.update_album_links(sample_album.id, data)
+        mock_lookup.assert_not_called()
+
+    def test_clearing_wikipedia_url(self, album_service, sample_album):
+        album_service.update_album_links(
+            sample_album.id, AlbumLinksUpdate(wikipedia_url="https://en.wikipedia.org/wiki/X")
+        )
+        result = album_service.update_album_links(
+            sample_album.id, AlbumLinksUpdate(wikipedia_url=None)
+        )
+        assert result.wikipedia_url is None
+
 
 class TestBackfillWikipediaUrl:
     """Tests for the self-healing Wikipedia URL backfill."""

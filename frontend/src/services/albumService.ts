@@ -139,6 +139,7 @@ export const albumService = {
       apple_music_album_id?: string | null
       youtube_music_id?: string | null
       artist_url?: string | null
+      wikipedia_url?: string | null
     },
   ): Promise<AlbumResponse> {
     return apiFetch(`/albums/${albumId}`, {

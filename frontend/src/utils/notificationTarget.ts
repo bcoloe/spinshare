@@ -11,6 +11,10 @@ import type { NotificationResponse } from '../types/notification'
  * notification type was added.
  */
 export function notificationTarget(n: NotificationResponse): string | null {
+  // Types that aren't group-scoped have to be handled above the group guard
+  // below, or they'd be treated as having nowhere to go and render unclickable.
+  if (n.type === 'link_report_submitted') return '/admin?tab=reports'
+
   if (!n.group_id) return null
 
   const params = new URLSearchParams()

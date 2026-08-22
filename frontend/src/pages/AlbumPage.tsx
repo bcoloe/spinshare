@@ -8,22 +8,18 @@ import {
   Box,
   Button,
   Group,
-  Modal,
   Paper,
   ScrollArea,
   Skeleton,
   Stack,
   Table,
   Text,
-  TextInput,
   Title,
   Tooltip,
   UnstyledButton,
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
-import { useForm } from '@mantine/form'
 import { notifications } from '@mantine/notifications'
-import { useQueryClient } from '@tanstack/react-query'
 import {
   IconBrandApple,
   IconBrandSpotify,
@@ -36,7 +32,6 @@ import {
   IconHeart,
   IconHeartFilled,
   IconMusic,
-  IconPencil,
   IconPlaylistAdd,
   IconSelector,
 } from '@tabler/icons-react'
@@ -51,6 +46,7 @@ import {
   YAxis,
 } from 'recharts'
 import AppShell from '../components/layout/AppShell'
+import LinkRepairControl from '../components/albums/LinkRepairControl'
 import NominationBadge from '../components/albums/NominationBadge'
 import PlaylistPickerModal, { type PickablePlaylist } from '../components/spin/PlaylistPickerModal'
 import ReviewForm from '../components/spin/ReviewForm'
@@ -59,7 +55,6 @@ import { usePlayer } from '../context/PlayerContext'
 import { useAuth } from '../hooks/useAuth'
 import { useMyReview } from '../hooks/useDailySpin'
 import { useAlbumDetails, useAlbumReviews, useAlbumStats } from '../hooks/useAlbumPage'
-import { albumService } from '../services/albumService'
 import { getSpotifyToken, getAppleMusicDeveloperToken } from '../services/streamingService'
 import {
   fetchUserPlaylists,
@@ -467,13 +462,9 @@ export default function AlbumPage() {
   const { albumId: albumIdStr } = useParams<{ albumId: string }>()
   const albumId = Number(albumIdStr)
   const { user } = useAuth()
-  const qc = useQueryClient()
-
   const [sortField, setSortField] = useState<SortField>('date')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [expandedId, setExpandedId] = useState<number | null>(null)
-  const [editLinksOpened, { open: openEditLinks, close: closeEditLinks }] = useDisclosure(false)
-  const [savingLinks, setSavingLinks] = useState(false)
 
   const { data: album, isLoading: albumLoading } = useAlbumDetails(albumId)
   const { data: reviews = [], isLoading: reviewsLoading } = useAlbumReviews(albumId)
@@ -491,44 +482,6 @@ export default function AlbumPage() {
     playInAppleMusic,
   } = usePlayer()
 
-  const linksForm = useForm({
-    initialValues: {
-      spotify_album_id: album?.spotify_album_id ?? '',
-      apple_music_album_id: album?.apple_music_album_id ?? '',
-      youtube_music_id: album?.youtube_music_id ?? '',
-      artist_url: album?.artist_url ?? '',
-    },
-  })
-
-  const handleOpenEditLinks = () => {
-    linksForm.setValues({
-      spotify_album_id: album?.spotify_album_id ?? '',
-      apple_music_album_id: album?.apple_music_album_id ?? '',
-      youtube_music_id: album?.youtube_music_id ?? '',
-      artist_url: album?.artist_url ?? '',
-    })
-    openEditLinks()
-  }
-
-  const handleSaveLinks = async (values: typeof linksForm.values) => {
-    setSavingLinks(true)
-    try {
-      await albumService.updateLinks(albumId, {
-        spotify_album_id: values.spotify_album_id || null,
-        apple_music_album_id: values.apple_music_album_id || null,
-        youtube_music_id: values.youtube_music_id || null,
-        artist_url: values.artist_url || null,
-      })
-      await qc.invalidateQueries({ queryKey: ['albums', albumId] })
-      closeEditLinks()
-      notifications.show({ color: 'green', message: 'Album links updated' })
-    } catch {
-      notifications.show({ color: 'red', message: 'Could not update album links' })
-    } finally {
-      setSavingLinks(false)
-    }
-  }
-
   const sortedReviews = useMemo(
     () => sortReviews(reviews, sortField, sortDir),
     [reviews, sortField, sortDir],
@@ -543,37 +496,6 @@ export default function AlbumPage() {
 
   return (
     <AppShell>
-      {/* ── ADMIN: EDIT LINKS MODAL ── */}
-      <Modal opened={editLinksOpened} onClose={closeEditLinks} title="Edit Album Links" size="md">
-        <form onSubmit={linksForm.onSubmit(handleSaveLinks)}>
-          <Stack gap="sm">
-            <TextInput
-              label="Spotify Album ID"
-              placeholder="e.g. 6dVIqScmqYXHveNbQGpGet"
-              {...linksForm.getInputProps('spotify_album_id')}
-            />
-            <TextInput
-              label="Apple Music Album ID"
-              placeholder="e.g. 1234567890"
-              {...linksForm.getInputProps('apple_music_album_id')}
-            />
-            <TextInput
-              label="YouTube Music Browse ID"
-              placeholder="e.g. MPREb_abc123"
-              {...linksForm.getInputProps('youtube_music_id')}
-            />
-            <TextInput
-              label="Artist URL"
-              placeholder="e.g. https://artist.bandcamp.com/album/name"
-              {...linksForm.getInputProps('artist_url')}
-            />
-            <Group justify="flex-end" mt="xs">
-              <Button variant="subtle" onClick={closeEditLinks}>Cancel</Button>
-              <Button type="submit" loading={savingLinks}>Save</Button>
-            </Group>
-          </Stack>
-        </form>
-      </Modal>
 
       <Stack gap="lg">
 
@@ -634,18 +556,6 @@ export default function AlbumPage() {
                     <NominationBadge total={stats.nomination_count} />
                   </Group>
                 )}
-                {user?.is_admin && (
-                  <Button
-                    variant="subtle"
-                    color="orange"
-                    size="xs"
-                    leftSection={<IconPencil size={13} />}
-                    onClick={handleOpenEditLinks}
-                    mt={4}
-                  >
-                    Edit Links
-                  </Button>
-                )}
               </>
             )}
           </Stack>
@@ -654,9 +564,11 @@ export default function AlbumPage() {
         {/* ── PLAYER SECTION ── */}
         {albumLoading ? (
           <Skeleton h={48} radius="md" />
-        ) : album?.spotify_album_id ? (() => {
-          const canPlaySpotify = hasSpotify
-          const canPlayAppleMusic = hasAppleMusic && !!album.apple_music_album_id
+        ) : album ? (() => {
+          const spotifyId = album.spotify_album_id
+          const appleMusicId = album.apple_music_album_id
+          const canPlaySpotify = hasSpotify && !!spotifyId
+          const canPlayAppleMusic = hasAppleMusic && !!appleMusicId
           // Determine which service will handle the embedded play button
           const effectivePlayService: 'spotify' | 'apple_music' = (() => {
             if (preferredService === 'apple_music' && canPlayAppleMusic) return 'apple_music'
@@ -667,18 +579,23 @@ export default function AlbumPage() {
           })()
           const canPlay = effectivePlayService === 'apple_music' ? canPlayAppleMusic : canPlaySpotify
           const playMeta = {
-            spotifyAlbumId: album.spotify_album_id!,
-            appleMusicAlbumId: album.apple_music_album_id,
+            spotifyAlbumId: spotifyId ?? '',
+            appleMusicAlbumId: appleMusicId,
             title: album.title,
             artist: album.artist,
             coverUrl: album.cover_url ?? null,
             appAlbumId: album.id,
           }
-          const handlePlay = () => effectivePlayService === 'apple_music'
-            ? playInAppleMusic(playMeta)
-            : startAlbum(album.spotify_album_id!, playMeta)
+          const handlePlay = () => {
+            if (effectivePlayService === 'apple_music') return playInAppleMusic(playMeta)
+            if (spotifyId) startAlbum(spotifyId, playMeta)
+          }
           return (
             <Stack gap="sm">
+              {/* Rendered for every album, not just Spotify-linked ones: a
+                  service with no link keeps its slot as a disabled button, which
+                  is what makes a missing link visible and reportable. Same
+                  presentation as Today's Spin. */}
               <Group gap="sm" wrap="wrap">
                 <Button
                   variant="filled"
@@ -693,27 +610,33 @@ export default function AlbumPage() {
                 >
                   Play
                 </Button>
-                <Button
-                  component="a"
-                  href={`spotify:album:${album.spotify_album_id}`}
-                  variant="light"
-                  color="green"
-                  size="sm"
-                  leftSection={<IconBrandSpotify size={16} />}
-                >
-                  Open in Spotify
-                </Button>
-                <Button
-                  component="a"
-                  href={`https://open.spotify.com/album/${album.spotify_album_id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  variant="subtle"
-                  size="sm"
-                  leftSection={<IconExternalLink size={16} />}
-                >
-                  Web Player
-                </Button>
+                <Tooltip label="Not found on Spotify" disabled={!!spotifyId}>
+                  <Button
+                    component="a"
+                    href={spotifyId ? `spotify:album:${spotifyId}` : undefined}
+                    variant="light"
+                    color="green"
+                    size="sm"
+                    leftSection={<IconBrandSpotify size={16} />}
+                    disabled={!spotifyId}
+                  >
+                    Open in Spotify
+                  </Button>
+                </Tooltip>
+                <Tooltip label="Not found on Spotify" disabled={!!spotifyId}>
+                  <Button
+                    component="a"
+                    href={spotifyId ? `https://open.spotify.com/album/${spotifyId}` : undefined}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    variant="subtle"
+                    size="sm"
+                    leftSection={<IconExternalLink size={16} />}
+                    disabled={!spotifyId}
+                  >
+                    Web Player
+                  </Button>
+                </Tooltip>
                 {album.youtube_music_id && (
                   <Button
                     component="a"
@@ -726,22 +649,6 @@ export default function AlbumPage() {
                   >
                     YouTube Music
                   </Button>
-                )}
-                {album.apple_music_album_id && (
-                  <>
-                    <Button
-                      component="a"
-                      href={`https://music.apple.com/album/${album.apple_music_album_id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      variant="light"
-                      color="red"
-                      size="sm"
-                      leftSection={<IconBrandApple size={16} />}
-                    >
-                      Open in Apple Music
-                    </Button>
-                  </>
                 )}
                 {album.artist_url && (
                   <Button
@@ -756,34 +663,56 @@ export default function AlbumPage() {
                     Open URL
                   </Button>
                 )}
-                <Button
-                  component="a"
-                  href={album.wikipedia_url ?? undefined}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  variant="subtle"
-                  size="sm"
-                  leftSection={<IconBrandWikipedia size={16} />}
-                  disabled={!album.wikipedia_url}
-                >
-                  Wikipedia
-                </Button>
-                {(playingSpotifyAlbumId === album.spotify_album_id || playingAppleMusicAlbumId === album.apple_music_album_id) && (playerStatus === 'playing' || playerStatus === 'paused') && (
+                <Tooltip label="Not found on Apple Music" disabled={!!appleMusicId}>
+                  <Button
+                    component="a"
+                    href={appleMusicId ? `https://music.apple.com/album/${appleMusicId}` : undefined}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    variant="light"
+                    color="red"
+                    size="sm"
+                    leftSection={<IconBrandApple size={16} />}
+                    disabled={!appleMusicId}
+                  >
+                    Open in Apple Music
+                  </Button>
+                </Tooltip>
+                <Tooltip label="No Wikipedia page found" disabled={!!album.wikipedia_url}>
+                  <Button
+                    component="a"
+                    href={album.wikipedia_url ?? undefined}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    variant="subtle"
+                    size="sm"
+                    leftSection={<IconBrandWikipedia size={16} />}
+                    disabled={!album.wikipedia_url}
+                  >
+                    Wikipedia
+                  </Button>
+                </Tooltip>
+                {/* Guarded on the id existing — two nulls would compare equal and
+                    light this up on an album with no links at all. */}
+                {((!!spotifyId && playingSpotifyAlbumId === spotifyId)
+                  || (!!appleMusicId && playingAppleMusicAlbumId === appleMusicId))
+                  && (playerStatus === 'playing' || playerStatus === 'paused') && (
                   <Badge color="green" variant="light" leftSection={<IconMusic size={10} />}>
                     {playerStatus === 'playing' ? 'Now Playing' : 'Paused'}
                   </Badge>
                 )}
               </Group>
+              <LinkRepairControl album={album} />
               {!hasSpotify && !hasAppleMusic && (
                 <Text size="xs" c="dimmed">
                   <Anchor component={Link} to="/profile" size="xs">Connect Spotify or Apple Music</Anchor> on your profile to enable the embedded player
                 </Text>
               )}
-              {canPlay && (
+              {canPlay && (effectivePlayService === 'apple_music' ? !!appleMusicId : !!spotifyId) && (
                 <AlbumTracklist
                   appAlbumId={album.id}
-                  spotifyAlbumId={album.spotify_album_id}
-                  appleMusicAlbumId={album.apple_music_album_id}
+                  spotifyAlbumId={spotifyId ?? ''}
+                  appleMusicAlbumId={appleMusicId}
                   albumTitle={album.title}
                   albumArtist={album.artist}
                   albumCoverUrl={album.cover_url ?? null}
@@ -792,33 +721,7 @@ export default function AlbumPage() {
               )}
             </Stack>
           )
-        })() : album?.artist_url ? (
-          <Group gap="sm" wrap="wrap">
-            <Button
-              component="a"
-              href={album.artist_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              variant="filled"
-              size="sm"
-              leftSection={<IconExternalLink size={16} />}
-            >
-              Open URL
-            </Button>
-            <Button
-              component="a"
-              href={album.wikipedia_url ?? undefined}
-              target="_blank"
-              rel="noopener noreferrer"
-              variant="subtle"
-              size="sm"
-              leftSection={<IconBrandWikipedia size={16} />}
-              disabled={!album.wikipedia_url}
-            >
-              Wikipedia
-            </Button>
-          </Group>
-        ) : null}
+        })() : null}
 
         {/* ── GLOBAL RATING + HISTOGRAM ── */}
         <Paper withBorder p="md" radius="md">
