@@ -1144,6 +1144,68 @@ class TestUpdateAlbumLinks:
         assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
         mock_album_service.update_album_links.assert_not_called()
 
+    def test_patch_accepts_full_spotify_url(self, admin_client, mock_album_service):
+        """A pasted share link is normalised to the bare ID before the service sees it."""
+        mock_album_service.update_album_links.return_value = make_mock_album(
+            spotify_album_id="3v1nspBDZhlcJGDW6fUJQR"
+        )
+
+        resp = admin_client.patch(
+            "/albums/1",
+            json={
+                "spotify_album_id": "https://open.spotify.com/album/3v1nspBDZhlcJGDW6fUJQR?si=6f2aaf776e7a4eab"
+            },
+        )
+
+        assert resp.status_code == status.HTTP_200_OK
+        payload = mock_album_service.update_album_links.call_args.args[1]
+        assert payload.spotify_album_id == "3v1nspBDZhlcJGDW6fUJQR"
+
+    def test_patch_accepts_full_apple_music_url(self, admin_client, mock_album_service):
+        mock_album_service.update_album_links.return_value = make_mock_album()
+
+        resp = admin_client.patch(
+            "/albums/1",
+            json={"apple_music_album_id": "https://music.apple.com/us/album/ok-computer/1097862703"},
+        )
+
+        assert resp.status_code == status.HTTP_200_OK
+        payload = mock_album_service.update_album_links.call_args.args[1]
+        assert payload.apple_music_album_id == "1097862703"
+
+    def test_patch_still_accepts_bare_id(self, admin_client, mock_album_service):
+        """Backwards compatibility — the editor accepted bare IDs before share links."""
+        mock_album_service.update_album_links.return_value = make_mock_album(
+            spotify_album_id="3v1nspBDZhlcJGDW6fUJQR"
+        )
+
+        resp = admin_client.patch("/albums/1", json={"spotify_album_id": "3v1nspBDZhlcJGDW6fUJQR"})
+
+        assert resp.status_code == status.HTTP_200_OK
+        payload = mock_album_service.update_album_links.call_args.args[1]
+        assert payload.spotify_album_id == "3v1nspBDZhlcJGDW6fUJQR"
+
+    def test_patch_rejects_apple_url_in_spotify_field(self, admin_client, mock_album_service):
+        resp = admin_client.patch(
+            "/albums/1",
+            json={"spotify_album_id": "https://music.apple.com/us/album/ok-computer/1097862703"},
+        )
+
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert "Apple Music" in resp.text
+        mock_album_service.update_album_links.assert_not_called()
+
+    def test_patch_null_clears_link_and_survives_coercion(self, admin_client, mock_album_service):
+        """Clearing must pass through the coercing validator untouched."""
+        mock_album_service.update_album_links.return_value = make_mock_album()
+
+        resp = admin_client.patch("/albums/1", json={"spotify_album_id": None})
+
+        assert resp.status_code == status.HTTP_200_OK
+        payload = mock_album_service.update_album_links.call_args.args[1]
+        assert payload.spotify_album_id is None
+        assert "spotify_album_id" in payload.model_fields_set
+
     def test_update_links_not_found(self, admin_client, mock_album_service):
         mock_album_service.update_album_links.side_effect = HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Album not found"

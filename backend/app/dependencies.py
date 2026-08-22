@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import User
+from app.services.admin_service import AdminService
 from app.services.album_service import AlbumService
 from app.services.artist_service import ArtistService
 from app.services.dealer_service import DealerService
@@ -13,6 +14,7 @@ from app.services.group_album_service import GroupAlbumService
 from app.services.group_service import GroupService
 from app.services.invitation_service import InvitationService
 from app.services.invite_link_service import InviteLinkService
+from app.services.link_report_service import LinkReportService
 from app.services.message_service import MessageService
 from app.services.notification_service import NotificationService
 from app.services.participation_service import ParticipationService
@@ -70,6 +72,16 @@ def get_participation_service(db: Session = Depends(get_db)) -> ParticipationSer
 def get_notification_service(db: Session = Depends(get_db)) -> NotificationService:
     """Dependency to get NotificationService"""
     return NotificationService(db)
+
+
+def get_link_report_service(db: Session = Depends(get_db)) -> LinkReportService:
+    """Dependency to get LinkReportService"""
+    return LinkReportService(db)
+
+
+def get_admin_service(db: Session = Depends(get_db)) -> AdminService:
+    """Dependency to get AdminService"""
+    return AdminService(db)
 
 
 def get_invitation_service(db: Session = Depends(get_db)) -> InvitationService:

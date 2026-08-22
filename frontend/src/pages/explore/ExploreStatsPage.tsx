@@ -20,35 +20,12 @@ import {
 } from '@tabler/icons-react'
 import AppShell from '../../components/layout/AppShell'
 import ExploreNavTabs from '../../components/explore/ExploreNavTabs'
+import StatCard from '../../components/explore/StatCard'
 import { useSiteStats } from '../../hooks/useExplore'
 import { ratingColor } from '../../utils/ratingColor'
 import type { ArtistNominationItem, ExploreAlbumItem } from '../../types/explore'
 
 // ==================== Stat card ====================
-
-interface StatCardProps {
-  label: string
-  value: number
-  icon: React.ReactNode
-}
-
-function StatCard({ label, value, icon }: StatCardProps) {
-  return (
-    <Paper withBorder p="md">
-      <Group gap="sm" align="flex-start" wrap="nowrap">
-        <Text c="dimmed">{icon}</Text>
-        <div>
-          <Text size="xl" fw={700} lh={1}>
-            {value.toLocaleString()}
-          </Text>
-          <Text size="xs" c="dimmed" mt={4}>
-            {label}
-          </Text>
-        </div>
-      </Group>
-    </Paper>
-  )
-}
 
 // ==================== Ranked album row ====================
 

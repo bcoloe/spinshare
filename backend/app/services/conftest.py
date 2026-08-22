@@ -6,10 +6,12 @@ from app.models.user import User
 from app.schemas.group import GroupCreate
 from app.schemas.user import UserCreate
 from app.services import group_service, user_service
+from app.services.admin_service import AdminService
 from app.services.album_service import AlbumService
 from app.services.artist_service import ArtistService
 from app.services.dealer_service import DealerService
 from app.services.group_album_service import GroupAlbumService
+from app.services.link_report_service import LinkReportService
 from app.services.message_service import MessageService
 from app.services.review_service import ReviewService
 from app.services.stats_service import StatsService
@@ -108,6 +110,26 @@ def sample_group(sample_group_service, sample_user, sample_group_name) -> Group:
 @pytest.fixture(scope="function")
 def album_service(db_session) -> AlbumService:
     return AlbumService(db_session)
+
+
+@pytest.fixture(scope="function")
+def link_report_service(db_session) -> LinkReportService:
+    return LinkReportService(db_session)
+
+
+@pytest.fixture(scope="function")
+def admin_service(db_session) -> AdminService:
+    return AdminService(db_session)
+
+
+@pytest.fixture(scope="function")
+def admin_user(db_session) -> User:
+    """A site admin (users.is_admin), not a group admin."""
+    user = _insert_user(db_session, email="admin@test.com", username="admin")
+    user.is_admin = True
+    db_session.commit()
+    db_session.refresh(user)
+    return user
 
 
 @pytest.fixture(scope="function")

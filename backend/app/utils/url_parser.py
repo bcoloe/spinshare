@@ -39,14 +39,18 @@ def detect_service(url: str) -> MusicService | None:
 def extract_spotify_album_id(url: str) -> str | None:
     """Extract the album ID from a Spotify album URL.
 
-    Handles: https://open.spotify.com/album/{id}?si=...
+    Handles:
+      - https://open.spotify.com/album/{id}?si=...
+      - https://open.spotify.com/intl-de/album/{id}   (localised share links)
+
+    Matched at the end of the path rather than anchored at the start, because
+    Spotify prefixes a locale segment for non-English clients.
     """
     try:
         parsed = urlparse(url)
     except Exception:
         return None
-    # Path should be /album/{id}
-    m = re.match(r"^/album/([A-Za-z0-9]+)/?$", parsed.path)
+    m = re.search(r"/album/([A-Za-z0-9]+)/?$", parsed.path)
     return m.group(1) if m else None
 
 
@@ -137,3 +141,73 @@ def extract_youtube_music_id(url: str) -> str | None:
         ids = params.get("list", [])
         return ids[0] if ids else None
     return None
+
+
+# Shapes a bare (non-URL) identifier must match, per service. Deliberately loose:
+# their job is to reject something pasted in wholesale by mistake (a URL for another
+# service, a sentence, a file path), not to prove an ID is real. Spotify IDs are
+# base62 in practice, but pinning that here would reject the opaque identifiers
+# already stored by earlier code paths for no user-visible benefit — and the admin
+# editor has always accepted bare IDs. Anything genuinely wrong is a URL, and the
+# detect_service branch above catches those with a far better error message.
+_BARE_ID_PATTERNS = {
+    MusicService.Spotify: re.compile(r"^[A-Za-z0-9_-]+$"),
+    MusicService.AppleMusic: re.compile(r"^\d+$"),
+    MusicService.YouTubeMusic: re.compile(r"^[A-Za-z0-9_-]+$"),
+}
+
+_EXTRACTORS = {
+    MusicService.Spotify: extract_spotify_album_id,
+    MusicService.AppleMusic: extract_apple_music_album_id,
+    MusicService.YouTubeMusic: extract_youtube_music_id,
+}
+
+_SERVICE_LABELS = {
+    MusicService.Spotify: "Spotify",
+    MusicService.AppleMusic: "Apple Music",
+    MusicService.YouTubeMusic: "YouTube Music",
+    MusicService.Bandcamp: "Bandcamp",
+}
+
+
+def coerce_album_identifier(service: MusicService, value: str) -> str:
+    """Accept either a full share URL or a bare ID for `service`; return the bare ID.
+
+    People copy share links, not IDs — ``https://open.spotify.com/album/{id}?si=...``
+    rather than ``{id}``. This normalises both into the form the album column stores,
+    so callers never have to care which one they were handed.
+
+    Only the three ID-based services are supported. Bandcamp and Wikipedia links are
+    stored as full URLs and are validated by their own domain checks instead.
+
+    Raises:
+        ValueError: If the value is a URL belonging to a different service, a URL
+            no album ID can be extracted from, or a bare value of the wrong shape.
+    """
+    if service not in _EXTRACTORS:
+        raise ValueError(f"{_SERVICE_LABELS.get(service, service)} links are stored as full URLs")
+
+    value = value.strip()
+    if not value:
+        raise ValueError("Value cannot be empty")
+
+    detected = detect_service(value)
+    if detected is not None and detected != service:
+        raise ValueError(
+            f"That looks like a {_SERVICE_LABELS[detected]} link — "
+            f"paste it in the {_SERVICE_LABELS[detected]} field instead"
+        )
+
+    if detected == service:
+        extracted = _EXTRACTORS[service](value)
+        if not extracted:
+            raise ValueError(f"Could not find an album ID in that {_SERVICE_LABELS[service]} link")
+        return extracted
+
+    # Not a URL we recognise — treat it as a bare ID, which is what the admin
+    # editor accepted before share links were supported.
+    if not _BARE_ID_PATTERNS[service].match(value):
+        raise ValueError(
+            f"Not a valid {_SERVICE_LABELS[service]} album link or ID"
+        )
+    return value

@@ -8,6 +8,7 @@ from .group_recap import GroupRecap
 from .group_settings import GroupSettings
 from .invitation import GroupInvitation
 from .invite_link import GroupInviteLink
+from .link_report import LinkReport
 from .message import Message, MessageMention
 from .nomination_guess import NominationGuess
 from .notification import Notification
@@ -31,6 +32,7 @@ __all__ = [
     "GroupSettings",
     "GroupInvitation",
     "GroupInviteLink",
+    "LinkReport",
     "Message",
     "MessageMention",
     "NominationGuess",

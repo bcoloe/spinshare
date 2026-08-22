@@ -1006,14 +1006,12 @@ class GroupAlbumService:
             f"Today's spin for {group_name} could only pull {selected} of {requested} albums — "
             f"the nomination pool is now empty. Add more albums to keep the daily spin going!"
         )
-        ns = NotificationService(self.db)
-        for uid in member_ids:
-            ns.create(
-                user_id=uid,
-                type=NotificationType.nomination_pool_low,
-                message=message,
-                group_id=group_id,
-            )
+        NotificationService(self.db).create_many(
+            user_ids=member_ids,
+            type=NotificationType.nomination_pool_low,
+            message=message,
+            group_id=group_id,
+        )
 
     def _user_has_revealed_deal(self, group_id: int, user_id: int, album_id: int) -> bool:
         """Whether the album has been dealt (revealed) to this user in this group."""

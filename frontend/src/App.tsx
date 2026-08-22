@@ -5,6 +5,8 @@ import { useAuth } from './hooks/useAuth'
 import ChunkErrorBoundary from './components/ChunkErrorBoundary'
 
 const ProtectedRoute = lazy(() => import('./components/auth/ProtectedRoute'))
+const AdminRoute = lazy(() => import('./components/auth/AdminRoute'))
+const AdminPage = lazy(() => import('./pages/AdminPage'))
 const LandingPage = lazy(() => import('./pages/LandingPage'))
 
 function RootRoute() {
@@ -82,6 +84,10 @@ const router = createBrowserRouter([
       { path: '/search', element: <SearchPage /> },
       { path: '/explore/users', element: <ExploreUsersPage /> },
     ],
+  },
+  {
+    element: <AdminRoute />,
+    children: [{ path: '/admin', element: <AdminPage /> }],
   },
   { path: '*', element: <NotFoundPage /> },
 ])

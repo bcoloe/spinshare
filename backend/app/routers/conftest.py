@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from app.dependencies import get_current_user, get_group_service
+from app.dependencies import get_current_admin_user, get_current_user, get_group_service
 from app.main import app
 from app.models import Group, GroupSettings, User
 from app.services.group_service import GroupService
@@ -103,6 +103,23 @@ def client(mock_user, mock_group_service):
 @pytest.fixture
 def unauthed_client(mock_group_service):
     """Unauthenticated TestClient (service still mocked to isolate auth checks)."""
+    app.dependency_overrides[get_group_service] = lambda: mock_group_service
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def admin_client(mock_group_service):
+    """TestClient authenticated as a site admin (users.is_admin).
+
+    Overrides get_current_admin_user directly, so it satisfies admin-gated routes
+    without needing a real user row. Tests that need to assert the 403 path should
+    instead override get_current_user with an is_admin=False user.
+    """
+    admin = make_mock_user(username="site_admin", is_admin=True)
+    app.dependency_overrides[get_current_admin_user] = lambda: admin
+    app.dependency_overrides[get_current_user] = lambda: admin
     app.dependency_overrides[get_group_service] = lambda: mock_group_service
     with TestClient(app) as c:
         yield c

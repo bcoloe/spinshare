@@ -66,6 +66,65 @@ class TestCreateNotification:
         assert n.album_id == sample_album.id
 
 
+class TestCreateMany:
+    def test_creates_one_row_per_user(self, db_session, notification_service, user_factory):
+        users = [
+            user_factory(email=f"{n}@test.com", username=n) for n in ("alice", "bob", "carol")
+        ]
+
+        created = notification_service.create_many(
+            user_ids=[u.id for u in users],
+            type=NotificationType.nomination_pool_low,
+            message="pool is empty",
+        )
+
+        assert created == 3
+        rows = db_session.query(Notification).all()
+        assert {r.user_id for r in rows} == {u.id for u in users}
+        assert all(r.message == "pool is empty" for r in rows)
+        assert all(r.read_at is None for r in rows)
+
+    def test_single_commit(self, notification_service, user_factory, monkeypatch):
+        users = [user_factory(email=f"{n}@test.com", username=n) for n in ("dave", "erin")]
+        commits = []
+        original = notification_service.db.commit
+        monkeypatch.setattr(
+            notification_service.db, "commit", lambda: (commits.append(1), original())[1]
+        )
+
+        notification_service.create_many(
+            user_ids=[u.id for u in users],
+            type=NotificationType.nomination_pool_low,
+            message="pool is empty",
+        )
+
+        assert len(commits) == 1
+
+    def test_empty_user_list_is_noop(self, db_session, notification_service):
+        created = notification_service.create_many(
+            user_ids=[],
+            type=NotificationType.nomination_pool_low,
+            message="nobody to tell",
+        )
+
+        assert created == 0
+        assert db_session.query(Notification).count() == 0
+
+    def test_sets_album_id_and_leaves_group_id_null(
+        self, db_session, notification_service, sample_user, sample_album
+    ):
+        notification_service.create_many(
+            user_ids=[sample_user.id],
+            type=NotificationType.link_report_submitted,
+            message="someone reported a bad link",
+            album_id=sample_album.id,
+        )
+
+        row = db_session.query(Notification).one()
+        assert row.album_id == sample_album.id
+        assert row.group_id is None
+
+
 class TestGetUnread:
     def test_returns_only_unread(self, db_session, notification_service, sample_user):
         _make_notification(db_session, user_id=sample_user.id)

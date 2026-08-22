@@ -179,52 +179,41 @@ class AlbumService:
     def update_album_links(self, album_id: int, data: AlbumLinksUpdate) -> Album:
         """Update streaming service identifiers on an existing album.
 
-        Any field left as None is left unchanged. Raises 409 if the new ID
-        is already assigned to a different album.
+        Standard PATCH semantics, keyed off which fields the caller actually sent:
+        an omitted field is left unchanged, while an explicit ``null`` clears the
+        link. Clearing skips the conflict lookup, since nothing can collide with
+        an absent value.
 
         Raises:
             HTTPException 404: If album not found
             HTTPException 409: If a provided ID conflicts with another album
         """
         album = self.get_album_by_id(album_id)
+        fields_set = data.model_fields_set
 
-        if data.spotify_album_id is not None:
-            conflict = self.get_album_by_spotify_id(data.spotify_album_id, raise_on_missing=False)
-            if conflict and conflict.id != album_id:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="spotify_album_id is already assigned to another album",
-                )
-            album.spotify_album_id = data.spotify_album_id
+        # (field name, conflict lookup) for every link guarded by uniqueness.
+        unique_links = (
+            ("spotify_album_id", self.get_album_by_spotify_id),
+            ("apple_music_album_id", self.get_album_by_apple_music_id),
+            ("youtube_music_id", self.get_album_by_youtube_music_id),
+            ("artist_url", self.get_album_by_artist_url),
+        )
 
-        if data.apple_music_album_id is not None:
-            conflict = self.get_album_by_apple_music_id(data.apple_music_album_id, raise_on_missing=False)
-            if conflict and conflict.id != album_id:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="apple_music_album_id is already assigned to another album",
-                )
-            album.apple_music_album_id = data.apple_music_album_id
+        for field, find_conflict in unique_links:
+            if field not in fields_set:
+                continue
+            value = getattr(data, field)
+            if value is not None:
+                conflict = find_conflict(value, raise_on_missing=False)
+                if conflict and conflict.id != album_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"{field} is already assigned to another album",
+                    )
+            setattr(album, field, value)
 
-        if data.youtube_music_id is not None:
-            conflict = self.get_album_by_youtube_music_id(data.youtube_music_id, raise_on_missing=False)
-            if conflict and conflict.id != album_id:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="youtube_music_id is already assigned to another album",
-                )
-            album.youtube_music_id = data.youtube_music_id
-
-        if data.artist_url is not None:
-            conflict = self.get_album_by_artist_url(data.artist_url, raise_on_missing=False)
-            if conflict and conflict.id != album_id:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="artist_url is already assigned to another album",
-                )
-            album.artist_url = data.artist_url
-
-        if data.wikipedia_url is not None:
+        # wikipedia_url has no uniqueness constraint, so no conflict check.
+        if "wikipedia_url" in fields_set:
             album.wikipedia_url = data.wikipedia_url
 
         try:

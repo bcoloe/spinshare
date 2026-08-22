@@ -13,6 +13,7 @@ class NotificationType(str, Enum):
     member_reviewed_album = "member_reviewed_album"
     new_member_joined = "new_member_joined"
     mentioned_in_chat = "mentioned_in_chat"
+    link_report_submitted = "link_report_submitted"
 
 
 class NotificationResponse(BaseModel):

@@ -6,8 +6,64 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.utils.url_parser import MusicService, coerce_album_identifier
+
 # Domains currently whitelisted for artist_url.
 _ALLOWED_ARTIST_URL_DOMAINS = {"bandcamp.com"}
+
+
+def _coerce_or_none(service: MusicService, value: str | None) -> str | None:
+    """Normalise a share URL or bare ID, passing None/"" through as None.
+
+    Empty means "clear this link", which must survive untouched so the PATCH
+    clear semantics in AlbumService.update_album_links still work.
+    """
+    if value is None or not value.strip():
+        return None
+    return coerce_album_identifier(service, value)
+
+
+def validate_bandcamp_album_url(v: str | None) -> str | None:
+    """Require a Bandcamp album URL from a whitelisted domain.
+
+    Shared by AlbumCreate, AlbumLinksUpdate, and LinkReportService so the rule
+    has exactly one definition.
+
+    Raises:
+        ValueError: If the URL is unparseable, off-domain, or not an album page.
+    """
+    if v is None:
+        return v
+    try:
+        parsed = urlparse(v)
+    except Exception:
+        raise ValueError("artist_url must be a valid URL")
+    netloc = parsed.netloc.lower()
+    domain_ok = any(netloc.endswith("." + d) for d in _ALLOWED_ARTIST_URL_DOMAINS)
+    if not domain_ok:
+        allowed = ", ".join(sorted(_ALLOWED_ARTIST_URL_DOMAINS))
+        raise ValueError(f"artist_url must be from a supported domain: {allowed}")
+    if not parsed.path.lower().startswith("/album/"):
+        raise ValueError("artist_url must point to an album page (path must start with /album/)")
+    return v
+
+
+def validate_wikipedia_album_url(v: str | None) -> str | None:
+    """Require a wikipedia.org URL.
+
+    Raises:
+        ValueError: If the URL is unparseable or not on wikipedia.org.
+    """
+    if v is None:
+        return v
+    try:
+        parsed = urlparse(v)
+    except Exception:
+        raise ValueError("wikipedia_url must be a valid URL")
+    netloc = parsed.netloc.lower()
+    if not (netloc == "wikipedia.org" or netloc.endswith(".wikipedia.org")):
+        raise ValueError("wikipedia_url must be a wikipedia.org URL")
+    return v
 
 
 class AlbumSearchResult(BaseModel):
@@ -54,20 +110,7 @@ class AlbumCreate(AlbumBase):
     @field_validator("artist_url")
     @classmethod
     def validate_artist_url(cls, v: str | None) -> str | None:
-        if v is None:
-            return v
-        try:
-            parsed = urlparse(v)
-        except Exception:
-            raise ValueError("artist_url must be a valid URL")
-        netloc = parsed.netloc.lower()
-        domain_ok = any(netloc.endswith("." + d) for d in _ALLOWED_ARTIST_URL_DOMAINS)
-        if not domain_ok:
-            allowed = ", ".join(sorted(_ALLOWED_ARTIST_URL_DOMAINS))
-            raise ValueError(f"artist_url must be from a supported domain: {allowed}")
-        if not parsed.path.lower().startswith("/album/"):
-            raise ValueError("artist_url must point to an album page (path must start with /album/)")
-        return v
+        return validate_bandcamp_album_url(v)
 
     @model_validator(mode="after")
     def at_least_one_service_id(self) -> "AlbumCreate":
@@ -85,7 +128,12 @@ class AlbumCreate(AlbumBase):
 
 
 class AlbumLinksUpdate(BaseModel):
-    """Schema for admin-only album link corrections."""
+    """Schema for admin-only album link corrections.
+
+    The three ID-based fields accept either a bare service ID or a full share
+    URL and normalise to the bare ID, since that is what people actually copy.
+    An explicit ``null`` clears the link; an omitted field is left unchanged.
+    """
 
     spotify_album_id: str | None = None
     apple_music_album_id: str | None = None
@@ -93,37 +141,30 @@ class AlbumLinksUpdate(BaseModel):
     artist_url: str | None = None
     wikipedia_url: str | None = None
 
+    @field_validator("spotify_album_id")
+    @classmethod
+    def coerce_spotify(cls, v: str | None) -> str | None:
+        return _coerce_or_none(MusicService.Spotify, v)
+
+    @field_validator("apple_music_album_id")
+    @classmethod
+    def coerce_apple_music(cls, v: str | None) -> str | None:
+        return _coerce_or_none(MusicService.AppleMusic, v)
+
+    @field_validator("youtube_music_id")
+    @classmethod
+    def coerce_youtube_music(cls, v: str | None) -> str | None:
+        return _coerce_or_none(MusicService.YouTubeMusic, v)
+
     @field_validator("artist_url")
     @classmethod
     def validate_artist_url(cls, v: str | None) -> str | None:
-        if v is None:
-            return v
-        try:
-            parsed = urlparse(v)
-        except Exception:
-            raise ValueError("artist_url must be a valid URL")
-        netloc = parsed.netloc.lower()
-        domain_ok = any(netloc.endswith("." + d) for d in _ALLOWED_ARTIST_URL_DOMAINS)
-        if not domain_ok:
-            allowed = ", ".join(sorted(_ALLOWED_ARTIST_URL_DOMAINS))
-            raise ValueError(f"artist_url must be from a supported domain: {allowed}")
-        if not parsed.path.lower().startswith("/album/"):
-            raise ValueError("artist_url must point to an album page (path must start with /album/)")
-        return v
+        return validate_bandcamp_album_url(v)
 
     @field_validator("wikipedia_url")
     @classmethod
     def validate_wikipedia_url(cls, v: str | None) -> str | None:
-        if v is None:
-            return v
-        try:
-            parsed = urlparse(v)
-        except Exception:
-            raise ValueError("wikipedia_url must be a valid URL")
-        netloc = parsed.netloc.lower()
-        if not (netloc == "wikipedia.org" or netloc.endswith(".wikipedia.org")):
-            raise ValueError("wikipedia_url must be a wikipedia.org URL")
-        return v
+        return validate_wikipedia_album_url(v)
 
 
 class AlbumResponse(AlbumBase):

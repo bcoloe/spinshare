@@ -22,6 +22,7 @@ import {
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
+import LinkRepairControl from '../albums/LinkRepairControl'
 import { IconBrandApple, IconBrandSpotify, IconBrandWikipedia, IconBrandYoutube, IconCheck, IconClock, IconDice1, IconDice2, IconDice3, IconDice4, IconDice5, IconDice6, IconExternalLink, IconHistory, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
 import AlbumCard from './AlbumCard'
 import ReviewAndGuessForm from './ReviewAndGuessForm'
@@ -222,6 +223,7 @@ function SpinSlide({ groupAlbum, groupId, allowGuessing = true, showGroupCount =
               </Button>
             </Tooltip>
           </Group>
+          <LinkRepairControl album={groupAlbum.album} />
           {!hasSpotify && !hasAppleMusic && (
             <Text size="xs" c="dimmed">
               <Anchor component={Link} to="/profile" size="xs">Connect Spotify or Apple Music</Anchor> on your profile to enable the embedded player
@@ -398,6 +400,7 @@ function MultiAlbumSpin({ albums, groupId, allowGuessing = true, showGroupCount 
                 </Button>
               </Tooltip>
             </Group>
+            <LinkRepairControl album={activeAlbum.album} />
             {!hasSpotify && !hasAppleMusic && (
               <Text size="xs" c="dimmed">
                 <Anchor component={Link} to="/profile" size="xs">Connect Spotify or Apple Music</Anchor> on your profile to enable the embedded player
