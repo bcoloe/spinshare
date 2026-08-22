@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Badge,
   Button,
@@ -10,12 +10,13 @@ import {
   ScrollArea,
   Stack,
   Text,
+  TextInput,
   Tooltip,
   UnstyledButton,
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { IconBolt } from '@tabler/icons-react'
+import { IconBolt, IconSearch } from '@tabler/icons-react'
 
 import { useGroupAlbums } from '../../hooks/useAlbums'
 import {
@@ -60,6 +61,12 @@ export default function ParticipationMeter({ groupId }: Props) {
   const setPriorityPick = useSetPriorityPick(groupId)
   const clearPriorityPick = useClearPriorityPick(groupId)
   const [opened, { open, close }] = useDisclosure(false)
+  const [query, setQuery] = useState('')
+
+  const openPicker = () => {
+    setQuery('')
+    open()
+  }
 
   const myPending = useMemo(
     () =>
@@ -71,6 +78,16 @@ export default function ParticipationMeter({ groupId }: Props) {
       ),
     [allAlbums, user],
   )
+
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    if (!needle) return myPending
+    return myPending.filter(
+      (ga) =>
+        ga.album.title.toLowerCase().includes(needle) ||
+        ga.album.artist.toLowerCase().includes(needle),
+    )
+  }, [myPending, query])
 
   // Feature disabled for this group (global/dealer/unset) — render nothing.
   if (!participation || participation.threshold == null) return null
@@ -162,7 +179,7 @@ export default function ParticipationMeter({ groupId }: Props) {
               <Button
                 size="compact-xs"
                 variant="default"
-                onClick={open}
+                onClick={openPicker}
                 disabled={myPending.length <= 1 || clearPriorityPick.isPending}
               >
                 Change
@@ -187,7 +204,7 @@ export default function ParticipationMeter({ groupId }: Props) {
               variant="filled"
               color="orange.7"
               mt={4}
-              onClick={open}
+              onClick={openPicker}
               disabled={myPending.length === 0}
             >
               Choose priority album
@@ -206,10 +223,25 @@ export default function ParticipationMeter({ groupId }: Props) {
           The album you choose jumps to the front of the next daily draw. Nothing is spent until it
           is drawn, so you can change or cancel your pick any time before then.
         </Text>
+        <TextInput
+          mb="sm"
+          placeholder="Filter by album or artist"
+          leftSection={<IconSearch size={16} />}
+          value={query}
+          onChange={(event) => setQuery(event.currentTarget.value)}
+          aria-label="Filter nominations"
+        />
         <ScrollArea.Autosize mah={360}>
           <Stack gap="xs">
-            {myPending.map((ga) => {
-              const isCurrent = ga.id === pending_pick?.id
+            {filtered.length === 0 && (
+              <Text size="sm" c="dimmed" ta="center" py="md">
+                No nominations match "{query.trim()}"
+              </Text>
+            )}
+            {filtered.map((ga) => {
+              // Co-nominated albums are listed under the earliest nominator's row, so
+              // the queued pick (always the caller's own row) is matched by album.
+              const isCurrent = ga.album_id === pending_pick?.album_id
               return (
                 <UnstyledButton
                   key={ga.id}
