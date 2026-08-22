@@ -118,12 +118,33 @@ class GroupAlbumService:
         # mark them selected, and let random selection fill only the remaining slots.
         priority = ParticipationService(self.db).claim_priority_picks(group_id, n)
         now = datetime.now(tz=timezone.utc)
-        for ga in priority:
-            ga.selected_date = now
-        if priority:
-            self.db.flush()  # exclude them from the pending pool below
         priority_album_ids = {ga.album_id for ga in priority}
         remaining_n = n - len(priority)
+
+        if priority:
+            # An album is drawn for the whole group, not just for whoever promoted
+            # it: retire every co-nomination of it as the random path does, so the
+            # album cannot resurface in a later draw as a repeat.
+            claimed_nominations = (
+                self.db.query(GroupAlbum)
+                .filter(
+                    GroupAlbum.group_id == group_id,
+                    GroupAlbum.album_id.in_(priority_album_ids),
+                    GroupAlbum.selected_date.is_(None),
+                )
+                .all()
+            )
+            for ga in claimed_nominations:
+                ga.selected_date = now
+            self.db.flush()  # exclude them from the pending pool below
+
+            # Report the canonical (earliest) row per album, matching both the random
+            # path and the same-day re-entry above.
+            canonical_claimed: dict[int, GroupAlbum] = {}
+            for ga in claimed_nominations:
+                if ga.album_id not in canonical_claimed or ga.id < canonical_claimed[ga.album_id].id:
+                    canonical_claimed[ga.album_id] = ga
+            priority = [canonical_claimed.get(ga.album_id, ga) for ga in priority]
 
         available_album_ids = [
             row[0]

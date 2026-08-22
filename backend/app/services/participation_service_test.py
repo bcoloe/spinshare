@@ -372,6 +372,45 @@ class TestSetPriorityPick:
             participation_service.set_priority_pick(sample_group.id, sample_user.id, ga.id)
         assert exc.value.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_co_nominator_promotes_own_row(self, participation_service, db_session, sample_group, sample_album, sample_user, group_member):
+        """The listing hands out the earliest nominator's row; a co-nominator gets their own."""
+        _set_threshold(db_session, sample_group.id, 1)
+        first = _nominate(db_session, sample_group, sample_user, sample_album)
+        mine = _nominate(db_session, sample_group, group_member, sample_album)
+        db_session.add(GroupParticipation(group_id=sample_group.id, user_id=group_member.id, credits=3))
+        db_session.commit()
+
+        # The client can only know the canonical (earliest) id, which belongs to sample_user.
+        progress = participation_service.set_priority_pick(
+            sample_group.id, group_member.id, first.id
+        )
+        assert progress.pending_pick.id == mine.id
+        participation = participation_service._get(sample_group.id, group_member.id)
+        assert participation.priority_group_album_id == mine.id
+
+    def test_co_nomination_already_drawn_rejected(self, participation_service, db_session, sample_group, sample_album, sample_user, group_member):
+        """A repeat can't be promoted: the album is drawn here, even if not on my row."""
+        _set_threshold(db_session, sample_group.id, 1)
+        drawn = _draw(db_session, sample_group, sample_user, sample_album)
+        _nominate(db_session, sample_group, group_member, sample_album)
+        db_session.add(GroupParticipation(group_id=sample_group.id, user_id=group_member.id, credits=3))
+        db_session.commit()
+
+        with pytest.raises(HTTPException) as exc:
+            participation_service.set_priority_pick(sample_group.id, group_member.id, drawn.id)
+        assert exc.value.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_album_from_another_group_rejected(self, participation_service, db_session, sample_group, sample_album, sample_user, group_factory):
+        _set_threshold(db_session, sample_group.id, 1)
+        other_group = group_factory(name="elsewhere")
+        elsewhere = _nominate(db_session, other_group, sample_user, sample_album)
+        db_session.add(GroupParticipation(group_id=sample_group.id, user_id=sample_user.id, credits=3))
+        db_session.commit()
+
+        with pytest.raises(HTTPException) as exc:
+            participation_service.set_priority_pick(sample_group.id, sample_user.id, elsewhere.id)
+        assert exc.value.status_code == status.HTTP_404_NOT_FOUND
+
     def test_album_already_selected(self, participation_service, db_session, sample_group, sample_user, sample_group_album):
         _set_threshold(db_session, sample_group.id, 1)
         sample_group_album.selected_date = datetime.now(tz=timezone.utc)

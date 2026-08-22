@@ -1308,6 +1308,64 @@ class TestPrioritySelection:
         assert promoted.album_id in album_ids  # priority always drawn
         assert len(set(album_ids)) == 2  # promoted not double-selected
 
+    def test_priority_draw_retires_every_co_nomination(
+        self, group_album_service, sample_group, sample_user, db_session, user_factory
+    ):
+        """A priority draw selects the album for everyone who nominated it."""
+        other = user_factory(email="co@test.com", username="co_nominator")
+        promoted = self._pending(db_session, sample_group, sample_user, "sp_p", "Promoted")
+        co_nomination = GroupAlbum(
+            group_id=sample_group.id, album_id=promoted.album_id, added_by=other.id
+        )
+        db_session.add(co_nomination)
+        db_session.commit()
+        self._enable_and_queue(db_session, sample_group, sample_user, 2, promoted)
+
+        results = group_album_service.select_daily_albums(sample_group.id, n=1)
+
+        assert len(results) == 1
+        assert results[0].album_id == promoted.album_id
+        # Both nominations are retired, so the album can't be drawn again later.
+        db_session.refresh(co_nomination)
+        db_session.refresh(promoted)
+        assert co_nomination.selected_date is not None
+        assert promoted.selected_date is not None
+
+    def test_two_members_promoting_one_album_fill_one_slot(
+        self, group_album_service, sample_group, sample_user, db_session, user_factory
+    ):
+        """The second promoter is freed undebited rather than drawing a duplicate."""
+        from app.models import GroupParticipation, GroupSettings
+
+        other = user_factory(email="co@test.com", username="co_nominator")
+        promoted = self._pending(db_session, sample_group, sample_user, "sp_p", "Promoted")
+        co_nomination = GroupAlbum(
+            group_id=sample_group.id, album_id=promoted.album_id, added_by=other.id
+        )
+        db_session.add(co_nomination)
+        self._pending(db_session, sample_group, sample_user, "sp_a", "A")
+        db_session.commit()
+
+        self._enable_and_queue(db_session, sample_group, sample_user, 2, promoted)
+        db_session.add(GroupParticipation(
+            group_id=sample_group.id, user_id=other.id, credits=5,
+            priority_group_album_id=co_nomination.id,
+            priority_queued_at=datetime.now(tz=timezone.utc) + timedelta(minutes=1),
+        ))
+        db_session.commit()
+
+        results = group_album_service.select_daily_albums(sample_group.id, n=2)
+
+        assert len(results) == 2
+        assert len({ga.album_id for ga in results}) == 2  # no duplicate album
+        # The later promoter keeps every credit and is freed to pick again.
+        row = db_session.query(GroupParticipation).filter(
+            GroupParticipation.group_id == sample_group.id,
+            GroupParticipation.user_id == other.id,
+        ).first()
+        assert row.credits == 5
+        assert row.priority_group_album_id is None
+
     def test_no_priority_when_none_queued(
         self, group_album_service, sample_group, sample_group_album, db_session
     ):

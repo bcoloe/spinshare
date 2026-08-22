@@ -207,7 +207,7 @@ class ParticipationService:
             HTTPException 403: Caller is not a group member.
             HTTPException 409 "priority_pick_disabled": Feature not enabled here.
             HTTPException 409 "insufficient_credits": Balance below the threshold.
-            HTTPException 404: The album is not a pending nomination the caller added.
+            HTTPException 404: The caller has no pending nomination of that album here.
         """
         gs.GroupService(self.db).require_membership(user_id, group_id)
 
@@ -224,16 +224,7 @@ class ParticipationService:
                 status_code=status.HTTP_409_CONFLICT, detail="insufficient_credits"
             )
 
-        group_album = (
-            self.db.query(GroupAlbum)
-            .filter(
-                GroupAlbum.id == group_album_id,
-                GroupAlbum.group_id == group_id,
-                GroupAlbum.added_by == user_id,
-                GroupAlbum.selected_date.is_(None),
-            )
-            .first()
-        )
+        group_album = self._resolve_own_nomination(group_id, user_id, group_album_id)
         if group_album is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -282,9 +273,11 @@ class ParticipationService:
         """Consume up to ``limit`` queued priority picks for the group's daily draw.
 
         Returns the promoted ``GroupAlbum`` rows (FIFO by queue time) for the caller
-        to mark selected. For each claimed pick the owner's balance is debited by the
-        threshold and the pick fields cleared. Stale picks (album gone or already
-        selected) are auto-cleared without being returned, freeing that member to
+        to mark selected — at most one per album, since a draw of an album serves the
+        whole group. For each claimed pick the owner's balance is debited by the
+        threshold and the pick fields cleared. Stale picks (album gone, already
+        selected, or beaten to the same album by an earlier pick this draw) are
+        auto-cleared without being returned and cost nothing, freeing that member to
         promote again. Does not commit — runs inside the draw's transaction.
         """
         threshold = self._feature_threshold(group_id)
@@ -302,6 +295,7 @@ class ParticipationService:
         )
 
         claimed: list[GroupAlbum] = []
+        claimed_album_ids: set[int] = set()
         for participation in candidates:
             group_album = (
                 self.db.query(GroupAlbum)
@@ -311,8 +305,14 @@ class ParticipationService:
                 )
                 .first()
             )
-            if group_album is None or group_album.selected_date is not None:
-                # Stale promotion — free the slot so the member can pick again.
+            if (
+                group_album is None
+                or group_album.selected_date is not None
+                or group_album.album_id in claimed_album_ids
+            ):
+                # Stale promotion — the album is gone, already drawn, or another
+                # member's earlier pick has already claimed it for this draw. Free
+                # the slot, undebited, so the member can promote something else.
                 participation.priority_group_album_id = None
                 participation.priority_queued_at = None
                 continue
@@ -321,11 +321,47 @@ class ParticipationService:
             participation.priority_group_album_id = None
             participation.priority_queued_at = None
             claimed.append(group_album)
+            claimed_album_ids.add(group_album.album_id)
             if len(claimed) >= limit:
                 break
         return claimed
 
     # ==================== HELPERS ====================
+
+    def _resolve_own_nomination(
+        self, group_id: int, user_id: int, group_album_id: int
+    ) -> GroupAlbum | None:
+        """Find the caller's own pending nomination of the album behind ``group_album_id``.
+
+        Callers send ids taken from the group album listing, which collapses every
+        nomination of an album into the earliest row — so on a co-nominated album the
+        id belongs to whoever nominated it first, not necessarily to the caller. Match
+        on the album rather than the row, then hand back the caller's own nomination.
+
+        Returns None (a 404 for the caller) when the id is not this group's, when the
+        caller never nominated that album here, or when the album has already been
+        drawn under any nomination — promoting it again would draw a repeat.
+        """
+        target = (
+            self.db.query(GroupAlbum)
+            .filter(GroupAlbum.id == group_album_id, GroupAlbum.group_id == group_id)
+            .first()
+        )
+        if target is None:
+            return None
+
+        nominations = (
+            self.db.query(GroupAlbum)
+            .filter(
+                GroupAlbum.group_id == group_id,
+                GroupAlbum.album_id == target.album_id,
+            )
+            .order_by(GroupAlbum.id)
+            .all()
+        )
+        if any(ga.selected_date is not None for ga in nominations):
+            return None
+        return next((ga for ga in nominations if ga.added_by == user_id), None)
 
     def _feature_threshold(self, group_id: int) -> int | None:
         """The active priority-pick threshold for the group, or None if disabled.
