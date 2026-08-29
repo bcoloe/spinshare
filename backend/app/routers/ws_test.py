@@ -41,6 +41,77 @@ def clean_registry():
     manager._rooms.clear()
 
 
+class TestIdentityFromTicket:
+    """The handshake's fast path: identity out of the ticket, no database.
+
+    A client whose socket is unstable reconnects continuously, so a lookup here
+    was enough on its own to keep Neon's compute from ever auto-suspending.
+    """
+
+    def test_ticket_claims_are_used_instead_of_a_lookup(self, ws_client):
+        ticket = create_chat_ticket(5, "alice", [10, 20])
+
+        with patch("app.routers.ws._load_identity") as mock_load:
+            with ws_client.websocket_connect(f"/ws/chat?ticket={ticket}") as ws:
+                message = ws.receive_json()
+
+        mock_load.assert_not_called()
+        assert message["type"] == "presence.snapshot"
+        assert set(message["groups"]) == {"10", "20"}
+
+    def test_ticket_without_claims_falls_back_to_a_lookup(self, ws_client, fake_identity):
+        """Tickets minted before the claims existed still open a socket."""
+        ticket = create_chat_ticket(1)
+
+        with ws_client.websocket_connect(f"/ws/chat?ticket={ticket}") as ws:
+            ws.receive_json()
+
+        fake_identity.assert_called_once()
+
+    def test_username_from_the_ticket_reaches_presence(self, ws_client):
+        ticket = create_chat_ticket(5, "alice", [10])
+
+        with patch("app.routers.ws._load_identity"):
+            with ws_client.websocket_connect(f"/ws/chat?ticket={ticket}") as ws:
+                ws.receive_json()
+                assert manager.presence(10) == [{"user_id": 5, "username": "alice"}]
+
+    @pytest.mark.parametrize(
+        "claims",
+        [
+            {"username": "alice", "groups": "not-a-list"},
+            {"username": 12345, "groups": [10]},
+            {"username": "alice", "groups": [{"id": 10}]},
+        ],
+        ids=["groups-not-a-list", "username-not-a-string", "group-id-not-an-int"],
+    )
+    def test_unrecognisable_claims_fall_back_rather_than_being_trusted(
+        self, ws_client, fake_identity, claims
+    ):
+        from datetime import UTC, datetime, timedelta
+
+        from app.utils.security import ALGORITHM, SECRET_KEY
+        from jose import jwt
+
+        now = datetime.now(UTC)
+        ticket = jwt.encode(
+            {
+                "sub": "1",
+                "type": "chat_ticket",
+                "exp": now + timedelta(seconds=30),
+                "iat": now,
+                **claims,
+            },
+            SECRET_KEY,
+            algorithm=ALGORITHM,
+        )
+
+        with ws_client.websocket_connect(f"/ws/chat?ticket={ticket}") as ws:
+            ws.receive_json()
+
+        fake_identity.assert_called_once()
+
+
 class TestHandshakeAuth:
     def test_valid_ticket_connects(self, ws_client, fake_identity):
         ticket = create_chat_ticket(1)

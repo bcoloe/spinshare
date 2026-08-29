@@ -1,4 +1,6 @@
 # backend/app/dependencies.py
+from dataclasses import dataclass
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -168,6 +170,69 @@ def get_current_user_optional(
         return None
 
     return get_current_user(token=token, db=db)
+
+
+@dataclass(frozen=True)
+class SocketIdentity:
+    """Who is opening a chat socket, and which rooms they belong to."""
+
+    user_id: int
+    username: str
+    group_ids: list[int]
+
+
+def get_socket_identity(
+    token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
+) -> SocketIdentity:
+    """Resolve the caller's identity for a chat ticket, preferring token claims.
+
+    Every other authenticated dependency loads the user row because the endpoint
+    behind it needs the row. This one needs three things — an id, a display name,
+    and a room list — and the access token already carries all three, so it can
+    answer without a query.
+
+    That matters more than it looks. A client whose socket is unstable mints a
+    ticket on every reconnect; at one reconnect a minute, the reads behind that
+    were enough on their own to stop Neon's compute from ever auto-suspending.
+    Skipping them decouples socket churn from database wakefulness entirely.
+
+    Tokens issued before these claims existed fall back to a lookup, so sessions
+    already in flight when this deploys keep working rather than failing closed.
+    The ``db`` session is opened lazily by SQLAlchemy, so the fast path costs no
+    connection despite the dependency being declared.
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    payload = decode_access_token(token)
+    if payload is None:
+        raise credentials_exception
+
+    raw_user_id = payload.get("sub")
+    if raw_user_id is None:
+        raise credentials_exception
+    try:
+        user_id = int(raw_user_id)
+    except (TypeError, ValueError):
+        raise credentials_exception from None
+
+    username = payload.get("username")
+    groups = payload.get("groups")
+    if isinstance(username, str) and isinstance(groups, list):
+        try:
+            return SocketIdentity(user_id, username, [int(gid) for gid in groups])
+        except (TypeError, ValueError):
+            raise credentials_exception from None
+
+    # Legacy token, or claims we cannot trust the shape of: resolve from the row.
+    try:
+        user = UserService(db).get_user_by_id(user_id)
+    except HTTPException as e:
+        raise credentials_exception from e
+    return SocketIdentity(user.id, user.username, [group.id for group in user.groups])
 
 
 def get_current_admin_user(current_user: User = Depends(get_current_user)) -> User:

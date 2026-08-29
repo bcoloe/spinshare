@@ -1,3 +1,7 @@
+import logging
+import os
+import sys
+from collections.abc import Mapping, Sequence
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -26,9 +30,69 @@ from app.routers.ws import router as ws_router
 
 settings = get_settings()
 
+logger = logging.getLogger(__name__)
+
+
+def configured_worker_count(
+    argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
+) -> int:
+    """How many uvicorn workers this process was launched with.
+
+    Reads the command line the way uvicorn does, falling back to
+    ``WEB_CONCURRENCY``, and defaulting to one. Anything unparseable counts as
+    one: this exists to raise an alarm, not to become a new way to fail to boot.
+    """
+    argv = list(sys.argv if argv is None else argv)
+    env = os.environ if env is None else env
+
+    for index, arg in enumerate(argv):
+        value = None
+        if arg.startswith("--workers="):
+            value = arg.split("=", 1)[1]
+        elif arg == "--workers" and index + 1 < len(argv):
+            value = argv[index + 1]
+        if value is not None:
+            try:
+                return int(value)
+            except ValueError:
+                return 1
+
+    try:
+        return int(env.get("WEB_CONCURRENCY", 1))
+    except ValueError:
+        return 1
+
+
+def warn_if_sharded(workers: int) -> bool:
+    """Log an alarm when more than one worker will serve chat. Returns True if so.
+
+    Presence and message fan-out are held in process memory (see
+    ``app/realtime/connection_manager.py``), so a second worker is an island:
+    members whose sockets land on different workers never see each other online
+    and never receive each other's messages. Nothing about that failure is
+    visible from the outside — the room simply looks empty.
+
+    The deployed unit file drifted to ``--workers 2`` once already and ran that
+    way unnoticed, which is why this is asserted at startup rather than left to
+    code review. It warns rather than exits: a chat room that is split is bad,
+    but an API that refuses to boot is worse.
+    """
+    if workers <= 1:
+        return False
+
+    logger.error(
+        "Starting with %d uvicorn workers, but chat presence and message fan-out "
+        "are per-process. Members whose sockets land on different workers will "
+        "not see each other online and will not receive each other's messages. "
+        "Restart with --workers 1, or move fan-out to a shared broker.",
+        workers,
+    )
+    return True
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    warn_if_sharded(configured_worker_count())
     # Hand the connection manager a reference to the serving event loop. Route
     # handlers are sync `def` (threadpool-executed) and need it to schedule chat
     # fanout back onto the loop that owns the sockets.

@@ -442,20 +442,37 @@ class TestUserServiceAuthentication:
 class TestUserServiceRefresh:
     """Tests for the token refresh flow."""
 
-    def test_refresh_with_email_in_token_skips_db(self, sample_user_service, hashed_user):
-        """New-format tokens (email embedded) complete without a DB lookup."""
-        from app.utils.security import create_refresh_token
-        from unittest.mock import patch
+    def test_refresh_reloads_the_user_to_recompute_group_claims(
+        self, sample_user_service, hashed_user
+    ):
+        """Refresh reads the user row, and that read is the point of it.
+
+        The access token carries a ``groups`` claim so that opening a chat socket
+        needs no query. Refresh is the only moment in a long session when that
+        claim can be corrected, so it must come from the database rather than be
+        copied forward from the refresh token, which may be a week old.
+        """
+        from app.utils.security import create_refresh_token, decode_access_token
 
         token = create_refresh_token({"sub": str(hashed_user.id), "email": hashed_user.email})
 
-        with patch.object(sample_user_service, "get_user_by_id") as mock_get:
-            result = sample_user_service.refresh(token)
+        result = sample_user_service.refresh(token)
 
-        mock_get.assert_not_called()
-        assert result.access_token is not None
-        assert result.refresh_token is not None
+        claims = decode_access_token(result.access_token)
+        assert claims["username"] == hashed_user.username
+        assert claims["groups"] == sorted(group.id for group in hashed_user.groups)
         assert result.token_type == "bearer"
+
+    def test_refresh_for_a_deleted_user_is_rejected(self, sample_user_service):
+        """A valid refresh token for a row that no longer exists cannot mint one."""
+        from app.utils.security import create_refresh_token
+
+        token = create_refresh_token({"sub": "999999", "email": "gone@test.com"})
+
+        with pytest.raises(HTTPException) as exc_info:
+            sample_user_service.refresh(token)
+
+        assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_refresh_legacy_token_falls_back_to_db(self, sample_user_service, hashed_user):
         """Legacy tokens without email embedded still work via DB fallback."""
@@ -586,6 +603,7 @@ class TestUserServicePasswordReset:
     def test_confirm_expired_token_raises_400(self, sample_user_service, user_factory):
         """confirm_password_reset raises 400 for an expired token."""
         from datetime import timedelta
+
         from app.config import get_settings
         from jose import jwt as jose_jwt
 

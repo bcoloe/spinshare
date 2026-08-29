@@ -2,9 +2,24 @@
 
 from datetime import UTC, datetime, timedelta
 
-from app.models import AlbumDeal, Group, GroupAlbum, NominationGuess, Review, SpotifyConnection, User
+from app.models import (
+    AlbumDeal,
+    Group,
+    GroupAlbum,
+    NominationGuess,
+    Review,
+    SpotifyConnection,
+    User,
+)
 from app.models.group import group_members
-from app.schemas.user import LoginRequest, LoginResponse, RefreshResponse, UserCreate, UserResponse, UserUpdate
+from app.schemas.user import (
+    LoginRequest,
+    LoginResponse,
+    RefreshResponse,
+    UserCreate,
+    UserResponse,
+    UserUpdate,
+)
 from app.utils import security
 from fastapi import HTTPException, status
 from sqlalchemy import delete as sa_delete, exists, select
@@ -567,7 +582,25 @@ class UserService:
 
     @staticmethod
     def _access_token_data(user: User) -> dict:
-        return {"sub": str(user.id), "email": user.email}
+        """Claims for an access token.
+
+        ``username`` and ``groups`` are carried so that minting a chat ticket —
+        which a reconnecting client does continuously — needs no database read.
+
+        ``groups`` is the one claim here that can go stale. A membership change
+        reaches a chat socket only when that socket next reconnects carrying a
+        token minted after the change, so the worst case is one access-token
+        lifetime (15 minutes) plus however long the current socket survives. An
+        open socket was already pinned to the membership it resolved at connect
+        time, so this widens an existing window rather than opening a new one;
+        reloading the page mints a fresh token and clears it either way.
+        """
+        return {
+            "sub": str(user.id),
+            "email": user.email,
+            "username": user.username,
+            "groups": sorted(group.id for group in user.groups),
+        }
 
     @staticmethod
     def _refresh_token_data(user: User) -> dict:
@@ -612,21 +645,22 @@ class UserService:
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload"
             )
 
-        email = payload.get("email")
-        if email is None:
-            # Legacy token issued before email was embedded — fall back to DB lookup.
-            try:
-                user = self.get_user_by_id(int(user_id))
-                email = user.email
-            except HTTPException:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
-                ) from None
+        # The user is loaded rather than reconstructed from the refresh token's
+        # own claims, because the new access token has to carry current group
+        # membership. This is the only point in a long session where that claim
+        # gets corrected, which is what bounds its staleness to 15 minutes. One
+        # read per refresh is affordable; the read per socket reconnect that
+        # this replaces was not.
+        try:
+            user = self.get_user_by_id(int(user_id))
+        except (HTTPException, ValueError):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+            ) from None
 
-        token_data = {"sub": user_id, "email": email}
         return RefreshResponse(
-            access_token=security.create_access_token(data=token_data),
-            refresh_token=security.create_refresh_token(data=token_data),
+            access_token=security.create_access_token(data=self._access_token_data(user)),
+            refresh_token=security.create_refresh_token(data=self._refresh_token_data(user)),
             token_type="bearer",
         )
 

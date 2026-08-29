@@ -9,7 +9,12 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
-from app.dependencies import get_current_user, get_message_service
+from app.dependencies import (
+    SocketIdentity,
+    get_current_user,
+    get_message_service,
+    get_socket_identity,
+)
 from app.main import app
 from app.schemas.message import MAX_MESSAGE_LENGTH
 from app.services.message_service import MessageService
@@ -40,9 +45,19 @@ def mock_message_service():
     return MagicMock(spec=MessageService)
 
 
+# Rooms the ticket endpoint should copy into the ticket it mints.
+TICKET_GROUP_IDS = [7, 9]
+
+
 @pytest.fixture
 def chat_client(mock_user, mock_message_service):
     app.dependency_overrides[get_current_user] = lambda: mock_user
+    # The ticket endpoint resolves identity from token claims rather than the
+    # user row, so it needs its own override — get_current_user is not on its
+    # dependency path.
+    app.dependency_overrides[get_socket_identity] = lambda: SocketIdentity(
+        mock_user.id, mock_user.username, list(TICKET_GROUP_IDS)
+    )
     app.dependency_overrides[get_message_service] = lambda: mock_message_service
     from fastapi.testclient import TestClient
 
@@ -301,6 +316,15 @@ class TestChatTicket:
         payload = decode_chat_ticket(resp.json()["ticket"])
         assert payload is not None
         assert payload["sub"] == str(mock_user.id)
+
+    def test_ticket_carries_identity_so_the_handshake_needs_no_lookup(
+        self, chat_client, mock_user
+    ):
+        """Username and rooms ride in the ticket, making a reconnect DB-free."""
+        payload = decode_chat_ticket(chat_client.post("/chat/ticket").json()["ticket"])
+
+        assert payload["username"] == mock_user.username
+        assert payload["groups"] == TICKET_GROUP_IDS
 
     def test_ticket_is_short_lived(self, chat_client):
         resp = chat_client.post("/chat/ticket")

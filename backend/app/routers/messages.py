@@ -1,6 +1,11 @@
 # backend/app/routers/messages.py
 
-from app.dependencies import get_current_user, get_message_service
+from app.dependencies import (
+    SocketIdentity,
+    get_current_user,
+    get_message_service,
+    get_socket_identity,
+)
 from app.models import User
 from app.realtime.connection_manager import manager
 from app.schemas.message import (
@@ -136,14 +141,19 @@ def get_presence(
 
 
 @router.post("/chat/ticket", response_model=ChatTicketResponse)
-def create_ticket(current_user: User = Depends(get_current_user)):
+def create_ticket(identity: SocketIdentity = Depends(get_socket_identity)):
     """Exchange a normal authenticated request for a short-lived socket ticket.
 
     The browser WebSocket API cannot set an Authorization header, so the
     credential has to ride in the URL where nginx will log it. This one expires
     in 30 seconds and opens nothing but a socket.
+
+    Deliberately depends on ``get_socket_identity`` rather than
+    ``get_current_user``: a reconnecting client calls this endpoint over and
+    over, and the identity it needs is already in the access token. Loading the
+    user row here would put a database read on every reconnect.
     """
     return ChatTicketResponse(
-        ticket=create_chat_ticket(current_user.id),
+        ticket=create_chat_ticket(identity.user_id, identity.username, identity.group_ids),
         expires_in=CHAT_TICKET_EXPIRE_SECONDS,
     )
