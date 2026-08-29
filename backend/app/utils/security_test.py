@@ -184,3 +184,34 @@ class TestSecurity:
         encoded_token = security.create_access_token(data)
 
         assert security.decode_refresh_token(encoded_token, verify_exp=False) is None
+
+
+class TestChatTicket:
+    """The ticket carries enough identity that the handshake needs no database."""
+
+    def test_carries_username_and_groups_when_supplied(self):
+        ticket = security.create_chat_ticket(5, "alice", [20, 10])
+        payload = security.decode_chat_ticket(ticket)
+
+        assert payload["sub"] == "5"
+        assert payload["username"] == "alice"
+        assert payload["groups"] == [10, 20]
+
+    def test_omits_identity_claims_when_not_supplied(self):
+        """Still valid without them — that is the handshake's lookup path."""
+        payload = security.decode_chat_ticket(security.create_chat_ticket(5))
+
+        assert payload["sub"] == "5"
+        assert "username" not in payload
+        assert "groups" not in payload
+
+    def test_empty_group_list_is_carried_rather_than_dropped(self):
+        """A user in no groups is a real state, distinct from 'claims absent'."""
+        payload = security.decode_chat_ticket(security.create_chat_ticket(5, "alice", []))
+
+        assert payload["groups"] == []
+
+    def test_is_still_rejected_as_an_access_token(self):
+        ticket = security.create_chat_ticket(5, "alice", [10])
+
+        assert security.decode_access_token(ticket) is None

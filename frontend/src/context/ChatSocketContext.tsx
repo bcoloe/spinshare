@@ -18,6 +18,15 @@ import { chatKeys } from '../hooks/chatKeys'
 const WS_UNAUTHORIZED = 4001
 const BASE_RETRY_MS = 1000
 const MAX_RETRY_MS = 30_000
+// How long a connection must survive before its backoff counter is forgiven.
+//
+// Resetting the counter the instant `onopen` fires looks right and is not: a
+// socket that opens and dies seconds later is *still failing*, but its backoff
+// never grows, so it reconnects at full speed indefinitely. Each attempt costs
+// a ticket mint and an identity lookup, which is enough to keep a serverless
+// database from ever suspending. Requiring the connection to last first means a
+// genuinely healthy socket resets as before, while a flapping one backs off.
+const STABLE_AFTER_MS = 30_000
 
 interface ChatSocketValue {
   isConnected: boolean
@@ -87,6 +96,9 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
   const cancelledRef = useRef(false)
   // True from the start of a connection attempt until its socket exists.
   const connectingRef = useRef(false)
+  // Pending "this connection has lasted long enough" timer, cancelled if the
+  // socket closes before it fires.
+  const stableTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const applyEvent = useCallback(
     (event: ChatSocketEvent) => {
@@ -176,6 +188,13 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
   // neither has to be declared before the other.
   const connectRef = useRef<() => void>(() => {})
 
+  const clearStableTimer = useCallback(() => {
+    if (stableTimerRef.current) {
+      clearTimeout(stableTimerRef.current)
+      stableTimerRef.current = null
+    }
+  }, [])
+
   const scheduleRetry = useCallback(() => {
     if (cancelledRef.current) return
     if (retryTimerRef.current) return
@@ -222,8 +241,13 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
     socketRef.current = socket
 
     socket.onopen = () => {
-      retryRef.current = 0
       setIsConnected(true)
+      // Forgive the backoff only once this connection has proven it lasts.
+      clearStableTimer()
+      stableTimerRef.current = setTimeout(() => {
+        stableTimerRef.current = null
+        retryRef.current = 0
+      }, STABLE_AFTER_MS)
     }
 
     socket.onmessage = (raw) => {
@@ -236,6 +260,8 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
 
     socket.onclose = (closeEvent) => {
       socketRef.current = null
+      // Closed before proving stable, so the backoff counter stands.
+      clearStableTimer()
       setIsConnected(false)
       setPresenceByGroup({})
 
@@ -252,7 +278,7 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
       // onclose always follows, which is where reconnection is handled.
       socket.close()
     }
-  }, [applyEvent, scheduleRetry])
+  }, [applyEvent, scheduleRetry, clearStableTimer])
 
   useEffect(() => {
     connectRef.current = () => void connect()
@@ -270,6 +296,7 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
         clearTimeout(retryTimerRef.current)
         retryTimerRef.current = null
       }
+      clearStableTimer()
       // Clear onclose first so teardown does not schedule a reconnect.
       const socket = socketRef.current
       if (socket) {
@@ -280,7 +307,7 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
       setIsConnected(false)
       setPresenceByGroup({})
     }
-  }, [user, connect])
+  }, [user, connect, clearStableTimer])
 
   // A socket that dropped while the tab was backgrounded should come back as
   // soon as the user returns, rather than waiting out the remaining backoff.

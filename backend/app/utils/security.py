@@ -4,7 +4,7 @@ import dataclasses
 import enum
 import re
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -184,7 +184,11 @@ def decode_password_reset_token(token: str) -> dict | None:
 CHAT_TICKET_EXPIRE_SECONDS = 30
 
 
-def create_chat_ticket(user_id: int) -> str:
+def create_chat_ticket(
+    user_id: int,
+    username: str | None = None,
+    group_ids: Iterable[int] | None = None,
+) -> str:
     """Mint a short-lived credential for opening the chat WebSocket.
 
     The browser WebSocket API cannot set request headers, so the credential has
@@ -192,6 +196,12 @@ def create_chat_ticket(user_id: int) -> str:
     the real 15-minute access token there, callers exchange an authenticated
     request for this ticket: it expires in 30 seconds, is only accepted by the
     socket handshake (``type`` = ``chat_ticket``), and grants nothing else.
+
+    ``username`` and ``group_ids`` ride along as claims when supplied, which is
+    what lets the handshake resolve who is connecting and which rooms to join
+    without touching the database. Both are optional: a ticket without them is
+    still valid and sends the handshake down its lookup path, which is how
+    tickets minted before this existed keep working.
     """
     now = datetime.now(UTC)
     to_encode = {
@@ -201,6 +211,10 @@ def create_chat_ticket(user_id: int) -> str:
         "iat": now,
         "jti": secrets.token_urlsafe(16),
     }
+    if username is not None:
+        to_encode["username"] = username
+    if group_ids is not None:
+        to_encode["groups"] = sorted(group_ids)
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 

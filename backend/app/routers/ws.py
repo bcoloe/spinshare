@@ -5,8 +5,9 @@
 The socket is **receive-only from the client's point of view**: everything the
 server pushes originates from a REST write elsewhere, and nothing the client
 sends over the socket mutates state. That is deliberate — it keeps this the only
-async code path in the backend, and it keeps it free of database access after
-the handshake, so an idle socket costs nothing.
+async code path in the backend, and it keeps it free of database access
+entirely: the handshake reads identity out of the ticket's own claims, so an
+idle socket costs nothing and a reconnecting one costs nothing either.
 
 The read loop exists solely to notice that the peer has gone away. uvicorn's
 protocol-level ping/pong (20 s interval, 20 s timeout by default) closes
@@ -34,13 +35,30 @@ router = APIRouter()
 WS_UNAUTHORIZED = 4001
 
 
-def _load_identity(user_id: int) -> tuple[str, set[int]] | None:
-    """Resolve a user's username and group ids.
+def _identity_from_ticket(payload: dict) -> tuple[str, set[int]] | None:
+    """Read username and rooms straight out of the ticket, if it carries them.
 
-    The only database work the socket ever does, and it happens once per
-    connection rather than once per message. Runs in a threadpool because the
-    session is synchronous and would otherwise block the event loop for every
-    other connected client.
+    The fast path, and the reason a reconnect costs no database work at all: the
+    ticket was minted from an access token that already held both claims. Returns
+    None for a ticket without them (one issued before they existed) or with a
+    shape we do not recognise, which sends the caller to ``_load_identity``.
+    """
+    username = payload.get("username")
+    groups = payload.get("groups")
+    if not isinstance(username, str) or not isinstance(groups, list):
+        return None
+    try:
+        return username, {int(group_id) for group_id in groups}
+    except (TypeError, ValueError):
+        return None
+
+
+def _load_identity(user_id: int) -> tuple[str, set[int]] | None:
+    """Resolve a user's username and group ids from the database.
+
+    The fallback for a ticket that carries no identity claims. Runs in a
+    threadpool because the session is synchronous and would otherwise block the
+    event loop for every other connected client.
     """
     db = SessionLocal()
     try:
@@ -70,7 +88,9 @@ async def chat_socket(websocket: WebSocket, ticket: str = ""):
         await websocket.close(code=WS_UNAUTHORIZED)
         return
 
-    identity = await run_in_threadpool(_load_identity, user_id)
+    identity = _identity_from_ticket(payload)
+    if identity is None:
+        identity = await run_in_threadpool(_load_identity, user_id)
     if identity is None:
         await websocket.close(code=WS_UNAUTHORIZED)
         return
