@@ -10,33 +10,47 @@
  *                   outline, etc.) where Mantine tokens are not accepted.
  * ratingColorTint — translucent band color for row/card backgrounds.
  *
- * Scale (ROYGBIV, low to high):
- *   < 4   red
- *   4–5   orange
- *   5–6   yellow
- *   6–7   light green
- *   7–8   dark green
- *   8–9   blue
- *   ≥ 9   purple
+ * Scale (low to high): a brown ramp for the bottom of the range, then ROYGBIV,
+ * capped by a bright purple reserved for a perfect 10.
+ *   < 1    dark brown
+ *   1–2    medium brown
+ *   2–3    light brown
+ *   3–4    red
+ *   4–5    orange
+ *   5–6    yellow
+ *   6–7    light green
+ *   7–8    dark green
+ *   8–9    blue
+ *   9–10   purple
+ *   10     bright purple
  */
 
 interface RatingBand {
   /** Upper bound of the band, exclusive. */
   max: number
-  /** Mantine color token. */
+  /** Mantine color token, or a raw hex where the palette has no equivalent. */
   token: string
   /** Hex equivalent of the token, from the Mantine default palette. */
   hex: string
 }
 
+// Mantine has no brown palette, so the bottom three bands carry raw hexes.
+// They are tuned to stay legible on the app's dark background: a literal dark
+// brown (#3d2312) sits at 1.07:1 against it, effectively invisible.
 const RATING_BANDS: RatingBand[] = [
+  { max: 1, token: '#9c6634', hex: '#9c6634' },
+  { max: 2, token: '#c08552', hex: '#c08552' },
+  { max: 3, token: '#dcb287', hex: '#dcb287' },
   { max: 4, token: 'red.7', hex: '#f03e3e' },
   { max: 5, token: 'orange.6', hex: '#fd7e14' },
   { max: 6, token: 'yellow.6', hex: '#fab005' },
   { max: 7, token: 'lime.6', hex: '#82c91e' },
   { max: 8, token: 'green.8', hex: '#2f9e44' },
   { max: 9, token: 'blue.6', hex: '#228be6' },
-  { max: Infinity, token: 'violet.6', hex: '#7950f2' },
+  { max: 10, token: 'violet.6', hex: '#7950f2' },
+  // Reserved for a perfect 10: nothing below 10 reaches this band, because
+  // ratings are capped at 10 server-side (ge=0, le=10).
+  { max: Infinity, token: 'grape.4', hex: '#da77f2' },
 ]
 
 const TOP_BAND = RATING_BANDS[RATING_BANDS.length - 1]

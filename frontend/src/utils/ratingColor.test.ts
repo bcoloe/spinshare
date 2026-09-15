@@ -7,7 +7,11 @@ describe('ratingColor', () => {
   })
 
   it.each([
-    [1, 'red.7'],
+    [0, '#9c6634'],
+    [0.9, '#9c6634'],
+    [1, '#c08552'],
+    [2, '#dcb287'],
+    [3, 'red.7'],
     [3.9, 'red.7'],
     [4, 'orange.6'],
     [4.9, 'orange.6'],
@@ -16,14 +20,28 @@ describe('ratingColor', () => {
     [7, 'green.8'],
     [8, 'blue.6'],
     [9, 'violet.6'],
-    [10, 'violet.6'],
+    [9.9, 'violet.6'],
+    [10, 'grape.4'],
   ])('maps %s to %s', (rating, expected) => {
     expect(ratingColor(rating)).toBe(expected)
   })
 
-  it('climbs the ROYGBIV scale without repeating a band', () => {
-    const bands = [1, 4, 5, 6, 7, 8, 9].map(ratingColor)
+  it('climbs the scale without repeating a band', () => {
+    const bands = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(ratingColor)
     expect(new Set(bands).size).toBe(bands.length)
+  })
+
+  it('darkens the brown ramp toward zero', () => {
+    const brightness = (hex: string) => parseInt(hex.slice(1), 16)
+    expect(brightness(ratingColor(0))).toBeLessThan(brightness(ratingColor(1)))
+    expect(brightness(ratingColor(1))).toBeLessThan(brightness(ratingColor(2)))
+  })
+
+  it('reserves its top band for a perfect 10 alone', () => {
+    const perfect = ratingColor(10)
+    for (let rating = 0; rating < 10; rating += 0.1) {
+      expect(ratingColor(rating)).not.toBe(perfect)
+    }
   })
 })
 
