@@ -16,7 +16,7 @@ describe('ratingColor', () => {
     [4, 'orange.6'],
     [4.9, 'orange.6'],
     [5, 'yellow.6'],
-    [6, 'lime.6'],
+    [6, '#b0d12b'],
     [7, 'green.8'],
     [8, 'blue.6'],
     [9, 'violet.6'],

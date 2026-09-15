@@ -18,7 +18,7 @@
  *   3–4    red
  *   4–5    orange
  *   5–6    yellow
- *   6–7    light green
+ *   6–7    yellow-green
  *   7–8    dark green
  *   8–9    blue
  *   9–10   purple
@@ -34,7 +34,8 @@ interface RatingBand {
   hex: string
 }
 
-// Mantine has no brown palette, so the bottom three bands carry raw hexes.
+// Bands carrying a raw hex have no Mantine palette equivalent.
+// The bottom three are brown, which Mantine does not ship at all.
 // They are tuned to stay legible on the app's dark background: a literal dark
 // brown (#3d2312) sits at 1.07:1 against it, effectively invisible.
 const RATING_BANDS: RatingBand[] = [
@@ -44,7 +45,10 @@ const RATING_BANDS: RatingBand[] = [
   { max: 4, token: 'red.7', hex: '#f03e3e' },
   { max: 5, token: 'orange.6', hex: '#fd7e14' },
   { max: 6, token: 'yellow.6', hex: '#fab005' },
-  { max: 7, token: 'lime.6', hex: '#82c91e' },
+  // Mantine's lime shades all sit at hue ~84 (green-leaning); this is pulled
+  // to ~72 so the band reads yellow-green, roughly equidistant from the
+  // yellow below it and the green above.
+  { max: 7, token: '#b0d12b', hex: '#b0d12b' },
   { max: 8, token: 'green.8', hex: '#2f9e44' },
   { max: 9, token: 'blue.6', hex: '#228be6' },
   { max: 10, token: 'violet.6', hex: '#7950f2' },
