@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ratingColor } from '../../utils/ratingColor'
+import { ratingColor, ratingColorTint } from '../../utils/ratingColor'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   ActionIcon,
@@ -71,15 +71,6 @@ function getNominator(ga: GroupAlbumResponse, members: GroupMemberResponse[]): s
 // The date an album entered the member's history: dealt (dealer groups) or selected
 function spunDate(ga: GroupAlbumResponse): string | null {
   return ga.dealt_at ?? ga.selected_date
-}
-
-function ratingBg(rating: number): string {
-  if (rating < 3) return 'color-mix(in srgb, var(--mantine-color-red-7) 12%, transparent)'
-  if (rating < 5) return 'color-mix(in srgb, #6b4226 12%, transparent)'
-  if (rating < 7) return 'color-mix(in srgb, var(--mantine-color-orange-5) 12%, transparent)'
-  if (rating < 8) return 'color-mix(in srgb, var(--mantine-color-blue-6) 12%, transparent)'
-  if (rating < 9) return 'color-mix(in srgb, var(--mantine-color-lime-7) 12%, transparent)'
-  return 'color-mix(in srgb, var(--mantine-color-green-7) 12%, transparent)'
 }
 
 function formatReleaseDate(releaseDate: string | null): string {
@@ -470,7 +461,7 @@ function PeerReviewPanel({ ga, review, members, groupId, allowGuessing, guessRes
           const memberGuess = allowGuessing && guessesSettled ? memberGuessLookup.get(r.user_id) : undefined
 
           return (
-            <Paper key={r.id} withBorder p="sm" style={{ background: ratingBg(r.rating ?? 0) }}>
+            <Paper key={r.id} withBorder p="sm" style={{ background: ratingColorTint(r.rating ?? 0) }}>
               <Group
                 justify="space-between"
                 wrap="nowrap"
