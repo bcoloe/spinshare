@@ -94,7 +94,7 @@ function AlbumRow({ item }: { item: ArtistAlbumItem }) {
             <Badge
               size="lg"
               variant="light"
-              color={average_rating !== null ? ratingColor(average_rating) : 'gray'}
+              color={ratingColor(average_rating)}
             >
               {average_rating !== null ? average_rating.toFixed(1) : '—'}
             </Badge>

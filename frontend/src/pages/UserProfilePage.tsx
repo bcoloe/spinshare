@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ratingColor } from '../utils/ratingColor'
+import { ratingColor, ratingColorHex } from '../utils/ratingColor'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   Badge,
@@ -490,7 +490,11 @@ export default function UserProfilePage() {
                           itemStyle={{ color: '#c1c2c5' }}
                           cursor={{ fill: 'var(--mantine-color-dark-5)' }}
                         />
-                        <Bar dataKey="count" radius={[4, 4, 0, 0]} fill="var(--mantine-color-violet-5)" />
+                        <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                          {(reviewStats?.rating_histogram ?? []).map((bucket) => (
+                            <Cell key={bucket.bucket} fill={ratingColorHex(bucket.bucket)} />
+                          ))}
+                        </Bar>
                       </BarChart>
                     </ResponsiveContainer>
                   ),
@@ -514,8 +518,8 @@ export default function UserProfilePage() {
                           cursor={{ fill: 'var(--mantine-color-dark-5)' }}
                         />
                         <Bar dataKey="avg_rating" radius={[4, 4, 0, 0]}>
-                          {(reviewStats?.avg_rating_by_decade ?? []).map((_, i) => (
-                            <Cell key={i} fill={DECADE_COLORS[i % DECADE_COLORS.length]} />
+                          {(reviewStats?.avg_rating_by_decade ?? []).map((d) => (
+                            <Cell key={d.decade} fill={ratingColorHex(d.avg_rating)} />
                           ))}
                         </Bar>
                       </BarChart>

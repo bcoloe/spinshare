@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { ratingColor } from '../../utils/ratingColor'
 import {
   ActionIcon,
   Alert,
@@ -271,10 +272,11 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
         <div>
           <Group justify="space-between" mb={4}>
             <Text size="sm">Rating</Text>
-            <Text size="sm" fw={500} c="violet">{editRating} / 10</Text>
+            <Text size="sm" fw={500} c={ratingColor(editRating)}>{editRating} / 10</Text>
           </Group>
           <Slider
             min={0} max={10} step={0.1}
+            color={ratingColor(editRating)}
             value={editRating} onChange={setEditRating}
             marks={[0, 2, 4, 6, 8, 10].map((v) => ({ value: v, label: String(v) }))}
             mb="lg"
@@ -437,7 +439,7 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
           <div>
             <Group justify="space-between" mb={4}>
               <Text size="sm">Rating</Text>
-              <Text size="sm" fw={500} c="violet">
+              <Text size="sm" fw={500} c={ratingColor(rating)}>
                 {rating !== null ? `${rating} / 10` : '—'}
               </Text>
             </Group>
@@ -445,6 +447,7 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
               min={0}
               max={10}
               step={0.1}
+              color={ratingColor(rating)}
               value={rating ?? 0}
               onChange={(v) => { isDirtyRef.current = true; setRating(v) }}
               marks={[0, 2, 4, 6, 8, 10].map((v) => ({ value: v, label: String(v) }))}
