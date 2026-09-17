@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ratingColor } from '../utils/ratingColor'
+import { ratingColor, ratingColorHex } from '../utils/ratingColor'
 import { useParams, Link } from 'react-router-dom'
 import {
   ActionIcon,
@@ -426,7 +426,7 @@ function ReviewRow({ item, isExpanded, onToggle }: ReviewRowProps) {
           </Text>
         </Table.Td>
         <Table.Td>
-          <Text size="sm" fw={700} c={item.rating !== null ? ratingColor(item.rating) : 'dimmed'}>
+          <Text size="sm" fw={700} c={ratingColor(item.rating)}>
             {item.rating ?? '—'}
           </Text>
         </Table.Td>
@@ -738,9 +738,7 @@ export default function AlbumPage() {
                     size="xl"
                     fw={700}
                     style={{ fontSize: 40, lineHeight: 1 }}
-                    c={stats?.average_rating !== null && stats?.average_rating !== undefined
-                      ? ratingColor(stats.average_rating)
-                      : 'dimmed'}
+                    c={ratingColor(stats?.average_rating)}
                   >
                     {stats?.average_rating !== null && stats?.average_rating !== undefined
                       ? stats.average_rating.toFixed(1)
@@ -792,13 +790,7 @@ export default function AlbumPage() {
                         {(stats?.histogram ?? []).map((bucket) => (
                           <Cell
                             key={bucket.bucket_start}
-                            fill={
-                              bucket.bucket_start < 3 ? 'var(--mantine-color-red-7)' :
-                              bucket.bucket_start < 5 ? '#6b4226' :
-                              bucket.bucket_start < 7 ? 'var(--mantine-color-orange-5)' :
-                              bucket.bucket_start < 9 ? 'var(--mantine-color-lime-5)' :
-                              'var(--mantine-color-green-7)'
-                            }
+                            fill={ratingColorHex(bucket.bucket_start)}
                           />
                         ))}
                       </Bar>

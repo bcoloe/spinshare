@@ -461,7 +461,7 @@ function PeerReviewPanel({ ga, review, members, groupId, allowGuessing, guessRes
           const memberGuess = allowGuessing && guessesSettled ? memberGuessLookup.get(r.user_id) : undefined
 
           return (
-            <Paper key={r.id} withBorder p="sm" style={{ background: ratingColorTint(r.rating ?? 0) }}>
+            <Paper key={r.id} withBorder p="sm" style={{ background: ratingColorTint(r.rating) }}>
               <Group
                 justify="space-between"
                 wrap="nowrap"
@@ -489,7 +489,7 @@ function PeerReviewPanel({ ga, review, members, groupId, allowGuessing, guessRes
                   )}
                 </Stack>
                 <Group gap={4} wrap="nowrap">
-                  <Text size="sm" fw={700} c={ratingColor(r.rating ?? 0)}>{r.rating}</Text>
+                  <Text size="sm" fw={700} c={ratingColor(r.rating)}>{r.rating}</Text>
                   {isMine && !editMode && (
                     <ActionIcon
                       size="xs"
@@ -528,6 +528,7 @@ function PeerReviewPanel({ ga, review, members, groupId, allowGuessing, guessRes
                       </Group>
                       <Slider
                         min={0} max={10} step={0.1}
+                        color={ratingColor(editRating)}
                         value={editRating} onChange={setEditRating}
                         marks={[0, 2, 4, 6, 8, 10].map((v) => ({ value: v, label: String(v) }))}
                         mb="lg"
@@ -606,7 +607,7 @@ function ReviewedCard({ ga, review, members, allowGuessing, guessResult, current
           </Group>
         </Stack>
         <Stack gap={2} align="flex-end" style={{ flexShrink: 0 }}>
-          <Text fw={700} size="md" c={ratingColor(review.rating ?? 0)}>{review.rating}</Text>
+          <Text fw={700} size="md" c={ratingColor(review.rating)}>{review.rating}</Text>
           {canGuess && !guessResult ? (
             <Badge variant="light" color="violet" size="xs">Guess?</Badge>
           ) : (

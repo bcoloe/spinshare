@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest'
+import { DEFAULT_THEME } from '@mantine/core'
 import { ratingColor, ratingColorHex, ratingColorTint } from './ratingColor'
 
 describe('ratingColor', () => {
   it('returns gray for an absent rating', () => {
     expect(ratingColor(null)).toBe('gray')
+    expect(ratingColor(undefined)).toBe('gray')
   })
 
   it.each([
@@ -50,6 +52,15 @@ describe('ratingColorHex', () => {
     expect(ratingColorHex(6.5)).toMatch(/^#[0-9a-f]{6}$/)
   })
 
+  it('resolves tokens through the Mantine palette rather than a transcription', () => {
+    expect(ratingColorHex(3)).toBe(DEFAULT_THEME.colors.red[7])
+    expect(ratingColorHex(10)).toBe(DEFAULT_THEME.colors.grape[4])
+  })
+
+  it('passes a raw-hex band straight through', () => {
+    expect(ratingColorHex(0)).toBe(ratingColor(0))
+  })
+
   it('changes bands at the same thresholds as ratingColor', () => {
     for (let rating = 0; rating <= 10; rating += 0.5) {
       const sameBand = ratingColor(rating) === ratingColor(rating + 0.5)
@@ -65,5 +76,17 @@ describe('ratingColorTint', () => {
 
   it('accepts an explicit weight', () => {
     expect(ratingColorTint(9, 30)).toContain('30%')
+  })
+})
+
+describe('absent ratings', () => {
+  it('never borrow a band color', () => {
+    const bands = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(ratingColorHex)
+    expect(bands).not.toContain(ratingColorHex(null))
+  })
+
+  it('are handled by every export, so callers need no fallback', () => {
+    expect(ratingColorHex(null)).toBe(ratingColorHex(undefined))
+    expect(ratingColorTint(null)).toContain(ratingColorHex(null))
   })
 })

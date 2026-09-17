@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button, Group, Slider, Stack, Text, Textarea } from '@mantine/core'
+import { ratingColor } from '../../utils/ratingColor'
 import { notifications } from '@mantine/notifications'
 import { useSubmitReview, useUpdateReview } from '../../hooks/useDailySpin'
 import { ApiError } from '../../services/apiClient'
@@ -129,7 +130,7 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
       <div>
         <Group justify="space-between" mb={4}>
           <Text size="sm">Rating</Text>
-          <Text size="sm" fw={500} c="violet">
+          <Text size="sm" fw={500} c={ratingColor(rating)}>
             {rating !== null ? `${rating} / 10` : '—'}
           </Text>
         </Group>
@@ -137,6 +138,7 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
           min={0}
           max={10}
           step={0.1}
+          color={ratingColor(rating)}
           value={rating ?? 0}
           onChange={(v) => { isDirtyRef.current = true; setRating(v) }}
           marks={[0, 2, 4, 6, 8, 10].map((v) => ({ value: v, label: String(v) }))}
