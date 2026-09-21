@@ -1,12 +1,27 @@
-"""Tests for weekly-recap timezone/date helpers."""
+"""Tests for the shared timezone/date helpers."""
 
 from datetime import date, datetime, timezone
+from types import SimpleNamespace
 
 from app.utils.time_helpers import (
+    DEFAULT_TZ,
     completed_week_bounds,
+    group_tz,
     week_bounds_for,
     week_start_for,
 )
+
+
+class TestGroupTz:
+    def test_returns_configured_timezone(self):
+        assert group_tz(SimpleNamespace(timezone="Pacific/Auckland")) == "Pacific/Auckland"
+
+    def test_missing_settings_row_falls_back_to_default(self):
+        assert group_tz(None) == DEFAULT_TZ
+
+    def test_blank_timezone_falls_back_to_default(self):
+        assert group_tz(SimpleNamespace(timezone=None)) == DEFAULT_TZ
+        assert group_tz(SimpleNamespace(timezone="")) == DEFAULT_TZ
 
 
 class TestWeekStartFor:

@@ -1,7 +1,7 @@
 """Album and group album service."""
 
 import logging
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 log = logging.getLogger(__name__)
 
@@ -14,13 +14,16 @@ from app.utils.wikipedia_backfill import WIKIPEDIA_TTL as _WIKIPEDIA_TTL
 
 from app.models import Album, Group, GroupAlbum, User
 from app.models.genre import Genre
+from app.models.group_album import has_reviews_expression
 from app.schemas.album import AlbumCreate, AlbumLinksUpdate, GroupAlbumStatus, GroupAlbumStatusUpdate
 from app.services import group_service as gs
+from app.utils.time_helpers import date_in_tz, group_today, group_tz
 from app.utils.ytmusic_client import search_album_browse_id
 from fastapi import HTTPException, status
 from sqlalchemy import func, or_
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, selectinload, with_expression
 
 
 class AlbumService:
@@ -142,18 +145,49 @@ class AlbumService:
         return album
 
     def _get_or_create_genres(self, names: list[str]) -> list[Genre]:
-        genres = []
-        for name in names:
-            normalized = name.lower()
-            if normalized in _IGNORED_GENRES:
-                continue
-            genre = self.db.query(Genre).filter(Genre.name == normalized).first()
-            if not genre:
-                genre = Genre(name=normalized)
-                self.db.add(genre)
-                self.db.flush()
-            genres.append(genre)
-        return genres
+        """Resolve genre names to rows, creating any that do not exist yet.
+
+        Written as an insert-ignore rather than the obvious check-then-insert.
+        ``genres.name`` is unique, and this runs inside ``_persist_album`` *before*
+        its IntegrityError handler, so two users nominating different albums that
+        share a brand-new genre used to race: both saw the name missing, both
+        inserted, and the loser's flush raised IntegrityError straight out through
+        the router as a 500 on an ordinary nomination. ``on_conflict_do_nothing``
+        makes the loser a no-op instead, and the re-select then picks up whichever
+        row won.
+
+        Three round trips regardless of genre count, rather than one per name.
+        """
+        # Preserve first-seen order while dropping duplicates, so a payload listing
+        # the same genre twice does not attach it twice.
+        normalized = list(
+            dict.fromkeys(
+                name.lower() for name in names if name.lower() not in _IGNORED_GENRES
+            )
+        )
+        if not normalized:
+            return []
+
+        existing = {
+            genre.name: genre
+            for genre in self.db.query(Genre).filter(Genre.name.in_(normalized)).all()
+        }
+        missing = [name for name in normalized if name not in existing]
+
+        if missing:
+            self.db.execute(
+                pg_insert(Genre)
+                .values([{"name": name} for name in missing])
+                .on_conflict_do_nothing(index_elements=["name"])
+            )
+            self.db.flush()
+            # Re-select rather than trusting the insert: a concurrent transaction
+            # may have created some of these, in which case our insert skipped them
+            # and their rows are not in our identity map yet.
+            for genre in self.db.query(Genre).filter(Genre.name.in_(missing)).all():
+                existing[genre.name] = genre
+
+        return [existing[name] for name in normalized if name in existing]
 
     def backfill_genres(self, album_id: int, title: str, artist: str) -> None:
         """Attempt to resolve and store genres for an album using Apple Music.
@@ -246,13 +280,15 @@ class AlbumService:
         )
 
         if settings.daily_nomination_limit is not None:
-            today = date.today()
+            # The nomination day rolls over at midnight in the group's timezone, the same
+            # boundary the draw uses — and the same one get_today_nomination_count displays.
+            tz_name = group_tz(settings)
             today_count = (
                 self.db.query(GroupAlbum)
                 .filter(
                     GroupAlbum.group_id == group_id,
                     GroupAlbum.added_by == user.id,
-                    func.date(GroupAlbum.added_at) == today,
+                    date_in_tz(GroupAlbum.added_at, tz_name) == group_today(tz_name),
                 )
                 .count()
             )
@@ -593,24 +629,6 @@ class AlbumService:
         except Exception:
             log.warning("Wikipedia backfill failed for album %d (%r by %r)", album_id, title, artist)
 
-    def get_todays_albums(self, group_id: int) -> list[GroupAlbum]:
-        """Return albums selected for today in this group."""
-        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-        tomorrow_start = today_start + timedelta(days=1)
-        return (
-            self.db.query(GroupAlbum)
-            .filter(
-                GroupAlbum.group_id == group_id,
-                GroupAlbum.selected_date >= today_start,
-                GroupAlbum.selected_date < tomorrow_start,
-            )
-            .options(
-                selectinload(GroupAlbum.albums).selectinload(Album.genres),
-                selectinload(GroupAlbum.albums).selectinload(Album.reviews),
-            )
-            .all()
-        )
-
     def get_group_albums(
         self, group_id: int, status_filter: str | None = None
     ) -> list[GroupAlbum]:
@@ -635,7 +653,9 @@ class AlbumService:
             .join(subq, GroupAlbum.id == subq.c.canonical_id)
             .options(
                 selectinload(GroupAlbum.albums).selectinload(Album.genres),
-                selectinload(GroupAlbum.albums).selectinload(Album.reviews),
+                # status only needs "has any review?" — a scalar EXISTS instead of
+                # eager-loading every review row for every album on the page.
+                with_expression(GroupAlbum.has_reviews, has_reviews_expression()),
             )
         )
         if status_filter:

@@ -1,5 +1,6 @@
 """Tests for the DealerService per-member roll workflow and dealer-mode guards."""
 
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
@@ -8,6 +9,7 @@ from app.models import Album, AlbumDeal, GroupAlbum, Review
 from app.schemas.album import GroupAlbumStatus, GroupAlbumStatusUpdate
 from app.schemas.group_album import NominationGuessCreate
 from fastapi import HTTPException, status
+from sqlalchemy import event
 
 
 @pytest.fixture(autouse=True)
@@ -845,3 +847,82 @@ class TestDealerPublicHistory:
         with pytest.raises(HTTPException) as exc_info:
             dealer_service.get_public_history(sample_group.id)
         assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+@contextmanager
+def _count_statements(db_session, match: str):
+    """Capture SQL statements containing ``match`` issued inside the block."""
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, params, context, executemany):
+        if match in statement:
+            statements.append(statement)
+
+    bind = db_session.get_bind()
+    event.listen(bind, "before_cursor_execute", record)
+    try:
+        yield statements
+    finally:
+        event.remove(bind, "before_cursor_execute", record)
+
+
+class TestDealerQueryCounts:
+    """The pool size must be counted, never materialised."""
+
+    def test_pool_count_is_a_single_count_query(
+        self, dealer_service, db_session, dealer_group, sample_user, nominate_albums
+    ):
+        """Counting the pool must not stream its album ids back.
+
+        In the global group the eligible pool is every album nominated anywhere,
+        so ``len(list_of_ids)`` sent thousands of integers over the wire to
+        produce one number.
+        """
+        nominate_albums(dealer_group, 5)
+
+        with _count_statements(db_session, "group_albums") as statements:
+            count = dealer_service.get_pool_count(dealer_group.id, sample_user.id)
+
+        assert count == 5
+        assert len(statements) == 1, statements
+        assert "count" in statements[0].lower()
+
+    def test_pool_count_matches_the_id_list_in_the_global_group(
+        self,
+        db_session,
+        dealer_service,
+        global_group,
+        sample_group,
+        sample_user,
+        sample_group_service,
+        nominate_albums,
+    ):
+        """The global pool crosses groups, so the COUNT must keep that join."""
+        global_group.settings.dealer_mode = True
+        nominate_albums(sample_group, 3)
+        sample_group_service.add_user(global_group.id, sample_user.id)
+        db_session.commit()
+
+        counted = dealer_service.get_pool_count(global_group.id, sample_user.id)
+        listed = dealer_service._eligible_album_ids(
+            global_group.id, sample_user.id, exclude_queued=False
+        )
+
+        assert counted == len(listed) == 3
+
+    def test_roll_does_not_recompute_the_pool(
+        self, dealer_service, db_session, dealer_group, sample_user, nominate_albums
+    ):
+        """A roll that samples the pool already knows what is left.
+
+        The sampling pool and the availability pool are the same set when the
+        user has no queued rows, so the post-roll remainder is the sampled size
+        minus the album just revealed.
+        """
+        nominate_albums(dealer_group, 4)
+
+        result = dealer_service.roll(dealer_group.id, sample_user)
+
+        assert result.pool_remaining == 3
+        # ...and it agrees with a fresh count from the database.
+        assert dealer_service.get_pool_count(dealer_group.id, sample_user.id) == 3

@@ -109,10 +109,12 @@ class MessageService:
         self.db.refresh(message)
 
         # Notifications are created after the commit so a failure to notify can
-        # never roll back the message itself.
-        for target in mentioned:
-            self.notification_service.create(
-                user_id=target.id,
+        # never roll back the message itself. One insert + commit for the whole
+        # fan-out: ``create`` commits per call, which put a chat post with the
+        # maximum ten mentions ten round trips deep in notification writes.
+        if mentioned:
+            self.notification_service.create_many(
+                user_ids=[target.id for target in mentioned],
                 type=NotificationType.mentioned_in_chat,
                 message=f"{user.username} mentioned you in chat",
                 group_id=group_id,

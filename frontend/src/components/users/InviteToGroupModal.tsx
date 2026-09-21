@@ -8,13 +8,12 @@ import { ApiError } from '../../services/apiClient'
 import type { GroupDetailResponse } from '../../types/group'
 
 interface Props {
-  targetEmail: string
   targetUsername: string
   opened: boolean
   onClose: () => void
 }
 
-export default function InviteToGroupModal({ targetEmail, targetUsername, opened, onClose }: Props) {
+export default function InviteToGroupModal({ targetUsername, opened, onClose }: Props) {
   const { user } = useAuth()
   const { data: groups = [], isLoading } = useMyGroups(user?.username ?? '')
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
@@ -30,7 +29,7 @@ export default function InviteToGroupModal({ targetEmail, targetUsername, opened
   const handleInvite = async () => {
     if (!selectedId) return
     try {
-      await sendInvitation.mutateAsync(targetEmail)
+      await sendInvitation.mutateAsync({ username: targetUsername })
       notifications.show({ color: 'green', message: `Invitation sent to ${targetUsername}` })
       handleClose()
     } catch (err) {

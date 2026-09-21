@@ -649,6 +649,26 @@ class TestAlbumSearch:
         assert resp.json()["items"] == []
         assert resp.json()["next_offset"] is None
 
+    def test_search_survives_a_spotify_transport_failure(self, client):
+        """A DNS/connect failure must degrade like a 503, not 500.
+
+        The router catches HTTPException in order to fall back to Apple Music, but
+        httpx transport errors are a different exception tree and used to sail
+        straight past that guard. The client now normalises them to 502, so the
+        intended fallback actually happens.
+        """
+        import httpx
+
+        with patch(
+            "app.utils.spotify_client.httpx.get",
+            side_effect=httpx.ConnectError("name resolution failed"),
+        ):
+            with patch("app.utils.spotify_client._get_client_token", return_value="tok"):
+                resp = client.get("/albums/search?q=radiohead")
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["items"] == []
+
     def test_search_no_params_returns_400(self, client):
         resp = client.get("/albums/search")
         assert resp.status_code == status.HTTP_400_BAD_REQUEST

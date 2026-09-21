@@ -3,10 +3,15 @@
 from datetime import UTC, datetime, timedelta
 
 from app.models import (
+    Album,
     AlbumDeal,
     Group,
     GroupAlbum,
+    GroupInvitation,
+    GroupInviteLink,
+    GroupParticipation,
     NominationGuess,
+    PriorityReviewCredit,
     Review,
     SpotifyConnection,
     User,
@@ -22,9 +27,9 @@ from app.schemas.user import (
 )
 from app.utils import security
 from fastapi import HTTPException, status
-from sqlalchemy import delete as sa_delete, exists, select
+from sqlalchemy import delete as sa_delete, exists, func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 
 class UserService:
@@ -133,24 +138,95 @@ class UserService:
     def get_public_profile(self, username: str) -> dict:
         """Get public-facing profile stats for a user by username.
 
+        Deliberately omits ``email``: this endpoint is readable by any authenticated
+        user, and the address is private. ``is_admin`` stays — the admin badge and
+        the grant/revoke control are deliberately public-facing.
+
         Raises:
             HTTPException 404: If user not found
         """
         user = self.get_user_by_username(username)
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+        # Three integers used to cost three relationship loads, each materialising
+        # every Review / Group / GroupAlbum row in full just to call len() on it.
+        # One round trip of scalar counts replaces them.
+        published_reviews, group_count, nomination_count = self.db.execute(
+            select(
+                self._count_published_reviews(user.id),
+                self._count_memberships(user.id),
+                self._count_nominations(user.id),
+            )
+        ).one()
+
         return {
             "id": user.id,
             "username": user.username,
             "first_name": user.first_name if user.name_is_public else None,
             "last_name": user.last_name if user.name_is_public else None,
-            "email": user.email,
             "is_admin": user.is_admin,
             "member_since": user.created_at,
-            "total_reviews": sum(1 for r in user.reviews if not r.is_draft),
-            "total_groups": len(user.groups),
-            "albums_nominated": len(user.added_albums),
+            "total_reviews": published_reviews,
+            "total_groups": group_count,
+            "albums_nominated": nomination_count,
         }
+
+    # ---- Count subqueries -------------------------------------------------
+    #
+    # Each mirrors exactly one relationship walk, so a caller can ask the
+    # database for the integer instead of loading the rows and calling len().
+
+    @staticmethod
+    def _count_memberships(user_id: int):
+        """``len(user.groups)`` — joined through to ``groups`` like the relationship."""
+        return (
+            select(func.count())
+            .select_from(group_members)
+            .join(Group, Group.id == group_members.c.group_id)
+            .where(group_members.c.user_id == user_id)
+            .scalar_subquery()
+        )
+
+    @staticmethod
+    def _count_created_groups(user_id: int):
+        """``len(user.created_groups)``"""
+        return (
+            select(func.count())
+            .select_from(Group)
+            .where(Group.created_by == user_id)
+            .scalar_subquery()
+        )
+
+    @staticmethod
+    def _count_reviews(user_id: int):
+        """``len(user.reviews)`` — drafts included, as the relationship is."""
+        return (
+            select(func.count())
+            .select_from(Review)
+            .where(Review.user_id == user_id)
+            .scalar_subquery()
+        )
+
+    @staticmethod
+    def _count_published_reviews(user_id: int):
+        """``sum(1 for r in user.reviews if not r.is_draft)``"""
+        return (
+            select(func.count())
+            .select_from(Review)
+            .where(Review.user_id == user_id, Review.is_draft == False)  # noqa: E712
+            .scalar_subquery()
+        )
+
+    @staticmethod
+    def _count_nominations(user_id: int):
+        """``len(user.added_albums)``"""
+        return (
+            select(func.count())
+            .select_from(GroupAlbum)
+            .where(GroupAlbum.added_by == user_id)
+            .scalar_subquery()
+        )
 
     def get_user_reviews_for_profile(self, username: str) -> list[dict]:
         """Get all published reviews for a user with flat album metadata.
@@ -162,8 +238,11 @@ class UserService:
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
+        # Without the eager loads this is 1 + 2N round trips: every row below
+        # walks r.albums and then r.albums.genres.
         reviews = (
             self.db.query(Review)
+            .options(selectinload(Review.albums).selectinload(Album.genres))
             .filter(Review.user_id == user.id, Review.is_draft == False)  # noqa: E712
             .all()
         )
@@ -194,15 +273,24 @@ class UserService:
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-        nominations = (
-            self.db.query(GroupAlbum)
-            .filter(GroupAlbum.added_by == user.id)
+        # Only the release date is needed, so ask for that column alone rather
+        # than loading every nomination the user has ever made and lazy-loading
+        # its album one row at a time. The join is outer so a nomination whose
+        # album row is missing still counts, exactly as the relationship walk
+        # (``if nomination.albums else None``) did.
+        release_dates = (
+            self.db.execute(
+                select(Album.release_date)
+                .select_from(GroupAlbum)
+                .outerjoin(Album, Album.id == GroupAlbum.album_id)
+                .where(GroupAlbum.added_by == user.id)
+            )
+            .scalars()
             .all()
         )
 
         decade_counts: dict[str, int] = {}
-        for nomination in nominations:
-            release_date = nomination.albums.release_date if nomination.albums else None
+        for release_date in release_dates:
             try:
                 year = int(str(release_date)[:4])
                 decade = f"{(year // 10) * 10}s"
@@ -216,7 +304,7 @@ class UserService:
         )
 
         return {
-            "total_nominations": len(nominations),
+            "total_nominations": len(release_dates),
             "decade_breakdown": breakdown,
         }
 
@@ -233,30 +321,54 @@ class UserService:
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-        viewer = self.get_user_by_id(viewer_id)
-        viewer_group_ids = {g.id for g in viewer.groups}
+        # Still 404s for an unknown viewer, but the viewer's memberships are read
+        # as (group_id, role) pairs in one statement. That single read answers
+        # both "which groups does the viewer share?" and "what is the viewer's
+        # role here?" — the latter used to be one query per group in the loop.
+        self.get_user_by_id(viewer_id)
+        viewer_roles = {
+            group_id: role
+            for group_id, role in self.db.execute(
+                select(group_members.c.group_id, group_members.c.role).where(
+                    group_members.c.user_id == viewer_id
+                )
+            ).all()
+        }
 
-        result = []
-        for group in user.groups:
-            if group.is_global:
-                continue
-            if not group.is_public and group.id not in viewer_group_ids:
-                continue
-            role_stmt = select(group_members.c.role).where(
-                group_members.c.user_id == viewer_id,
-                group_members.c.group_id == group.id,
-            )
-            viewer_role = self.db.execute(role_stmt).scalar()
-            result.append(
-                {
-                    "id": group.id,
-                    "name": group.name,
-                    "member_count": len(group.members),
-                    "current_user_role": viewer_role,
-                }
-            )
+        visible = [
+            group
+            for group in user.groups
+            if not group.is_global and (group.is_public or group.id in viewer_roles)
+        ]
+
+        # One grouped count instead of materialising every member of every group
+        # to take its length.
+        member_counts = self._member_counts([g.id for g in visible])
+
+        result = [
+            {
+                "id": group.id,
+                "name": group.name,
+                "member_count": member_counts.get(group.id, 0),
+                "current_user_role": viewer_roles.get(group.id),
+            }
+            for group in visible
+        ]
 
         return sorted(result, key=lambda x: x["name"])
+
+    def _member_counts(self, group_ids: list[int]) -> dict[int, int]:
+        """Member count per group id, in a single round trip."""
+        if not group_ids:
+            return {}
+        rows = self.db.execute(
+            select(group_members.c.group_id, func.count())
+            .select_from(group_members)
+            .join(User, User.id == group_members.c.user_id)
+            .where(group_members.c.group_id.in_(group_ids))
+            .group_by(group_members.c.group_id)
+        ).all()
+        return {group_id: count for group_id, count in rows}
 
     def get_review_stats(self, username: str) -> dict:
         """Get review statistics for a user's public profile.
@@ -271,26 +383,36 @@ class UserService:
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-        reviews = (
-            self.db.query(Review)
-            .filter(Review.user_id == user.id, Review.is_draft == False)  # noqa: E712
-            .all()
-        )
+        # Every statistic below needs exactly two values per review — the rating
+        # and the album's release date — so both are read in one statement.
+        # Walking ``r.albums`` per row instead cost a round trip per review.
+        # The rating filter and the outer join reproduce the previous Python
+        # filtering (``rating is not None``) and null handling (``if r.albums``).
+        rated = self.db.execute(
+            select(Review.rating, Album.release_date)
+            .select_from(Review)
+            .outerjoin(Album, Album.id == Review.album_id)
+            .where(
+                Review.user_id == user.id,
+                Review.is_draft == False,  # noqa: E712
+                Review.rating.isnot(None),
+            )
+        ).all()
 
-        rated = [r for r in reviews if r.rating is not None]
-        average_rating = round(sum(r.rating for r in rated) / len(rated), 2) if rated else None
+        average_rating = (
+            round(sum(rating for rating, _ in rated) / len(rated), 2) if rated else None
+        )
 
         histogram: dict[int, int] = {b: 0 for b in range(0, 11)}
         decade_ratings: dict[str, list[float]] = {}
-        for r in rated:
-            histogram[int(r.rating)] = histogram.get(int(r.rating), 0) + 1
-            release_date = r.albums.release_date if r.albums else None
+        for rating, release_date in rated:
+            histogram[int(rating)] = histogram.get(int(rating), 0) + 1
             try:
                 year = int(str(release_date)[:4])
                 decade = f"{(year // 10) * 10}s"
             except (TypeError, ValueError):
                 continue
-            decade_ratings.setdefault(decade, []).append(r.rating)
+            decade_ratings.setdefault(decade, []).append(rating)
 
         rating_histogram = [{"bucket": b, "count": histogram[b]} for b in range(0, 11)]
         avg_by_decade = sorted(
@@ -301,13 +423,16 @@ class UserService:
             key=lambda x: x["decade"],
         )
 
-        guesses = (
-            self.db.query(NominationGuess)
-            .filter(NominationGuess.guessing_user_id == user.id)
-            .all()
-        )
-        total_guesses = len(guesses)
-        correct_guesses = sum(1 for g in guesses if g.correct)
+        # Two integers, counted in the database rather than by loading every
+        # guess row the user has ever made.
+        total_guesses, correct_guesses = self.db.execute(
+            select(
+                func.count(),
+                func.count().filter(NominationGuess.correct),
+            )
+            .select_from(NominationGuess)
+            .where(NominationGuess.guessing_user_id == user.id)
+        ).one()
         guess_pct = round(correct_guesses / total_guesses * 100, 1) if total_guesses > 0 else None
 
         return {
@@ -418,11 +543,21 @@ class UserService:
         NULL). Reviews, nomination guesses, and album deals are deleted.
         Created groups remain.
 
+        Participation state (per-group credits / queued priority pick) and the
+        credit ledger are the user's own records and go with the account. Sent
+        invitations and the invite links the user created are deleted rather than
+        anonymized: ``group_invitations.invited_by`` and
+        ``group_invite_links.created_by`` are both NOT NULL with no ON DELETE
+        behaviour, so there is no null to fall back to. Invitations *addressed to*
+        this user's email go too — they carry the address of an account that no
+        longer exists, and honouring one would hand the group to whoever next
+        registers it.
+
         Raises:
             HTTPException 404: If user not found
         """
-        self.get_user_by_id(user_id)
-
+        user = self.get_user_by_id(user_id)
+        user_email = user.email
         # Delete nomination guesses made by or about this user
         self.db.query(NominationGuess).filter(
             (NominationGuess.guessing_user_id == user_id)
@@ -471,6 +606,28 @@ class UserService:
         # Delete Spotify connection (nullable FK would orphan it otherwise)
         self.db.query(SpotifyConnection).filter(
             SpotifyConnection.user_id == user_id
+        ).delete(synchronize_session=False)
+
+        # Delete per-group participation state and the credit ledger. Both FK to
+        # users.id with no ON DELETE, so leaving them behind made the final commit
+        # fail with a 409 for any user who had ever earned a single credit.
+        self.db.query(GroupParticipation).filter(
+            GroupParticipation.user_id == user_id
+        ).delete(synchronize_session=False)
+        self.db.query(PriorityReviewCredit).filter(
+            PriorityReviewCredit.user_id == user_id
+        ).delete(synchronize_session=False)
+
+        # Delete invitations sent by this user and invitations addressed to their
+        # email. invited_by is NOT NULL, so the attribution cannot be anonymized.
+        self.db.query(GroupInvitation).filter(
+            (GroupInvitation.invited_by == user_id) | (GroupInvitation.invited_email == user_email)
+        ).delete(synchronize_session=False)
+
+        # Delete invite links created by this user. created_by is NOT NULL too, and
+        # the table is unique per group, so the group can simply mint a fresh link.
+        self.db.query(GroupInviteLink).filter(
+            GroupInviteLink.created_by == user_id
         ).delete(synchronize_session=False)
 
         # Remove group memberships (many-to-many secondary table)
@@ -580,8 +737,7 @@ class UserService:
 
         return user
 
-    @staticmethod
-    def _access_token_data(user: User) -> dict:
+    def _access_token_data(self, user: User) -> dict:
         """Claims for an access token.
 
         ``username`` and ``groups`` are carried so that minting a chat ticket —
@@ -594,12 +750,22 @@ class UserService:
         open socket was already pinned to the membership it resolved at connect
         time, so this widens an existing window rather than opening a new one;
         reloading the page mints a fresh token and clears it either way.
+
+        The ``groups`` claim is read as bare ids from the association table.
+        Walking ``user.groups`` selected every column of every Group row on
+        every login and every refresh to build a list of integers.
         """
+        group_ids = self.db.execute(
+            select(group_members.c.group_id)
+            .select_from(group_members)
+            .join(Group, Group.id == group_members.c.group_id)
+            .where(group_members.c.user_id == user.id)
+        ).scalars()
         return {
             "sub": str(user.id),
             "email": user.email,
             "username": user.username,
-            "groups": sorted(group.id for group in user.groups),
+            "groups": sorted(group_ids),
         }
 
     @staticmethod
@@ -680,23 +846,6 @@ class UserService:
         """Get all reviews by user"""
         user = self.get_user_by_id(user_id)
         return user.reviews
-
-    def get_user_albums_added(self, user_id: int) -> list[dict]:
-        """Get all albums added by user across all groups"""
-        user = self.get_user_by_id(user_id)
-
-        # Return list of (group, album, added_at) tuples
-        result = []
-        for group_album in user.added_albums:
-            result.append(
-                {
-                    "group": group_album.group,
-                    "album": group_album.albums,
-                    "added_at": group_album.added_at,
-                    "status": group_album.status,
-                }
-            )
-        return result
 
     # ==================== SPOTIFY ====================
 
@@ -826,11 +975,23 @@ class UserService:
         """Get user statistics"""
         user = self.get_user_by_id(user_id)
 
+        # Five relationship loads used to produce five scalars, pulling whole
+        # result sets across the wire to call len() on them. One round trip now.
+        groups, created, reviews, nominations, has_spotify = self.db.execute(
+            select(
+                self._count_memberships(user_id),
+                self._count_created_groups(user_id),
+                self._count_reviews(user_id),
+                self._count_nominations(user_id),
+                select(exists().where(SpotifyConnection.user_id == user_id)).scalar_subquery(),
+            )
+        ).one()
+
         return {
-            "total_groups": len(user.groups),
-            "created_groups": len(user.created_groups),
-            "total_reviews": len(user.reviews),
-            "albums_added": len(user.added_albums),
-            "has_spotify": user.spotify_connection is not None,
+            "total_groups": groups,
+            "created_groups": created,
+            "total_reviews": reviews,
+            "albums_added": nominations,
+            "has_spotify": has_spotify,
             "member_since": user.created_at,
         }

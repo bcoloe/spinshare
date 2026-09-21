@@ -1,8 +1,10 @@
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 import pytest
 from app.models import GroupAlbum, NominationGuess, Review
 from fastapi import HTTPException, status
+from sqlalchemy import event
 
 
 def _mark_selected(db_session, group_album: GroupAlbum):
@@ -274,3 +276,84 @@ class TestAlbumReviewStats:
         with pytest.raises(HTTPException) as exc_info:
             stats_service.get_album_review_stats(sample_album.id)
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
+
+
+@contextmanager
+def _count_statements(db_session, match: str):
+    """Count SQL statements containing ``match`` issued inside the block."""
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, params, context, executemany):
+        if match in statement:
+            statements.append(statement)
+
+    bind = db_session.get_bind()
+    event.listen(bind, "before_cursor_execute", record)
+    try:
+        yield statements
+    finally:
+        event.remove(bind, "before_cursor_execute", record)
+
+
+class TestStatsQueryCounts:
+    """Round-trip budgets for the guess breakdowns."""
+
+    def test_album_guess_stats_does_not_scale_with_guesses(
+        self,
+        db_session,
+        stats_service,
+        sample_group,
+        sample_group_album,
+        sample_user,
+        sample_group_service,
+        user_factory,
+    ):
+        """Usernames are joined in, not walked off each guess.
+
+        The breakdown needs two usernames per guess and the nominator's. Read
+        through the relationships that is 2N+1 extra round trips, each one
+        fetching a whole User row for one string.
+        """
+        _mark_selected(db_session, sample_group_album)
+        guessers = []
+        for n in range(6):
+            guesser = user_factory(email=f"g{n}@test.com", username=f"guesser_{n}")
+            sample_group_service.add_user(sample_group.id, guesser.id)
+            _add_guess(db_session, sample_group_album, guesser, sample_user)
+            guessers.append(guesser)
+
+        with _count_statements(db_session, "FROM users") as statements:
+            result = stats_service.get_album_guess_stats(
+                sample_group.id, sample_group_album.id, sample_user.id
+            )
+
+        assert len(statements) <= 1, statements
+        assert result.total_guesses == 6
+        assert {g.guessing_username for g in result.guesses} == {
+            f"guesser_{n}" for n in range(6)
+        }
+        assert all(g.guessed_username == sample_user.username for g in result.guesses)
+
+    def test_user_guess_stats_counts_in_the_database(
+        self,
+        db_session,
+        stats_service,
+        sample_group,
+        sample_group_album,
+        sample_user,
+        sample_group_service,
+        user_factory,
+    ):
+        """The totals are aggregated in SQL rather than by hydrating every guess."""
+        _mark_selected(db_session, sample_group_album)
+        other = user_factory(email="counter@test.com", username="counter_user")
+        sample_group_service.add_user(sample_group.id, other.id)
+        _add_guess(db_session, sample_group_album, other, sample_user)  # correct
+
+        with _count_statements(db_session, "nomination_guesses") as statements:
+            result = stats_service.get_user_guess_stats(other.id, sample_group.id)
+
+        assert len(statements) == 1, statements
+        assert "count" in statements[0].lower()
+        assert (result.total_guesses, result.correct_guesses) == (1, 1)
+        assert result.accuracy == 1.0

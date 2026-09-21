@@ -10,6 +10,8 @@ from app.dependencies import (
     get_current_user_optional,
     get_group_service,
     get_review_service,
+    require_group_read_access,
+    require_group_role,
 )
 from app.models import User
 from app.schemas.album import (
@@ -579,23 +581,41 @@ def delete_review(
 # ==================== GROUP REVIEWS ====================
 
 
-@group_albums_router.get("/{group_id}/reviews/me", response_model=list[ReviewResponse])
+@group_albums_router.get(
+    "/{group_id}/reviews/me",
+    response_model=list[ReviewResponse],
+    dependencies=[Depends(require_group_role())],
+)
 def get_my_group_reviews(
     group_id: int,
     current_user: User = Depends(get_current_user),
     review_service: ReviewService = Depends(get_review_service),
 ):
-    """Get the current user's reviews for all albums in a group."""
+    """Get the current user's reviews for all albums in a group. Requires membership.
+
+    Scoped to the caller's own reviews, so it leaks nothing about other members —
+    but the set of albums it answers over is the group's history, which is enough
+    to probe a private group's catalogue. Gated like its siblings.
+    """
     return review_service.get_my_reviews_for_group(group_id, current_user.id)
 
 
-@group_albums_router.get("/{group_id}/reviews", response_model=list[AlbumReviewItem])
+@group_albums_router.get(
+    "/{group_id}/reviews",
+    response_model=list[AlbumReviewItem],
+    dependencies=[Depends(require_group_read_access())],
+)
 def get_group_reviews(
     group_id: int,
     current_user: User = Depends(get_current_user),
     review_service: ReviewService = Depends(get_review_service),
 ):
-    """Get all published reviews for all albums in a group."""
+    """Get all published reviews for all albums in a group.
+
+    Readable by members, site admins, and — since the group chose to be public —
+    any logged-in caller for a public group. Reviewer real names stay hidden from
+    non-members regardless (see ReviewService.get_all_reviews_for_group).
+    """
     return review_service.get_all_reviews_for_group(group_id, current_user.id)
 
 
@@ -618,36 +638,33 @@ def nominate_album(
     return GroupAlbumResponse.from_orm(ga)
 
 
-@group_albums_router.get("/{group_id}/albums", response_model=list[GroupAlbumResponse])
+@group_albums_router.get(
+    "/{group_id}/albums",
+    response_model=list[GroupAlbumResponse],
+    dependencies=[Depends(require_group_read_access())],
+)
 def list_group_albums(
     group_id: int,
     status: str | None = None,
-    current_user: User = Depends(get_current_user),
     album_service: AlbumService = Depends(get_album_service),
 ):
-    """List all albums in a group's catalog, optionally filtered by status."""
+    """List all albums in a group's catalog, optionally filtered by status.
+
+    This is the group's whole nomination pool, nominator ids included, so a
+    private group's is readable only by its members (and site admins).
+    """
     gas = album_service.get_group_albums(group_id, status_filter=status)
     return [GroupAlbumResponse.from_orm(ga) for ga in gas]
 
 
-@group_albums_router.get("/{group_id}/albums/today", response_model=list[GroupAlbumResponse])
-def get_todays_albums(
-    group_id: int,
-    current_user: User = Depends(get_current_user),
-    album_service: AlbumService = Depends(get_album_service),
-):
-    """Return albums selected for today in this group."""
-    gas = album_service.get_todays_albums(group_id)
-    return [GroupAlbumResponse.from_orm(ga) for ga in gas]
-
-
 @group_albums_router.get(
-    "/{group_id}/albums/{group_album_id}", response_model=GroupAlbumResponse
+    "/{group_id}/albums/{group_album_id}",
+    response_model=GroupAlbumResponse,
+    dependencies=[Depends(require_group_read_access())],
 )
 def get_group_album(
     group_id: int,
     group_album_id: int,
-    current_user: User = Depends(get_current_user),
     album_service: AlbumService = Depends(get_album_service),
 ):
     """Get a specific nominated album entry from a group catalog."""

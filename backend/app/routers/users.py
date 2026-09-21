@@ -21,6 +21,7 @@ from app.schemas.user import (
     PasswordResetConfirm,
     PasswordResetRequest,
     PublicProfileResponse,
+    PublicUserResponse,
     RefreshResponse,
     ReviewStatsResponse,
     SpotifyConnectUrlResponse,
@@ -35,7 +36,7 @@ from app.schemas.user import (
 )
 from app.services.user_service import UserService
 from app.utils import spotify_client
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Path, Query, status
 from fastapi.responses import RedirectResponse
 from jose import JWTError, jwt
 
@@ -199,26 +200,46 @@ def get_user_review_stats(
     return user_service.get_review_stats(username)
 
 
-@router.get("/{user_id}", response_model=UserResponse)
-def get_user(user_id: int, user_service: UserService = Depends(get_user_service)):
-    """Get user by ID"""
-    return user_service.get_user_by_id(user_id)
+@router.get("/{user_id}", response_model=PublicUserResponse)
+def get_user(
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    user_service: UserService = Depends(get_user_service),
+):
+    """Get a user by ID.
+
+    Returns only non-sensitive fields — email and admin status are never exposed
+    to other users.
+    """
+    return PublicUserResponse.from_user(user_service.get_user_by_id(user_id))
 
 
-@router.get("/", response_model=list[UserResponse])
+@router.get("/", response_model=list[PublicUserResponse])
 def list_users(
-    skip: int = 0, limit: int = 100, user_service: UserService = Depends(get_user_service)
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    user_service: UserService = Depends(get_user_service),
 ):
-    """List all users"""
-    return user_service.get_all_users(skip=skip, limit=limit)
+    """List users (paginated), excluding sensitive fields."""
+    users = user_service.get_all_users(skip=skip, limit=limit)
+    return [PublicUserResponse.from_user(u) for u in users]
 
 
-@router.get("/search/{query}", response_model=list[UserResponse])
+@router.get("/search/{query}", response_model=list[PublicUserResponse])
 def search_users(
-    query: str, limit: int = 10, user_service: UserService = Depends(get_user_service)
+    query: str = Path(min_length=2, max_length=100),
+    limit: int = Query(default=10, ge=1, le=50),
+    current_user: User = Depends(get_current_user),
+    user_service: UserService = Depends(get_user_service),
 ):
-    """Search users by username or email"""
-    return user_service.search_users(query, limit=limit)
+    """Search users by username or email, excluding sensitive fields.
+
+    A matching email is never echoed back — invite flows should send the
+    returned ``username`` instead.
+    """
+    users = user_service.search_users(query, limit=limit)
+    return [PublicUserResponse.from_user(u) for u in users]
 
 
 @router.put("/{user_id}/admin", response_model=UserResponse)

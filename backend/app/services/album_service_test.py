@@ -1,7 +1,9 @@
 import pytest
+from datetime import datetime, timezone
 from unittest.mock import patch
 from app.models import Album, GroupAlbum
 from app.models.group import GroupRole
+from app.models.group_settings import GroupSettings
 from app.schemas.album import AlbumCreate, AlbumLinksUpdate, GroupAlbumStatus, GroupAlbumStatusUpdate
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -180,6 +182,103 @@ class TestAlbumServiceNominate:
             album_service.nominate_album(sample_group.id, sample_album.id, other)
         assert exc_info.value.status_code == status.HTTP_409_CONFLICT
         assert "already been selected" in exc_info.value.detail
+
+
+class TestDailyNominationLimitTimezone:
+    """The enforced daily nomination limit and the displayed count must share one clock.
+
+    Every other daily rule in the app (draws, dealer rolls, catch-up) rolls over at
+    midnight in the group's configured timezone; the nomination day must too, on both
+    the enforcement path (``AlbumService.nominate_album``) and the display path
+    (``GroupAlbumService.get_today_nomination_count``).
+    """
+
+    # UTC+14 year-round: far from UTC and from any plausible server-local zone.
+    FAR_TZ = "Pacific/Kiritimati"
+    # 2026-03-15 12:00Z is 2026-03-16 02:00 local — the group's day has already
+    # rolled over while UTC (and the server) are still on the 15th.
+    FROZEN_NOW = datetime(2026, 3, 15, 12, 0, tzinfo=timezone.utc)
+
+    class FrozenDatetime(datetime):
+        """Minimal stand-in for ``datetime`` that pins ``now()`` to a fixed instant."""
+
+        @classmethod
+        def now(cls, tz=None):
+            frozen = TestDailyNominationLimitTimezone.FROZEN_NOW
+            return frozen.astimezone(tz) if tz is not None else frozen.replace(tzinfo=None)
+
+    @pytest.fixture
+    def far_tz_group(self, db_session, sample_group):
+        settings = (
+            db_session.query(GroupSettings)
+            .filter(GroupSettings.group_id == sample_group.id)
+            .first()
+        )
+        settings.timezone = self.FAR_TZ
+        db_session.commit()
+        return settings
+
+    def _nominate_at(self, db_session, group, user, title, when):
+        album = Album(spotify_album_id=f"spotify_{title}", title=title, artist="Artist")
+        db_session.add(album)
+        db_session.flush()
+        db_session.add(
+            GroupAlbum(group_id=group.id, album_id=album.id, added_by=user.id, added_at=when)
+        )
+        db_session.commit()
+        return album
+
+    def test_enforced_and_displayed_counts_agree_across_the_group_day_boundary(
+        self, album_service, group_album_service, db_session, sample_group, sample_user, far_tz_group
+    ):
+        # Both nominations fall on the same UTC day (2026-03-15) but on different
+        # days in the group's timezone: 01:00 on the 16th, and 23:00 on the 15th.
+        self._nominate_at(
+            db_session, sample_group, sample_user, "today_local",
+            datetime(2026, 3, 15, 11, 0, tzinfo=timezone.utc),
+        )
+        self._nominate_at(
+            db_session, sample_group, sample_user, "yesterday_local",
+            datetime(2026, 3, 15, 9, 0, tzinfo=timezone.utc),
+        )
+        fresh = Album(spotify_album_id="spotify_fresh", title="Fresh", artist="Artist")
+        db_session.add(fresh)
+        db_session.commit()
+
+        with patch("app.utils.time_helpers.datetime", self.FrozenDatetime):
+            displayed = group_album_service.get_today_nomination_count(sample_group.id, sample_user)
+            # Only the 16th-local nomination counts — a UTC day boundary would say 2.
+            assert displayed == 1
+
+            # The enforced count is the displayed count: a limit equal to it refuses...
+            far_tz_group.daily_nomination_limit = displayed
+            db_session.commit()
+            with pytest.raises(HTTPException) as exc_info:
+                album_service.nominate_album(sample_group.id, fresh.id, sample_user)
+            assert exc_info.value.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+            # ...and a limit one above it allows.
+            far_tz_group.daily_nomination_limit = displayed + 1
+            db_session.commit()
+            ga = album_service.nominate_album(sample_group.id, fresh.id, sample_user)
+            assert ga.id is not None
+
+    def test_displayed_count_falls_back_to_default_timezone(
+        self, group_album_service, db_session, sample_group, sample_user
+    ):
+        """A group with no settings row at all still gets a single, consistent day."""
+        db_session.query(GroupSettings).filter(
+            GroupSettings.group_id == sample_group.id
+        ).delete()
+        db_session.commit()
+
+        self._nominate_at(
+            db_session, sample_group, sample_user, "default_tz",
+            datetime(2026, 3, 15, 11, 0, tzinfo=timezone.utc),  # 07:00 EDT on the 15th
+        )
+        with patch("app.utils.time_helpers.datetime", self.FrozenDatetime):
+            # Frozen "now" is 08:00 EDT on 2026-03-15 — same America/New_York day.
+            assert group_album_service.get_today_nomination_count(sample_group.id, sample_user) == 1
 
 
 class TestAlbumServiceGroupAlbumGet:
@@ -750,3 +849,59 @@ class TestBackfillWikipediaUrl:
             album_service.backfill_wikipedia_url(
                 sample_album.id, sample_album.title, sample_album.artist
             )
+
+
+class TestGetOrCreateGenres:
+    """Genre resolution must survive two nominations racing on a new name."""
+
+    def test_a_concurrent_insert_of_the_same_genre_does_not_raise(
+        self, album_service, db_session
+    ):
+        """The loser of the race resolves the winner's row instead of 500ing.
+
+        ``genres.name`` is unique and this runs before ``_persist_album``'s
+        IntegrityError handler, so the old check-then-insert surfaced a raw
+        IntegrityError as a 500 on an ordinary nomination. The interleaving is
+        reproduced by letting the row exist while the initial lookup reports it
+        missing — exactly the state the loser is in.
+        """
+        from app.models.genre import Genre
+
+        db_session.add(Genre(name="shoegaze"))
+        db_session.flush()
+
+        real_query = album_service.db.query
+        calls = {"n": 0}
+
+        def blind_first_lookup(*args, **kwargs):
+            # Only the first lookup is blinded; the recovery re-select is real.
+            calls["n"] += 1
+            q = real_query(*args, **kwargs)
+            if calls["n"] == 1:
+                return q.filter(Genre.name == "__never_matches__")
+            return q
+
+        with patch.object(album_service.db, "query", side_effect=blind_first_lookup):
+            genres = album_service._get_or_create_genres(["shoegaze"])
+
+        assert [g.name for g in genres] == ["shoegaze"]
+        assert db_session.query(Genre).filter(Genre.name == "shoegaze").count() == 1
+
+    def test_duplicate_names_attach_the_genre_once(self, album_service):
+        genres = album_service._get_or_create_genres(["Dream Pop", "dream pop"])
+
+        assert [g.name for g in genres] == ["dream pop"]
+
+    def test_ignored_generic_genres_are_dropped(self, album_service):
+        assert album_service._get_or_create_genres(["Music", "musica"]) == []
+
+    def test_existing_and_new_names_resolve_together(self, album_service, db_session):
+        from app.models.genre import Genre
+
+        db_session.add(Genre(name="post-rock"))
+        db_session.flush()
+
+        genres = album_service._get_or_create_genres(["post-rock", "slowcore"])
+
+        assert sorted(g.name for g in genres) == ["post-rock", "slowcore"]
+        assert all(g.id is not None for g in genres)

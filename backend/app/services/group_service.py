@@ -1,6 +1,7 @@
 """Group service."""
 
 from collections import Counter, defaultdict
+from collections.abc import Sequence
 from datetime import datetime
 
 from app.models import (
@@ -38,7 +39,19 @@ class GroupService:
     # ==================== CREATE ====================
 
     def create_group(self, group_data: GroupCreate, user: User) -> Group:
-        """Create a new group.
+        """Create a new group, its creator's owner membership, and its settings.
+
+        Everything a usable group needs is written in ONE transaction and committed
+        once. It used to take four commits, which was not survivable: ``app.database``
+        uses a NullPool, so each commit returns the connection to the pool — which
+        closes it — and every later statement dials the database again. A cold start
+        or a blip between those commits raised ``OperationalError`` (503 via the
+        global handler) *after* the group row was already durable, stranding either
+
+        * a group with no member and no owner — ``delete_group`` requires Owner, so
+          it 403s for everyone forever, and the name is taken so retrying 409s; or
+        * a group with no ``GroupSettings`` — every daily selection and dealer roll
+          then 404s with "Group settings not found".
 
         Raises:
             HTTPException 409 if group name already exists
@@ -55,27 +68,34 @@ class GroupService:
 
         try:
             self.db.add(group)
+            # flush, not commit: assigns group.id while keeping the transaction open
+            self.db.flush()
+
+            self.add_user(group.id, user.id, commit=False)
+            self.set_user_role(
+                user.id, user.id, group.id, GroupRole.Owner, force=True, commit=False
+            )
+            self.db.add(GroupSettings(group_id=group.id))
+
             self.db.commit()
-            self.db.refresh(group)
         except IntegrityError:
             self.db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Group creation failed due to constraint violation",
             ) from None
+        except Exception:
+            # Anything else (OperationalError above all) must take the half-built
+            # group down with it rather than leaving it stranded and unrecoverable.
+            self.db.rollback()
+            raise
 
-        self.add_user(group.id, user.id)
-        self.set_user_role(user.id, user.id, group.id, GroupRole.Owner, force=True)
-
-        settings = GroupSettings(group_id=group.id)
-        self.db.add(settings)
-        self.db.commit()
-
+        self.db.refresh(group)
         return group
 
     # ==================== ADD ====================
 
-    def _start_chat_read_marker(self, group_id: int, user_id: int) -> None:
+    def _start_chat_read_marker(self, group_id: int, user_id: int, *, commit: bool = True) -> None:
         """Start a new member's chat read position at the group's newest message.
 
         Joining a conversation means starting from now. Without this the member
@@ -88,6 +108,8 @@ class GroupService:
         second, fuzzier rule next to it — and ``now()`` is the transaction
         start in Postgres, so a join and a message written close together are
         not reliably ordered by it.
+
+        ``commit=False`` leaves the update in the caller's open transaction.
         """
         newest = self.db.execute(
             select(func.max(Message.id)).where(Message.group_id == group_id)
@@ -103,17 +125,32 @@ class GroupService:
             )
             .values(last_read_message_id=newest)
         )
-        self.db.commit()
+        if commit:
+            self.db.commit()
 
-    def add_user(self, group_id: int, user_id: int):
-        """Add a user to the group."""
+    def add_user(self, group_id: int, user_id: int, *, commit: bool = True):
+        """Add a user to the group.
+
+        ``commit=False`` keeps the membership row inside the caller's transaction
+        instead of ending it — used by :meth:`create_group`, which has to land the
+        group, its owner and its settings atomically. Every external caller keeps
+        the committing default, so the public contract is unchanged.
+        """
         if self.is_user_in_group(user_id, group_id):
             return None
         group = self.get_group_by_id(group_id)
         user = user_service.UserService(self.db).get_user_by_id(user_id)
 
+        # Only the ids are used (to address notifications), so read only the ids
+        # rather than joining users for every member's full public profile.
         existing_member_ids = (
-            [m["user_id"] for m in self.get_group_members(group_id)]
+            list(
+                self.db.execute(
+                    select(group_members.c.user_id).where(
+                        group_members.c.group_id == group_id
+                    )
+                ).scalars()
+            )
             if not group.is_global
             else []
         )
@@ -121,8 +158,11 @@ class GroupService:
         group.members.append(user)
         try:
             self.db.add(group)
-            self.db.commit()
-            self.db.refresh(group)
+            if commit:
+                self.db.commit()
+                self.db.refresh(group)
+            else:
+                self.db.flush()
         except IntegrityError:
             self.db.rollback()
             raise HTTPException(
@@ -130,17 +170,23 @@ class GroupService:
                 detail="Add user failed due to constraint violation",
             ) from None
 
-        self._start_chat_read_marker(group_id, user_id)
+        self._start_chat_read_marker(group_id, user_id, commit=commit)
 
+        # Notification fan-out commits per recipient, so it would break a caller's
+        # open transaction — but ``existing_member_ids`` is snapshotted before the
+        # append and is necessarily empty on the commit=False path (a group being
+        # created has no prior members), so nothing fires there.
+        #
+        # Every recipient gets a byte-identical notification, so they go out as
+        # one insert + one commit. ``create`` commits and refreshes per call,
+        # which made the fan-out cost roughly three round trips per member.
         if existing_member_ids:
-            ns = NotificationService(self.db)
-            for member_id in existing_member_ids:
-                ns.create(
-                    user_id=member_id,
-                    type=NotificationType.new_member_joined,
-                    message=f"{user.username} joined {group.name}",
-                    group_id=group_id,
-                )
+            NotificationService(self.db).create_many(
+                user_ids=existing_member_ids,
+                type=NotificationType.new_member_joined,
+                message=f"{user.username} joined {group.name}",
+                group_id=group_id,
+            )
 
     # ==================== DELETE ====================
 
@@ -301,7 +347,25 @@ class GroupService:
 
     def is_admin_or_owner(self, user_id: int, group_id: int) -> bool:
         """Is the user a group admin or owner."""
-        return self.is_owner(user_id, group_id) or self.is_admin(user_id, group_id)
+        # One read of the membership row. Delegating to is_owner then is_admin
+        # asked the database the same question twice.
+        return self.get_user_role(user_id, group_id) in (GroupRole.Owner, GroupRole.Admin)
+
+    def _roles_in_group(self, group_id: int, user_ids: set[int]) -> dict[int, GroupRole | None]:
+        """Roles for several members of one group, in a single read.
+
+        A user id missing from the result is not a member of the group, which is
+        what ``is_user_in_group`` would have reported. Asking per user meant
+        ``set_user_role`` read ``group_members`` four times — twice for each of
+        two rows — before it could write anything.
+        """
+        rows = self.db.execute(
+            select(group_members.c.user_id, group_members.c.role).where(
+                group_members.c.group_id == group_id,
+                group_members.c.user_id.in_(user_ids),
+            )
+        ).all()
+        return {uid: GroupRole(role) if role is not None else None for uid, role in rows}
 
     def set_user_role(
         self,
@@ -311,6 +375,7 @@ class GroupService:
         role: GroupRole,
         *,
         force: bool = False,
+        commit: bool = True,
     ):
         """Set the user role within a group
 
@@ -321,19 +386,39 @@ class GroupService:
             role (GroupRole): Desired role for user_id.
             force (optional, bool): Whether to bypass the role req. check on set_by_user_id and force the change.
                 Defaults to False.
+            commit (optional, bool): Whether to commit. False leaves the update in the
+                caller's open transaction — used by :meth:`create_group`. External
+                callers keep the committing default.
 
         Raises:
             HTTPException 403: If force=False and set_by_user_id is not an admin or owner.
             HTTPException 404: If the user_id is not in the group.
         """
-        if not force:
-            self.require_membership(set_by_user_id, group_id)
-        self.require_membership(user_id, group_id)
+        # Both memberships and both roles come from one read of group_members;
+        # the checks below are the same ones require_membership / require_permission
+        # make, raised in the same order with the same details.
+        roles = self._roles_in_group(group_id, {user_id, set_by_user_id})
+
+        if not force and set_by_user_id not in roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You must be a member of this group",
+            )
+        if user_id not in roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You must be a member of this group",
+            )
 
         if not force:
-            self.require_permission(set_by_user_id, group_id, role)
+            setter_role = roles[set_by_user_id]
+            if setter_role is None or setter_role > role:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Requires at least {role.value} role",
+                )
 
-        current_role = self.get_user_role(user_id, group_id)
+        current_role = roles[user_id]
         if (
             current_role == GroupRole.Owner
             and role != GroupRole.Owner
@@ -351,7 +436,10 @@ class GroupService:
                 .values(role=role.value)
             )
             self.db.execute(stmt)
-            self.db.commit()
+            if commit:
+                self.db.commit()
+            else:
+                self.db.flush()
         except IntegrityError:
             self.db.rollback()
             raise HTTPException(
@@ -388,12 +476,20 @@ class GroupService:
                 detail="You must be a member of this group"
             )
 
-    def require_public_or_member(self, group: Group, current_user: User | None) -> None:
+    def require_public_or_member(
+        self, group: Group, current_user: User | None, *, is_member: bool | None = None
+    ) -> None:
         """Gate read access to a group for the landing-page/anonymous-browsing flows.
 
         Anonymous visitors may read only the global group or bot groups (the only
         groups meant to be public-facing); everyone else falls back to the existing
         is_public/admin/membership rule.
+
+        Args:
+            is_member: membership the caller has already established. Callers that
+                read the caller's role anyway (the group-detail endpoints) pass it
+                so the same ``group_members`` row is not fetched twice. Omitting
+                it keeps the original behaviour of looking membership up here.
 
         Raises:
             HTTPException 401: Anonymous visitor, group is not global/bot.
@@ -409,7 +505,11 @@ class GroupService:
         if (
             not group.is_public
             and not current_user.is_admin
-            and not self.is_user_in_group(current_user.id, group.id)
+            and not (
+                self.is_user_in_group(current_user.id, group.id)
+                if is_member is None
+                else is_member
+            )
         ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -536,8 +636,14 @@ class GroupService:
         Public groups are always searchable. When filtering by username, private
         groups belonging to that user are also included. Results are ordered by
         creation date (newest first) so truncation by ``limit`` is deterministic.
+
+        Settings and bot sources are eager-loaded: every caller renders them per
+        result, and no model declares ``lazy=``, so without this each result row
+        cost two further round trips.
         """
-        q = self.db.query(Group)
+        q = self.db.query(Group).options(
+            selectinload(Group.settings), selectinload(Group.bot_sources)
+        )
         if not username:
             q = q.filter(Group.is_public == True)  # noqa: E712
         if query:
@@ -571,7 +677,15 @@ class GroupService:
                 detail=f"Unable to find group with id {group_id}",
             )
 
-        albums_reviewed = sum(1 for a in group.albums if a.status == "reviewed")
+        # ``GroupAlbum.status`` is a hybrid, and its Python branch reads
+        # ``self.albums.reviews`` — a relationship the eager load above does NOT
+        # cover — so counting reviewed albums in Python was one query per album.
+        # The hybrid's own SQL expression counts them all in a single statement.
+        albums_reviewed = self.db.execute(
+            select(func.count())
+            .select_from(GroupAlbum)
+            .where(GroupAlbum.group_id == group_id, GroupAlbum.status == "reviewed")
+        ).scalar_one()
         member_ids = {m.id for m in group.members}
 
         # Collect nominator ID counts from eagerly-loaded albums (no extra query).
@@ -736,6 +850,41 @@ class GroupService:
             }
             for r in rows
         ]
+
+    def get_member_counts(self, group_ids: Sequence[int]) -> dict[int, int]:
+        """Member count per group id, in a single read.
+
+        ``len(group.members)`` materialises every member's full User row just to
+        take its length, which in a list endpoint is one such query per result.
+        The join to ``users`` mirrors the relationship's own secondary join.
+        """
+        if not group_ids:
+            return {}
+        rows = self.db.execute(
+            select(group_members.c.group_id, func.count())
+            .select_from(group_members)
+            .join(User, User.id == group_members.c.user_id)
+            .where(group_members.c.group_id.in_(group_ids))
+            .group_by(group_members.c.group_id)
+        ).all()
+        return {group_id: count for group_id, count in rows}
+
+    def get_user_roles(self, user_id: int, group_ids: Sequence[int]) -> dict[int, GroupRole]:
+        """One user's role in each of several groups, in a single read.
+
+        Group ids the user is not a member of are simply absent, so callers read
+        it with ``.get(group_id)`` exactly where they used to call
+        :meth:`get_user_role` once per group.
+        """
+        if not group_ids:
+            return {}
+        rows = self.db.execute(
+            select(group_members.c.group_id, group_members.c.role).where(
+                group_members.c.user_id == user_id,
+                group_members.c.group_id.in_(group_ids),
+            )
+        ).all()
+        return {group_id: GroupRole(role) for group_id, role in rows if role is not None}
 
     # ==================== UTILS ====================
     def is_user_in_group(self, user_id: int, group_id: int) -> bool:

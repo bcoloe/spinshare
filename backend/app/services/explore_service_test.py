@@ -1,6 +1,9 @@
 """Tests for ExploreService."""
 
+from contextlib import contextmanager
+
 import pytest
+from sqlalchemy import event
 
 from app.models.album import Album
 from app.models.group import Group
@@ -365,3 +368,59 @@ class TestGetSiteStats:
         stats = explore_service.get_site_stats()
         assert stats.most_nominated_albums[0].id == popular.id
         assert stats.most_nominated_albums[0].nomination_count == 2
+
+
+# ==================== query budgets ====================
+
+
+@contextmanager
+def _count_statements(db_session, match: str):
+    """Count SQL statements containing ``match`` issued inside the block."""
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, params, context, executemany):
+        if match in statement:
+            statements.append(statement)
+
+    bind = db_session.get_bind()
+    event.listen(bind, "before_cursor_execute", record)
+    try:
+        yield statements
+    finally:
+        event.remove(bind, "before_cursor_execute", record)
+
+
+class TestExploreQueryCounts:
+    def test_group_page_never_loads_member_rows(
+        self, explore_service, db_session, user_factory
+    ):
+        """member_count comes from a count subquery, not from loading members.
+
+        selectinload(Group.members) fetched every User row of every group on the
+        page to produce one integer each — the same mistake get_explore_users
+        already avoids.
+        """
+        from app.models.group import group_members
+
+        for g in range(3):
+            group = _make_group(db_session, name=f"Counted {g}")
+            for u in range(4):
+                user = user_factory(email=f"e{g}{u}@test.com", username=f"explore_{g}_{u}")
+                db_session.execute(
+                    group_members.insert().values(
+                        group_id=group.id, user_id=user.id, role="member"
+                    )
+                )
+        db_session.commit()
+
+        with _count_statements(db_session, "FROM users") as statements:
+            page = explore_service.get_explore_groups()
+
+        assert statements == [], statements
+        # Scoped to the groups this test created. The page legitimately contains
+        # others — the global group is seeded by migration b7d2e4f1a903 and is
+        # public, so it shows up here with a coalesced count of 0. Asserting over
+        # every item made this pass only against a create_all schema with no
+        # migration-seeded rows, and fail in CI, which runs alembic first.
+        counted = {g.name: g.member_count for g in page.items if g.name.startswith("Counted ")}
+        assert counted == {"Counted 0": 4, "Counted 1": 4, "Counted 2": 4}, counted
