@@ -9,6 +9,16 @@ export interface UserResponse {
   created_at: string
 }
 
+/** A user as seen by *other* users: no email, no admin flag. */
+export interface PublicUserResponse {
+  id: number
+  username: string
+  first_name?: string | null
+  last_name?: string | null
+  name_is_public: boolean
+  created_at: string
+}
+
 export interface UserWithStats extends UserResponse {
   total_groups: number
   created_groups: number

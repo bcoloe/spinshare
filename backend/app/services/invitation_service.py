@@ -4,11 +4,11 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import select, update
+from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
-from app.models import Group, User
+from app.models import User
 from app.models.group import GroupRole
 from app.models.invitation import GroupInvitation
 from app.schemas.invitation import InvitationCreate
@@ -18,6 +18,14 @@ from app.services.notification_service import NotificationService
 from app.utils.email import send_invitation_email
 
 _INVITATION_TTL_DAYS = 7
+
+# InvitationResponse reads group_name and inviter_username, both of which walk a
+# relationship off the model. Without these the listing endpoints are 1+2N: two
+# extra round trips for every invitation on the page.
+_RESPONSE_LOADERS = (
+    selectinload(GroupInvitation.group),
+    selectinload(GroupInvitation.inviter),
+)
 
 
 class InvitationService:
@@ -38,9 +46,12 @@ class InvitationService:
         If a previous invitation for this email has expired, it is deleted and a
         fresh invitation is issued.  Accepted invitations are never touched.
 
+        The invitee is identified by either ``email`` or ``username``; a username is
+        resolved to the account's email server-side so callers never need to know it.
+
         Raises:
             HTTPException 403: If inviter does not meet the group's min_role_to_add_members requirement
-            HTTPException 404: If group not found
+            HTTPException 404: If group not found, or if no user matches the given username
             HTTPException 409: If email already has a pending invitation or is already a member
         """
         group = group_service.get_group_by_id(group_id)
@@ -49,9 +60,20 @@ class InvitationService:
             inviter.id, group_id, GroupRole(settings.min_role_to_add_members)
         )
 
-        email = data.email.lower()
+        if data.username is not None:
+            existing_user = self.db.scalars(
+                select(User).where(User.username == data.username.lower())
+            ).first()
+            if not existing_user:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="User not found",
+                )
+            email = existing_user.email.lower()
+        else:
+            email = data.email.lower()
+            existing_user = self.db.scalars(select(User).where(User.email == email)).first()
 
-        existing_user = self.db.scalars(select(User).where(User.email == email)).first()
         if existing_user and group_service.is_user_in_group(existing_user.id, group_id):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -128,6 +150,7 @@ class InvitationService:
                     GroupInvitation.accepted_at.is_(None),
                     GroupInvitation.expires_at > now,
                 )
+                .options(*_RESPONSE_LOADERS)
                 .order_by(GroupInvitation.created_at.desc())
             ).all()
         )
@@ -164,9 +187,29 @@ class InvitationService:
                 detail="This invitation was sent to a different email address",
             )
 
+        # Claim the invitation with a conditional UPDATE before doing any work.
+        # The accepted_at check above is a read, so two concurrent accepts of the
+        # same token both passed it, both added the membership, and both notified
+        # the inviter. Making "not yet accepted" part of the WHERE means exactly
+        # one writer can transition the row; the loser sees rowcount 0 and gets
+        # the same 410 a late single accept would.
+        claimed = self.db.execute(
+            update(GroupInvitation)
+            .where(
+                GroupInvitation.id == invitation.id,
+                GroupInvitation.accepted_at.is_(None),
+            )
+            .values(accepted_at=datetime.now(timezone.utc))
+        )
+        if claimed.rowcount == 0:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_410_GONE,
+                detail="Invitation has already been accepted",
+            )
+
         group_service.add_user(invitation.group_id, user.id)
 
-        invitation.accepted_at = datetime.now(timezone.utc)
         self.db.commit()
         self.db.refresh(invitation)
 
@@ -190,6 +233,7 @@ class InvitationService:
                     GroupInvitation.accepted_at.is_(None),
                     GroupInvitation.expires_at > now,
                 )
+                .options(*_RESPONSE_LOADERS)
                 .order_by(GroupInvitation.created_at.desc())
             ).all()
         )

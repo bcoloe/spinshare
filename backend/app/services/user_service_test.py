@@ -1,14 +1,28 @@
 """Unit tests of the UserService interactions."""
 
-from datetime import UTC, datetime
+from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pydantic
 import pytest
-from app.models import GroupAlbum, NominationGuess, User
+from app.models import (
+    Album,
+    Genre,
+    Group,
+    GroupAlbum,
+    GroupInvitation,
+    GroupInviteLink,
+    GroupParticipation,
+    NominationGuess,
+    PriorityReviewCredit,
+    Review,
+    User,
+)
 from app.schemas.user import LoginRequest, UserCreate, UserUpdate
 from app.utils import security
 from fastapi import HTTPException, status
+from sqlalchemy import event
 
 
 class TestUserServiceCreate:
@@ -368,6 +382,107 @@ class TestUserServiceDelete:
 
         assert db_session.query(NominationGuess).filter(NominationGuess.id == guess_id).first() is None
 
+    def test_delete_user_with_participation_credits_and_invites(
+        self, sample_user_service, sample_user, sample_group, sample_album, db_session
+    ):
+        """A user with participation, credits, a sent invitation and an invite link deletes.
+
+        Each of those four tables FKs to ``users.id`` with no ON DELETE clause, and
+        nothing else clears them — so before this fix a single earned credit or sent
+        invite made the account permanently undeletable (409 forever).
+        """
+        db_session.add_all(
+            [
+                GroupParticipation(group_id=sample_group.id, user_id=sample_user.id, credits=2),
+                PriorityReviewCredit(
+                    group_id=sample_group.id, user_id=sample_user.id, album_id=sample_album.id
+                ),
+                GroupInvitation(
+                    group_id=sample_group.id,
+                    invited_email="invitee@test.com",
+                    invited_by=sample_user.id,
+                    token="invite-token-1",
+                    expires_at=datetime.now(UTC) + timedelta(days=7),
+                ),
+                GroupInviteLink(
+                    group_id=sample_group.id, created_by=sample_user.id, token="link-token-1"
+                ),
+            ]
+        )
+        db_session.commit()
+        user_id = sample_user.id
+
+        sample_user_service.delete_user(user_id)
+
+        assert db_session.query(User).filter(User.id == user_id).first() is None
+        assert (
+            db_session.query(GroupParticipation)
+            .filter(GroupParticipation.user_id == user_id)
+            .count()
+            == 0
+        )
+        assert (
+            db_session.query(PriorityReviewCredit)
+            .filter(PriorityReviewCredit.user_id == user_id)
+            .count()
+            == 0
+        )
+        assert (
+            db_session.query(GroupInvitation).filter(GroupInvitation.invited_by == user_id).count()
+            == 0
+        )
+        assert (
+            db_session.query(GroupInviteLink).filter(GroupInviteLink.created_by == user_id).count()
+            == 0
+        )
+
+    def test_delete_user_removes_invitations_addressed_to_them(
+        self, sample_user_service, sample_user, sample_group, db_session, user_factory
+    ):
+        """A pending invitation sent *to* the deleted user's email is cleaned up too.
+
+        It carries the address of an account that no longer exists; honouring it
+        later would hand group access to whoever next registers that address.
+        """
+        inviter = user_factory(email="inviter@test.com", username="inviter_user")
+        db_session.add(
+            GroupInvitation(
+                group_id=sample_group.id,
+                invited_email=sample_user.email,
+                invited_by=inviter.id,
+                token="invite-token-2",
+                expires_at=datetime.now(UTC) + timedelta(days=7),
+            )
+        )
+        db_session.commit()
+        email = sample_user.email
+
+        sample_user_service.delete_user(sample_user.id)
+
+        assert (
+            db_session.query(GroupInvitation)
+            .filter(GroupInvitation.invited_email == email)
+            .count()
+            == 0
+        )
+
+
+class TestUserServicePublicProfile:
+    """The public profile must not leak private fields to other authenticated users."""
+
+    def test_public_profile_omits_email(self, sample_user_service, sample_user):
+        profile = sample_user_service.get_public_profile(sample_user.username)
+
+        assert "email" not in profile
+        assert sample_user.email not in str(profile)
+
+    def test_public_profile_keeps_expected_fields(self, sample_user_service, sample_user):
+        profile = sample_user_service.get_public_profile(sample_user.username)
+
+        assert profile["id"] == sample_user.id
+        assert profile["username"] == sample_user.username
+        assert profile["is_admin"] is False
+
 
 class TestUserServiceAuthentication:
     """Unit tests for authentication endpoints of UserService"""
@@ -633,3 +748,207 @@ class TestUserServicePasswordReset:
         with pytest.raises(HTTPException) as exc_info:
             sample_user_service.confirm_password_reset(token, "weak")
         assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
+
+
+# ==================== QUERY-COUNT GUARDS ====================
+#
+# These pin the *shape* of a few profile reads rather than their results.
+#
+# app.database uses a NullPool against a serverless Postgres, so every statement
+# is a fresh network round trip and the statement count — not the row count — is
+# what the endpoint costs. No model declares ``lazy=``, so any relationship walk
+# added to a loop silently reintroduces an N+1 that no correctness test notices.
+#
+# Each test therefore runs the same call over a small dataset and a much larger
+# one and asserts the statement count did not move: the assertion that fails on
+# regression is "grew with N", not a magic number.
+
+
+@contextmanager
+def count_statements(db_session):
+    """Collect the SQL the session emits inside the block.
+
+    Savepoint bookkeeping from the test fixture is filtered out — it is an
+    artefact of how tests are isolated, not work the service asked for.
+    """
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, params, context, executemany):
+        head = statement.lstrip().upper()
+        if head.startswith(("SAVEPOINT", "RELEASE SAVEPOINT", "ROLLBACK TO SAVEPOINT")):
+            return
+        statements.append(statement)
+
+    bind = db_session.get_bind()
+    event.listen(bind, "before_cursor_execute", record)
+    try:
+        yield statements
+    finally:
+        event.remove(bind, "before_cursor_execute", record)
+
+
+class TestUserServiceQueryCounts:
+    """Profile reads must cost a fixed number of round trips, not one per row."""
+
+    @staticmethod
+    def _albums(db_session, count: int, *, offset: int = 0) -> list[Album]:
+        genre = Genre(name=f"genre-{offset}")
+        db_session.add(genre)
+        db_session.flush()
+        albums = [
+            Album(
+                spotify_album_id=f"album-{offset + i}",
+                title=f"Album {offset + i}",
+                artist=f"Artist {offset + i}",
+                release_date=f"{1960 + (offset + i) % 60}-01-01",
+                genres=[genre],
+            )
+            for i in range(count)
+        ]
+        db_session.add_all(albums)
+        db_session.commit()
+        return albums
+
+    def _reviews(self, db_session, user: User, count: int, *, offset: int = 0) -> None:
+        for i, album in enumerate(self._albums(db_session, count, offset=offset)):
+            db_session.add(
+                Review(user_id=user.id, album_id=album.id, rating=float(i % 11), is_draft=False)
+            )
+        db_session.commit()
+
+    def _nominations(self, db_session, user: User, group, count: int, *, offset: int = 0) -> None:
+        for album in self._albums(db_session, count, offset=offset):
+            db_session.add(
+                GroupAlbum(group_id=group.id, album_id=album.id, added_by=user.id)
+            )
+        db_session.commit()
+
+    def test_reviews_for_profile_does_not_scale_with_review_count(
+        self, sample_user_service, sample_user, db_session
+    ):
+        """One statement per review's album, and another per album's genres, is 1+2N."""
+        self._reviews(db_session, sample_user, 3)
+        username = sample_user.username  # outside the block: not the call's cost
+        with count_statements(db_session) as small:
+            assert len(sample_user_service.get_user_reviews_for_profile(username)) == 3
+
+        self._reviews(db_session, sample_user, 27, offset=100)
+        with count_statements(db_session) as large:
+            assert len(sample_user_service.get_user_reviews_for_profile(username)) == 30
+
+        assert len(large) == len(small), (small, large)
+        assert len(small) <= 4
+
+    def test_review_stats_does_not_scale_with_review_count(
+        self, sample_user_service, sample_user, db_session
+    ):
+        """The decade breakdown must not walk ``r.albums`` one review at a time."""
+        self._reviews(db_session, sample_user, 3)
+        username = sample_user.username
+        with count_statements(db_session) as small:
+            sample_user_service.get_review_stats(username)
+
+        self._reviews(db_session, sample_user, 27, offset=100)
+        with count_statements(db_session) as large:
+            sample_user_service.get_review_stats(username)
+
+        assert len(large) == len(small), (small, large)
+        assert len(small) <= 4
+
+    def test_nomination_breakdown_does_not_scale_with_nomination_count(
+        self, sample_user_service, sample_user, sample_group, db_session
+    ):
+        """Only ``albums.release_date`` is needed, so it must cost one statement."""
+        self._nominations(db_session, sample_user, sample_group, 3)
+        username = sample_user.username
+        with count_statements(db_session) as small:
+            small_result = sample_user_service.get_nomination_decade_breakdown(username)
+
+        self._nominations(db_session, sample_user, sample_group, 27, offset=100)
+        with count_statements(db_session) as large:
+            large_result = sample_user_service.get_nomination_decade_breakdown(username)
+
+        assert small_result["total_nominations"] == 3
+        assert large_result["total_nominations"] == 30
+        assert len(large) == len(small), (small, large)
+        assert len(small) <= 3
+
+    def test_public_profile_groups_do_not_scale_with_group_count(
+        self, sample_user_service, sample_user, db_session, user_factory
+    ):
+        """Per-group role lookups and ``len(group.members)`` were 2 queries each."""
+        viewer = user_factory(email="viewer@test.com", username="viewer")
+
+        def join(n: int, offset: int) -> None:
+            for i in range(n):
+                group = Group(name=f"grp-{offset + i}", is_public=True, created_by=sample_user.id)
+                group.members = [sample_user, viewer]
+                db_session.add(group)
+            db_session.commit()
+
+        join(2, 0)
+        username, viewer_id = sample_user.username, viewer.id
+        with count_statements(db_session) as small:
+            small_result = sample_user_service.get_groups_for_public_profile(username, viewer_id)
+
+        join(10, 100)
+        with count_statements(db_session) as large:
+            large_result = sample_user_service.get_groups_for_public_profile(username, viewer_id)
+
+        assert len(small_result) == 2
+        assert len(large_result) == 12
+        assert all(g["member_count"] == 2 for g in large_result)
+        assert all(g["current_user_role"] == "member" for g in large_result)
+        assert len(large) == len(small), (small, large)
+        assert len(small) <= 5
+
+    def test_user_stats_counts_in_the_database(
+        self, sample_user_service, sample_user, sample_group, db_session
+    ):
+        """Five integers should not mean five relationship loads."""
+        self._reviews(db_session, sample_user, 4)
+        self._nominations(db_session, sample_user, sample_group, 4, offset=200)
+
+        user_id = sample_user.id
+        with count_statements(db_session) as statements:
+            stats = sample_user_service.get_user_stats(user_id)
+
+        assert stats["total_reviews"] == 4
+        assert stats["albums_added"] == 4
+        assert stats["has_spotify"] is False
+        # One read of the user row, one of every count.
+        assert len(statements) == 2, statements
+
+    def test_public_profile_counts_in_the_database(
+        self, sample_user_service, sample_user, sample_group, db_session
+    ):
+        """Same for the public profile's three totals."""
+        self._reviews(db_session, sample_user, 4)
+        self._nominations(db_session, sample_user, sample_group, 4, offset=300)
+
+        username = sample_user.username
+        with count_statements(db_session) as statements:
+            profile = sample_user_service.get_public_profile(username)
+
+        assert profile["total_reviews"] == 4
+        assert profile["albums_nominated"] == 4
+        assert len(statements) == 2, statements
+
+    def test_access_token_claims_read_only_group_ids(
+        self, sample_user_service, sample_user, db_session
+    ):
+        """Every login and refresh builds this claim; it must not load Group rows."""
+        group = Group(name="claims-grp", is_public=True, created_by=sample_user.id)
+        group.members = [sample_user]
+        db_session.add(group)
+        db_session.commit()
+
+        db_session.refresh(sample_user)  # the user row is already in hand at call time
+        group_id = group.id
+        with count_statements(db_session) as statements:
+            claims = sample_user_service._access_token_data(sample_user)
+
+        assert claims["groups"] == [group_id]
+        assert len(statements) == 1, statements
+        # Ids only — no column of ``groups`` other than the key is selected.
+        assert "groups.name" not in statements[0]

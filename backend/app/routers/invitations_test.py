@@ -99,6 +99,28 @@ class TestSendInvitation:
         resp = client.post("/groups/1/invitations", json={"email": "not-an-email"})
         assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
+    def test_send_invitation_by_username(self, client, mock_invitation_service):
+        """Search results invite by username so the client never handles an email."""
+        mock_invitation_service.create_invitation.return_value = _make_mock_invitation()
+
+        resp = client.post("/groups/1/invitations", json={"username": "guest"})
+
+        assert resp.status_code == status.HTTP_201_CREATED
+        data = mock_invitation_service.create_invitation.call_args.args[1]
+        assert data.username == "guest"
+        assert data.email is None
+
+    @pytest.mark.parametrize(
+        "payload",
+        [{}, {"email": "guest@example.com", "username": "guest"}],
+    )
+    def test_send_invitation_requires_exactly_one_identifier(
+        self, client, mock_invitation_service, payload
+    ):
+        resp = client.post("/groups/1/invitations", json=payload)
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        mock_invitation_service.create_invitation.assert_not_called()
+
 
 # ==================== GET /groups/{id}/invitations ====================
 

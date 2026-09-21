@@ -14,7 +14,8 @@ dealer-mode groups (which have no shared draw to render a pick).
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -122,25 +123,68 @@ class ParticipationService:
         )
         if album_drawn_in_group is None:
             return
-        already_credited = (
-            self.db.query(PriorityReviewCredit.id)
-            .filter(
-                PriorityReviewCredit.group_id == group_id,
-                PriorityReviewCredit.user_id == user_id,
-                PriorityReviewCredit.album_id == album_id,
+        # The ledger row is the lock. Claiming it with insert-ignore and reading
+        # rowcount replaces a check-then-insert that two writers could both pass:
+        # publishing a review of an album at the moment the cron draws it into the
+        # group had both paths insert, and the loser's commit raised IntegrityError
+        # out through the router as a 500 on review publish. Now the loser simply
+        # inserts nothing, sees rowcount 0, and returns — the credit is granted
+        # exactly once, by whoever won.
+        claimed = self.db.execute(
+            pg_insert(PriorityReviewCredit)
+            .values(group_id=group_id, user_id=user_id, album_id=album_id)
+            .on_conflict_do_nothing(
+                index_elements=["group_id", "user_id", "album_id"]
             )
-            .first()
         )
-        if already_credited is not None:
+        if claimed.rowcount == 0:
             return
 
-        self.db.add(
-            PriorityReviewCredit(group_id=group_id, user_id=user_id, album_id=album_id)
-        )
-        participation = self._get_or_create(group_id, user_id)
-        participation.credits += self._review_credit_amount(group_id, user_id, album_id)
+        amount = self._review_credit_amount(group_id, user_id, album_id)
+        self._add_credits(group_id, user_id, amount)
         if commit:
             self.db.commit()
+
+    def _add_credits(self, group_id: int, user_id: int, amount: int) -> None:
+        """Apply a credit delta atomically, creating the participation row if needed.
+
+        Deliberately an in-database ``credits = credits + :amount`` rather than a
+        Python read-modify-write. Two grants for different albums in the same group
+        used to both read the same balance and both write back their own +1, so one
+        credit silently vanished — the kind of loss nothing surfaces until a member
+        notices their ledger is short.
+        """
+        if amount == 0:
+            self._get_or_create(group_id, user_id)
+            return
+
+        updated = self.db.execute(
+            update(GroupParticipation)
+            .where(
+                GroupParticipation.group_id == group_id,
+                GroupParticipation.user_id == user_id,
+            )
+            .values(credits=GroupParticipation.credits + amount)
+        )
+        if updated.rowcount == 0:
+            # No row yet. insert-ignore so a concurrent first grant cannot make
+            # this a 500, then retry the delta against whichever row now exists.
+            self.db.execute(
+                pg_insert(GroupParticipation)
+                .values(group_id=group_id, user_id=user_id, credits=0)
+                .on_conflict_do_nothing(index_elements=["group_id", "user_id"])
+            )
+            self.db.execute(
+                update(GroupParticipation)
+                .where(
+                    GroupParticipation.group_id == group_id,
+                    GroupParticipation.user_id == user_id,
+                )
+                .values(credits=GroupParticipation.credits + amount)
+            )
+        # The UPDATE bypassed the identity map, so any GroupParticipation already
+        # loaded in this Session still holds the pre-update balance.
+        self.db.expire_all()
 
     def _review_credit_amount(self, group_id: int, user_id: int, album_id: int) -> int:
         """Credits granted for a single review. Flat +1 today.
@@ -317,9 +361,21 @@ class ParticipationService:
                 participation.priority_queued_at = None
                 continue
 
-            participation.credits = max(0, participation.credits - threshold)
-            participation.priority_group_album_id = None
-            participation.priority_queued_at = None
+            # Debit in SQL, not in Python. The draw can run concurrently with a
+            # review-publish crediting the same member (the cron path takes no
+            # group_settings lock), and a read-modify-write here would overwrite
+            # that credit with a stale balance. GREATEST keeps the floor at zero
+            # without needing to read the current value first.
+            self.db.execute(
+                update(GroupParticipation)
+                .where(GroupParticipation.id == participation.id)
+                .values(
+                    credits=func.greatest(GroupParticipation.credits - threshold, 0),
+                    priority_group_album_id=None,
+                    priority_queued_at=None,
+                )
+            )
+            self.db.expire(participation)
             claimed.append(group_album)
             claimed_album_ids.add(group_album.album_id)
             if len(claimed) >= limit:
@@ -419,9 +475,21 @@ class ParticipationService:
         )
 
     def _get_or_create(self, group_id: int, user_id: int) -> GroupParticipation:
+        """Fetch the participation row, creating it if this is the user's first.
+
+        insert-ignore rather than check-then-insert: a user publishing their first
+        two reviews concurrently (two tabs) had both calls see no row and both
+        insert, and the loser's flush raised IntegrityError against
+        unique_participation_per_group — a 500 on an ordinary review publish.
+        """
         participation = self._get(group_id, user_id)
-        if participation is None:
-            participation = GroupParticipation(group_id=group_id, user_id=user_id, credits=0)
-            self.db.add(participation)
-            self.db.flush()
-        return participation
+        if participation is not None:
+            return participation
+
+        self.db.execute(
+            pg_insert(GroupParticipation)
+            .values(group_id=group_id, user_id=user_id, credits=0)
+            .on_conflict_do_nothing(index_elements=["group_id", "user_id"])
+        )
+        self.db.flush()
+        return self._get(group_id, user_id)

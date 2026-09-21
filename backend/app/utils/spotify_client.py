@@ -16,6 +16,36 @@ from app.config import get_settings
 
 log = logging.getLogger(__name__)
 
+
+def _request(method: str, *args, **kwargs) -> httpx.Response:
+    """Issue a Spotify request, turning transport failures into a 502.
+
+    Every call below already maps Spotify's *HTTP* errors onto HTTPException, but
+    transport failures — DNS, connect timeout, read timeout — are a different
+    exception tree and used to propagate untouched. ``/albums/search`` catches
+    only HTTPException in order to fall back to Apple Music, so a Spotify DNS
+    blip sailed past that guard and returned 500 from an endpoint explicitly
+    written to degrade. Normalising here keeps that fallback working and matches
+    apple_music_client, which already guards every call it makes.
+    """
+    try:
+        return getattr(httpx, method)(*args, **kwargs)
+    except httpx.HTTPError as exc:
+        log.warning("Spotify %s failed at the transport layer: %s", method.upper(), exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach Spotify",
+        ) from exc
+
+
+def _get(*args, **kwargs) -> httpx.Response:
+    return _request("get", *args, **kwargs)
+
+
+def _post(*args, **kwargs) -> httpx.Response:
+    return _request("post", *args, **kwargs)
+
+
 # Module-level cache for the Client Credentials token (valid ~1 hour).
 _cc_token: str | None = None
 _cc_token_expires_at: float = 0.0
@@ -67,7 +97,7 @@ def _get_client_token() -> str:
             detail="Spotify integration not configured",
         )
 
-    resp = httpx.post(
+    resp = _post(
         "https://accounts.spotify.com/api/token",
         data={"grant_type": "client_credentials"},
         auth=(settings.SPOTIFY_CLIENT_ID, settings.SPOTIFY_CLIENT_SECRET),
@@ -122,7 +152,7 @@ def exchange_code_for_tokens(code: str) -> dict:
         HTTPException 502: If Spotify token exchange or profile fetch fails.
     """
     settings = get_settings()
-    token_resp = httpx.post(
+    token_resp = _post(
         "https://accounts.spotify.com/api/token",
         data={
             "grant_type": "authorization_code",
@@ -142,7 +172,7 @@ def exchange_code_for_tokens(code: str) -> dict:
     refresh_token = token_data["refresh_token"]
     expires_at = datetime.now(UTC) + timedelta(seconds=token_data["expires_in"])
 
-    me_resp = httpx.get(
+    me_resp = _get(
         "https://api.spotify.com/v1/me",
         headers={"Authorization": f"Bearer {access_token}"},
         timeout=10,
@@ -172,7 +202,7 @@ def refresh_access_token(refresh_token: str) -> dict:
         HTTPException 502: On unexpected Spotify API errors.
     """
     settings = get_settings()
-    resp = httpx.post(
+    resp = _post(
         "https://accounts.spotify.com/api/token",
         data={"grant_type": "refresh_token", "refresh_token": refresh_token},
         auth=(settings.SPOTIFY_CLIENT_ID, settings.SPOTIFY_CLIENT_SECRET),
@@ -226,7 +256,7 @@ def search_albums(
     effective_max = min(max_retry_after, _MAX_RETRY_AFTER)
     params = {"q": q, "type": "album", "limit": limit, "offset": offset}
     headers = {"Authorization": f"Bearer {token}"}
-    resp = httpx.get("https://api.spotify.com/v1/search", params=params, headers=headers, timeout=10)
+    resp = _get("https://api.spotify.com/v1/search", params=params, headers=headers, timeout=10)
     for attempt in range(3):
         if resp.status_code != 429:
             break
@@ -244,7 +274,7 @@ def search_albums(
             )
         log.warning("Spotify rate limited (attempt %d/3); retrying after %ds", attempt + 1, retry_after)
         time.sleep(retry_after)
-        resp = httpx.get("https://api.spotify.com/v1/search", params=params, headers=headers, timeout=10)
+        resp = _get("https://api.spotify.com/v1/search", params=params, headers=headers, timeout=10)
     if resp.status_code == 429:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -292,7 +322,7 @@ def get_album_by_id(album_id: str) -> SpotifyAlbumResult | None:
     global _cc_token_expires_at
 
     def _fetch(token: str) -> httpx.Response:
-        return httpx.get(
+        return _get(
             f"https://api.spotify.com/v1/albums/{album_id}",
             headers={"Authorization": f"Bearer {token}"},
             timeout=10,
@@ -342,7 +372,7 @@ def get_albums_batch(ids: list[str]) -> list[SpotifyAlbumResult]:
     chunk_size = 20
     for i in range(0, len(ids), chunk_size):
         chunk = ids[i : i + chunk_size]
-        resp = httpx.get(
+        resp = _get(
             "https://api.spotify.com/v1/albums",
             params={"ids": ",".join(chunk)},
             headers=headers,
@@ -367,7 +397,7 @@ def get_albums_batch(ids: list[str]) -> list[SpotifyAlbumResult]:
                 retry_after,
             )
             time.sleep(retry_after)
-            resp = httpx.get(
+            resp = _get(
                 "https://api.spotify.com/v1/albums",
                 params={"ids": ",".join(chunk)},
                 headers=headers,

@@ -115,6 +115,9 @@ export interface GroupModify {
   }
 }
 
+/** Invite payload — supply exactly one of `email` or `username`. */
+export type InvitationCreate = { email: string; username?: never } | { username: string; email?: never }
+
 export interface InvitationResponse {
   id: number
   group_id: number

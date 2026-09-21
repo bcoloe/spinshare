@@ -1,11 +1,12 @@
 import { apiFetch } from './apiClient'
-import type { InvitationResponse } from '../types/group'
+import type { InvitationCreate, InvitationResponse } from '../types/group'
 
 export const invitationService = {
-  send(groupId: number, email: string): Promise<InvitationResponse> {
+  /** Invite by email address, or by username for a user surfaced by search. */
+  send(groupId: number, invitee: InvitationCreate): Promise<InvitationResponse> {
     return apiFetch(`/groups/${groupId}/invitations`, {
       method: 'POST',
-      body: JSON.stringify({ email }),
+      body: JSON.stringify(invitee),
     })
   },
 

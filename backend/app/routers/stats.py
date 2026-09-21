@@ -1,6 +1,6 @@
 # backend/app/routers/stats.py
 
-from app.dependencies import get_current_user, get_stats_service
+from app.dependencies import get_current_user, get_stats_service, require_group_role
 from app.models import User
 from app.schemas.stats import (
     AlbumGuessStatsResponse,
@@ -16,11 +16,11 @@ router = APIRouter(prefix="/stats", tags=["stats"])
 @router.get(
     "/groups/{group_id}/members/{user_id}/guesses",
     response_model=UserGuessStatsResponse,
+    dependencies=[Depends(require_group_role())],
 )
 def get_user_guess_stats(
     group_id: int,
     user_id: int,
-    current_user: User = Depends(get_current_user),
     svc: StatsService = Depends(get_stats_service),
 ):
     """Guess accuracy for a user within a group. Requires group membership."""
@@ -30,6 +30,7 @@ def get_user_guess_stats(
 @router.get(
     "/groups/{group_id}/albums/{group_album_id}/guesses",
     response_model=AlbumGuessStatsResponse,
+    dependencies=[Depends(require_group_role())],
 )
 def get_album_guess_stats(
     group_id: int,

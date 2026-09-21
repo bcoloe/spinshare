@@ -2,6 +2,7 @@ import { apiFetch } from './apiClient'
 import type {
   NominationDecadeBreakdownResponse,
   PublicProfileResponse,
+  PublicUserResponse,
   ReviewStatsResponse,
   UserGroupItem,
   UserResponse,
@@ -10,7 +11,7 @@ import type {
 import type { GroupActivityItem } from '../types/group'
 
 export const userService = {
-  search(query: string): Promise<UserResponse[]> {
+  search(query: string): Promise<PublicUserResponse[]> {
     return apiFetch(`/users/search/${encodeURIComponent(query)}`)
   },
 

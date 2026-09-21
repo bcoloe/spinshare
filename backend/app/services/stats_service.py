@@ -1,16 +1,15 @@
 """Stats service: guess accuracy and review score aggregations."""
 
-from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy import case, func, select
+from sqlalchemy.orm import Session, aliased, joinedload
 
-from app.models import GroupAlbum, NominationGuess, Review
+from app.models import GroupAlbum, NominationGuess, Review, User
 from app.schemas.stats import (
     AlbumGuessStatsResponse,
     AlbumReviewStatsResponse,
     MemberGuessResult,
     UserGuessStatsResponse,
 )
-from app.services import group_service as gs
 from fastapi import HTTPException, status
 
 
@@ -23,22 +22,28 @@ class StatsService:
     def get_user_guess_stats(self, user_id: int, group_id: int) -> UserGuessStatsResponse:
         """Guess accuracy for a user within a specific group.
 
+        Membership is enforced at the route (see ``require_group_role``), so this
+        method assumes the caller is already authorized.
+
         Raises:
-            HTTPException 403: If requesting user is not a member (caller must enforce).
             HTTPException 404: If user has no guesses in this group.
         """
-        rows = (
-            self.db.query(NominationGuess)
+        # Counted in the database (same shape as RecapService._guess_accuracy)
+        # rather than hydrating every guess row just to len() and filter it.
+        correct_case = case((NominationGuess.correct.is_(True), 1), else_=0)
+        total, correct = (
+            self.db.query(
+                func.count(NominationGuess.id),
+                func.coalesce(func.sum(correct_case), 0),
+            )
             .join(GroupAlbum, NominationGuess.group_album_id == GroupAlbum.id)
             .filter(
                 NominationGuess.guessing_user_id == user_id,
                 GroupAlbum.group_id == group_id,
             )
-            .all()
+            .one()
         )
 
-        total = len(rows)
-        correct = sum(1 for r in rows if r.correct)
         accuracy = (correct / total) if total > 0 else 0.0
 
         return UserGuessStatsResponse(
@@ -63,6 +68,9 @@ class StatsService:
         """
         group_album = (
             self.db.query(GroupAlbum)
+            # The nominator is read below for every revealed response; joining it
+            # here costs nothing extra and removes a lazy load.
+            .options(joinedload(GroupAlbum.added_by_user))
             .filter(GroupAlbum.id == group_album_id, GroupAlbum.group_id == group_id)
             .first()
         )
@@ -83,16 +91,41 @@ class StatsService:
                 revealed=False,
             )
 
+        # Only the two usernames are needed per guess, so they are joined in
+        # rather than lazy-loaded off each guess: the relationship walk cost two
+        # extra round trips per guess (one per User row) for one string each.
+        guessing_user = aliased(User)
+        guessed_user = aliased(User)
+        rows = self.db.execute(
+            select(
+                NominationGuess.guessing_user_id,
+                guessing_user.username,
+                NominationGuess.guessed_user_id,
+                guessed_user.username,
+                NominationGuess.correct,
+            )
+            .join(guessing_user, guessing_user.id == NominationGuess.guessing_user_id)
+            .outerjoin(guessed_user, guessed_user.id == NominationGuess.guessed_user_id)
+            .where(NominationGuess.group_album_id == group_album_id)
+            .order_by(NominationGuess.id)
+        ).all()
+
         guesses = [
             MemberGuessResult(
-                guessing_user_id=g.guessing_user_id,
-                guessing_username=g.guessing_user.username,
-                guessed_user_id=g.guessed_user_id,
-                guessed_username=g.guessed_user.username if g.guessed_user else None,
-                is_chaos=g.guessed_user_id is None,
-                correct=g.correct,
+                guessing_user_id=guessing_user_id,
+                guessing_username=guessing_username,
+                guessed_user_id=guessed_user_id,
+                guessed_username=guessed_username if guessed_user_id is not None else None,
+                is_chaos=guessed_user_id is None,
+                correct=correct_flag,
             )
-            for g in group_album.guesses
+            for (
+                guessing_user_id,
+                guessing_username,
+                guessed_user_id,
+                guessed_username,
+                correct_flag,
+            ) in rows
         ]
 
         total = len(guesses)

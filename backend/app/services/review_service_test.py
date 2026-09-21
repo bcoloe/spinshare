@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 import pytest
@@ -7,6 +8,7 @@ from app.schemas.album import ReviewCreate, ReviewUpdate
 from app.schemas.notification import NotificationType
 from app.services.notification_service import NotificationService
 from fastapi import HTTPException, status
+from sqlalchemy import event
 
 
 class TestReviewServiceCreate:
@@ -677,3 +679,185 @@ class TestAlbumStats:
         stats = review_service.get_album_stats(sample_album.id)
         assert stats.review_count == 1
         assert stats.average_rating == 8.0
+
+
+@contextmanager
+def _count_statements(db_session, match: str):
+    """Count SQL statements containing ``match`` issued inside the block.
+
+    These services used to fan a per-row query out across group members,
+    nominators and co-reviewers, which is invisible in a correctness test and
+    ruinous against a connection where every statement is a round trip. Pinning
+    the statement count is the only thing that keeps the N+1 from quietly
+    growing back.
+    """
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, params, context, executemany):
+        if match in statement:
+            statements.append(statement)
+
+    bind = db_session.get_bind()
+    event.listen(bind, "before_cursor_execute", record)
+    try:
+        yield statements
+    finally:
+        event.remove(bind, "before_cursor_execute", record)
+
+
+class TestReviewQueryCounts:
+    """Round-trip budgets for the paths that run on every review write."""
+
+    def _member(self, db_session, group, user_factory, n: int):
+        user = user_factory(email=f"m{n}@test.com", username=f"member_{n}")
+        group.members.append(user)
+        db_session.commit()
+        return user
+
+    def test_avg_refresh_does_not_scale_with_nominations(
+        self, db_session, review_service, sample_group, sample_album, sample_user, user_factory
+    ):
+        """One SELECT against group_members no matter how many nominators there are.
+
+        group_albums rows are keyed by (group, album, added_by), so a
+        co-nominated album has several rows per group — and the membership
+        lookup used to repeat verbatim for every one of them.
+        """
+        for n in range(4):
+            member = self._member(db_session, sample_group, user_factory, n)
+            db_session.add(
+                GroupAlbum(
+                    group_id=sample_group.id, album_id=sample_album.id, added_by=member.id
+                )
+            )
+        db_session.add(
+            GroupAlbum(
+                group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id
+            )
+        )
+        db_session.commit()
+
+        with _count_statements(db_session, "group_members") as statements:
+            review_service._refresh_group_album_avgs(sample_album.id)
+
+        assert len(statements) == 1, statements
+
+    def test_avg_refresh_is_flat_across_groups(
+        self, db_session, review_service, sample_group_service, sample_album, sample_user
+    ):
+        """Nominating the same album in more groups must not add round trips."""
+        from app.schemas.group import GroupCreate
+
+        groups = [
+            sample_group_service.create_group(GroupCreate(name=f"group_{n}"), sample_user)
+            for n in range(3)
+        ]
+        for group in groups:
+            db_session.add(
+                GroupAlbum(group_id=group.id, album_id=sample_album.id, added_by=sample_user.id)
+            )
+        db_session.commit()
+
+        with _count_statements(db_session, "group_members") as statements:
+            review_service._refresh_group_album_avgs(sample_album.id)
+
+        assert len(statements) == 1, statements
+
+    def test_avg_refresh_still_scopes_to_each_group(
+        self,
+        db_session,
+        review_service,
+        sample_group,
+        sample_group_service,
+        sample_album,
+        sample_user,
+        user_factory,
+    ):
+        """Batching must not blur the per-group membership scope.
+
+        Two groups nominate the same album and each has one member; each group
+        album must cache only its own member's rating.
+        """
+        from app.schemas.group import GroupCreate
+
+        outsider = user_factory(email="out@test.com", username="outsider_r")
+        other_group = sample_group_service.create_group(GroupCreate(name="other group"), outsider)
+
+        ga_mine = GroupAlbum(
+            group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id
+        )
+        ga_other = GroupAlbum(
+            group_id=other_group.id, album_id=sample_album.id, added_by=outsider.id
+        )
+        db_session.add_all([ga_mine, ga_other])
+        db_session.commit()
+
+        review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=4.0))
+        review_service.create_review(sample_album.id, outsider.id, ReviewCreate(rating=10.0))
+
+        db_session.refresh(ga_mine)
+        db_session.refresh(ga_other)
+        assert (ga_mine.avg_rating, ga_mine.review_count) == (4.0, 1)
+        assert (ga_other.avg_rating, ga_other.review_count) == (10.0, 1)
+
+    def test_co_reviewer_notification_is_one_insert(
+        self, db_session, review_service, sample_group, sample_album, sample_user, user_factory
+    ):
+        """All co-reviewers in a group are notified with a single INSERT.
+
+        ``NotificationService.create`` commits per call, so the old per-recipient
+        loop cost roughly three round trips each.
+        """
+        members = [self._member(db_session, sample_group, user_factory, n) for n in range(5)]
+        db_session.add(
+            GroupAlbum(group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id)
+        )
+        db_session.commit()
+
+        for member in members:
+            review_service.create_review(sample_album.id, member.id, ReviewCreate(rating=6.0))
+
+        with _count_statements(db_session, "INSERT INTO notifications") as statements:
+            review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=9.0))
+
+        assert len(statements) == 1, statements
+        # Every co-reviewer still got exactly one notification naming the reviewer.
+        ns = NotificationService(db_session)
+        for member in members:
+            from_reviewer = [
+                n for n in ns.get_unread(member) if sample_user.username in n.message
+            ]
+            assert len(from_reviewer) == 1, member.username
+
+    def test_co_reviewer_lookup_does_not_scale_with_members(
+        self, db_session, review_service, sample_group, sample_album, sample_user, user_factory
+    ):
+        """One membership SELECT for the whole fan-out, not one per group album row."""
+        members = [self._member(db_session, sample_group, user_factory, n) for n in range(4)]
+        for member in members:
+            db_session.add(
+                GroupAlbum(
+                    group_id=sample_group.id, album_id=sample_album.id, added_by=member.id
+                )
+            )
+        db_session.commit()
+        for member in members:
+            review_service.create_review(sample_album.id, member.id, ReviewCreate(rating=6.0))
+
+        with _count_statements(db_session, "group_members") as statements:
+            review_service._notify_co_reviewers(sample_album.id, members[0].id)
+
+        assert len(statements) == 1, statements
+
+    def test_album_stats_is_a_single_query(
+        self, review_service, sample_album, sample_user, user_factory
+    ):
+        """The histogram and moments come from one pass over one result set."""
+        for n in range(6):
+            user = user_factory(email=f"s{n}@test.com", username=f"stats_{n}")
+            review_service.create_review(sample_album.id, user.id, ReviewCreate(rating=float(n)))
+
+        with _count_statements(review_service.db, "FROM reviews") as statements:
+            review_service.get_album_stats(sample_album.id)
+
+        assert len(statements) == 1, statements

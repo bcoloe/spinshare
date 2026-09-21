@@ -8,10 +8,15 @@ from sqlalchemy import func
 DEFAULT_TZ = "America/New_York"
 
 
-def utc_today_range() -> tuple[datetime, datetime]:
-    """Return [today_start, tomorrow_start) in UTC for date-boundary queries."""
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    return today_start, today_start + timedelta(days=1)
+def group_tz(settings) -> str:
+    """Return the IANA timezone a group's daily rules run on.
+
+    ``settings`` is a ``GroupSettings`` row or None (a group whose settings row has
+    not been created yet). Every daily boundary in the app — draws, dealer rolls,
+    catch-up and the nomination limit — resolves its timezone through here so they
+    all roll over at the same instant.
+    """
+    return (settings.timezone if settings is not None else None) or DEFAULT_TZ
 
 
 def group_today(tz_name: str) -> date:

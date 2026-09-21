@@ -1,12 +1,14 @@
 """Tests for MessageService."""
 
+from contextlib import contextmanager
+
 import pytest
 from app.models import Message, Notification
 from app.models.group import GroupRole, group_members
 from app.schemas.message import MessageCreate
 from app.schemas.notification import NotificationType
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 
 def _post(service, group, user, body: str) -> Message:
@@ -539,3 +541,54 @@ class TestSerializeMessage:
         assert payload.is_deleted is True
         assert payload.body == ""
         assert payload.mentions == []
+
+
+@contextmanager
+def _count_statements(db_session, match: str):
+    """Count SQL statements containing ``match`` issued inside the block."""
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, params, context, executemany):
+        if match in statement:
+            statements.append(statement)
+
+    bind = db_session.get_bind()
+    event.listen(bind, "before_cursor_execute", record)
+    try:
+        yield statements
+    finally:
+        event.remove(bind, "before_cursor_execute", record)
+
+
+class TestMentionNotificationQueryCounts:
+    def test_all_mentions_are_notified_in_one_insert(
+        self, message_service, db_session, sample_group, sample_user, user_factory
+    ):
+        """A chat post notifies every mention with a single insert + commit.
+
+        ``NotificationService.create`` commits per call, so the old loop cost
+        roughly three round trips per mention on a message that may carry ten.
+        """
+        mentioned = []
+        for i in range(5):
+            user = user_factory(email=f"chat{i}@test.com", username=f"chatter_{i}")
+            db_session.execute(
+                group_members.insert().values(
+                    group_id=sample_group.id, user_id=user.id, role=GroupRole.Member.value
+                )
+            )
+            mentioned.append(user)
+        db_session.commit()
+
+        body = " ".join(f"@{u.username}" for u in mentioned) + " listen to this"
+        with _count_statements(db_session, "INSERT INTO notifications") as statements:
+            message = _post(message_service, sample_group, sample_user, body)
+
+        assert len(statements) == 1, statements
+        assert {m.user_id for m in message.mentions} == {u.id for u in mentioned}
+        notified = db_session.scalars(
+            select(Notification.user_id).where(
+                Notification.type == NotificationType.mentioned_in_chat
+            )
+        ).all()
+        assert set(notified) == {u.id for u in mentioned}

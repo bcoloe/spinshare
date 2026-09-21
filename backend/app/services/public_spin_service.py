@@ -61,13 +61,22 @@ class PublicSpinService:
                 # Another request created today's row first — use theirs.
                 self.db.rollback()
                 draw = self.db.query(PublicSpinDraw).filter(PublicSpinDraw.draw_date == today).first()
+                if draw is None:
+                    # The recovery above assumes the IntegrityError was the
+                    # draw_date unique violation. Any other constraint failure
+                    # leaves nothing to fall back on, and this is the anonymous
+                    # landing page — a clean 503 beats an AttributeError 500.
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="Could not prepare today's spin",
+                    ) from None
             else:
                 self.db.refresh(draw)
 
         dealer = DealerService(self.db)
         album_ids = draw.album_ids or []
-        if album_ids:
-            dealer.ensure_global_canonical_rows(global_group.id, album_ids)
+        # canonical_group_albums calls ensure_global_canonical_rows itself, so
+        # calling it here as well just repeated the work on every anonymous hit.
         canonical = dealer.canonical_group_albums(global_group.id, album_ids)
         dealer.heal_genres(list(canonical.values()))
 

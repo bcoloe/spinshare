@@ -277,6 +277,82 @@ class TestTriggerDailySelection:
         assert len(results) == 2
 
 
+class TestGroupAlbumStatusLoading:
+    """``status`` must stay exact while list queries stop materialising reviews."""
+
+    def _review(self, db_session, user, album, *, is_draft=False, rating=8.0):
+        from app.models.review import Review
+
+        review = Review(
+            user_id=user.id, album_id=album.id, rating=rating, comment="c", is_draft=is_draft
+        )
+        db_session.add(review)
+        db_session.commit()
+        return review
+
+    def test_reviewed_status_without_loading_reviews(
+        self, group_album_service, sample_group, sample_group_album, sample_album, sample_user, db_session
+    ):
+        from sqlalchemy import inspect
+
+        _mark_selected(db_session, sample_group_album)
+        self._review(db_session, sample_user, sample_album)
+        db_session.expire_all()
+
+        results = group_album_service.get_todays_albums(sample_group.id, sample_user)
+
+        assert results[0].status == "reviewed"
+        # The boolean came from the pre-computed EXISTS, not from the review rows.
+        assert "reviews" in inspect(results[0].albums).unloaded
+
+    def test_selected_status_when_no_reviews(
+        self, group_album_service, sample_group, sample_group_album, sample_user, db_session
+    ):
+        _mark_selected(db_session, sample_group_album)
+        db_session.expire_all()
+
+        results = group_album_service.get_todays_albums(sample_group.id, sample_user)
+        assert results[0].status == "selected"
+
+    def test_draft_only_review_still_counts_as_reviewed(
+        self, group_album_service, sample_group, sample_group_album, sample_album, sample_user, db_session
+    ):
+        """Unchanged semantics: any review row marks the album reviewed.
+
+        ``review_count`` counts only published, rated, current-member reviews, so it
+        stays 0 here — which is exactly why ``status`` is not derived from it.
+        """
+        _mark_selected(db_session, sample_group_album)
+        self._review(db_session, sample_user, sample_album, is_draft=True)
+        db_session.expire_all()
+
+        results = group_album_service.get_todays_albums(sample_group.id, sample_user)
+        assert results[0].status == "reviewed"
+        assert results[0].review_count == 0
+
+    def test_status_falls_back_to_relationship_without_the_loader(
+        self, sample_group_album, sample_album, sample_user, db_session
+    ):
+        """A row fetched by a query that does not pre-compute the flag still answers."""
+        _mark_selected(db_session, sample_group_album)
+        self._review(db_session, sample_user, sample_album)
+        db_session.expire_all()
+
+        plain = db_session.query(GroupAlbum).filter(GroupAlbum.id == sample_group_album.id).one()
+        assert plain.status == "reviewed"
+
+    def test_sql_side_status_filter_matches_python_side(
+        self, sample_group_album, sample_album, sample_user, db_session
+    ):
+        _mark_selected(db_session, sample_group_album)
+        self._review(db_session, sample_user, sample_album)
+        db_session.expire_all()
+
+        matched = db_session.query(GroupAlbum).filter(GroupAlbum.status == "reviewed").all()
+        assert [ga.id for ga in matched] == [sample_group_album.id]
+        assert db_session.query(GroupAlbum).filter(GroupAlbum.status == "selected").count() == 0
+
+
 class TestGetTodaysAlbums:
     def test_returns_todays_selections(
         self, group_album_service, sample_group, sample_group_album, sample_user, db_session
@@ -305,6 +381,7 @@ class TestGetTodaysAlbums:
     ):
         """On a non-draw day, returns albums from the most recent scheduled draw date."""
         from datetime import date
+
         from app.models.group_settings import GroupSettings
 
         # Set group to Wednesday-only
@@ -333,6 +410,7 @@ class TestGetTodaysAlbums:
     ):
         """If the most recent scheduled draw day had no successful draw, returns []."""
         from datetime import date
+
         from app.models.group_settings import GroupSettings
 
         # Set group to Wednesday-only; do NOT run any selection
@@ -354,6 +432,7 @@ class TestGetTodaysAlbums:
     ):
         """After a schedule update, shows the most recent actual draw even if it's now off-schedule."""
         from datetime import date
+
         from app.models.group_settings import GroupSettings
 
         # Update group to Monday-only after albums were already drawn on Friday
@@ -1475,3 +1554,122 @@ class TestGetGroupActivityForUser:
         item = self._item(items, global_group.id)
         assert item.unreviewed_today == 0
         assert item.rolls_remaining is None
+
+
+# ==================== GUESSING DISABLED ====================
+
+
+def _disable_guessing(db_session, group_id: int) -> None:
+    settings = (
+        db_session.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
+    )
+    settings.allow_guessing = False
+    db_session.commit()
+
+
+class TestGuessingDisabled:
+    """A group that turns guessing off must not be reachable through the API.
+
+    The client hides the guess UI when allow_guessing is false, but check_guess
+    returns the nominators outright — the whole point of the game — so the
+    setting has to be enforced server-side too.
+    """
+
+    def test_check_guess_conflicts_when_disabled(
+        self,
+        group_album_service,
+        sample_group,
+        sample_group_album,
+        sample_user,
+        sample_group_service,
+        user_factory,
+        db_session,
+    ):
+        other = user_factory(email="other@test.com", username="other_user")
+        sample_group_service.add_user(sample_group.id, other.id)
+        _mark_selected(db_session, sample_group_album)
+        _disable_guessing(db_session, sample_group.id)
+
+        with pytest.raises(HTTPException) as exc_info:
+            group_album_service.check_guess(
+                sample_group.id,
+                sample_group_album.id,
+                other,
+                NominationGuessCreate(guessed_user_id=sample_user.id),
+            )
+
+        assert exc_info.value.status_code == status.HTTP_409_CONFLICT
+        assert exc_info.value.detail == "guessing_disabled"
+
+    def test_get_guess_options_conflicts_when_disabled(
+        self,
+        group_album_service,
+        sample_group,
+        sample_group_album,
+        sample_group_service,
+        user_factory,
+        db_session,
+    ):
+        other = user_factory(email="other@test.com", username="other_user")
+        sample_group_service.add_user(sample_group.id, other.id)
+        _disable_guessing(db_session, sample_group.id)
+
+        with pytest.raises(HTTPException) as exc_info:
+            group_album_service.get_guess_options(
+                sample_group.id, sample_group_album.id, other
+            )
+
+        assert exc_info.value.status_code == status.HTTP_409_CONFLICT
+        assert exc_info.value.detail == "guessing_disabled"
+
+    def test_non_member_still_gets_403_not_409(
+        self,
+        group_album_service,
+        sample_group,
+        sample_group_album,
+        sample_user,
+        user_factory,
+        db_session,
+    ):
+        """Membership is checked first, so a stranger cannot probe the setting."""
+        outsider = user_factory(email="outsider@test.com", username="outsider_user")
+        _mark_selected(db_session, sample_group_album)
+        _disable_guessing(db_session, sample_group.id)
+
+        with pytest.raises(HTTPException) as exc_info:
+            group_album_service.check_guess(
+                sample_group.id,
+                sample_group_album.id,
+                outsider,
+                NominationGuessCreate(guessed_user_id=sample_user.id),
+            )
+
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_guessing_allowed_when_the_group_has_no_settings_row(
+        self,
+        group_album_service,
+        sample_group,
+        sample_group_album,
+        sample_user,
+        sample_group_service,
+        user_factory,
+        db_session,
+    ):
+        """No settings row means the column default (enabled), matching the client."""
+        other = user_factory(email="other@test.com", username="other_user")
+        sample_group_service.add_user(sample_group.id, other.id)
+        _mark_selected(db_session, sample_group_album)
+        db_session.query(GroupSettings).filter(
+            GroupSettings.group_id == sample_group.id
+        ).delete()
+        db_session.commit()
+
+        result = group_album_service.check_guess(
+            sample_group.id,
+            sample_group_album.id,
+            other,
+            NominationGuessCreate(guessed_user_id=sample_user.id),
+        )
+
+        assert result.correct is True

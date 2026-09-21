@@ -1,10 +1,13 @@
 """Tests for InvitationService."""
 
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import HTTPException, status
+from pydantic import ValidationError
+from sqlalchemy import event
 
 from app.models.group import GroupRole
 from app.models.invitation import GroupInvitation
@@ -158,6 +161,133 @@ class TestCreateInvitation:
         with pytest.raises(HTTPException) as exc_info:
             invitation_service.create_invitation(9999, data, sample_user, sample_group_service)
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestCreateInvitationByUsername:
+    """Invites addressed by username — the search UI never learns a user's email."""
+
+    def test_resolves_username_to_email(
+        self, invitation_service, sample_group_service, sample_group, sample_user, user_factory
+    ):
+        invitee = user_factory(email="Invitee@Example.com", username="invitee")
+
+        data = InvitationCreate(username="invitee")
+        with patch("app.services.invitation_service.send_invitation_email") as mock_send:
+            inv = invitation_service.create_invitation(
+                sample_group.id, data, sample_user, sample_group_service
+            )
+
+        assert inv.invited_email == invitee.email.lower()
+        assert mock_send.call_args.kwargs["to_email"] == invitee.email.lower()
+
+    def test_username_lookup_is_case_insensitive(
+        self, invitation_service, sample_group_service, sample_group, sample_user, user_factory
+    ):
+        user_factory(email="mixed@example.com", username="mixedcase")
+
+        data = InvitationCreate(username="MixedCase")
+        with patch("app.services.invitation_service.send_invitation_email"):
+            inv = invitation_service.create_invitation(
+                sample_group.id, data, sample_user, sample_group_service
+            )
+        assert inv.invited_email == "mixed@example.com"
+
+    def test_unknown_username_raises_404(
+        self, invitation_service, sample_group_service, sample_group, sample_user
+    ):
+        data = InvitationCreate(username="ghost")
+        with pytest.raises(HTTPException) as exc_info:
+            invitation_service.create_invitation(
+                sample_group.id, data, sample_user, sample_group_service
+            )
+        assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_permission_is_checked_before_username_lookup(
+        self, invitation_service, sample_group_service, sample_group, user_factory
+    ):
+        """A non-privileged caller gets 403, not a 404 that would leak whether the
+        username exists."""
+        member = user_factory(email="member@test.com", username="member")
+        sample_group_service.add_user(sample_group.id, member.id)
+
+        data = InvitationCreate(username="ghost")
+        with pytest.raises(HTTPException) as exc_info:
+            invitation_service.create_invitation(
+                sample_group.id, data, member, sample_group_service
+            )
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_existing_member_raises_409(
+        self, invitation_service, sample_group_service, sample_group, sample_user, user_factory
+    ):
+        existing = user_factory(email="existing@example.com", username="existing")
+        sample_group_service.add_user(sample_group.id, existing.id)
+
+        data = InvitationCreate(username="existing")
+        with pytest.raises(HTTPException) as exc_info:
+            invitation_service.create_invitation(
+                sample_group.id, data, sample_user, sample_group_service
+            )
+        assert exc_info.value.status_code == status.HTTP_409_CONFLICT
+
+    def test_duplicate_pending_invitation_raises_409(
+        self, db_session, invitation_service, sample_group_service, sample_group, sample_user, user_factory
+    ):
+        user_factory(email="dupe@example.com", username="dupe")
+        _make_invitation(
+            db_session,
+            group_id=sample_group.id,
+            invited_email="dupe@example.com",
+            invited_by=sample_user.id,
+        )
+
+        data = InvitationCreate(username="dupe")
+        with pytest.raises(HTTPException) as exc_info:
+            invitation_service.create_invitation(
+                sample_group.id, data, sample_user, sample_group_service
+            )
+        assert exc_info.value.status_code == status.HTTP_409_CONFLICT
+
+    def test_expired_invitation_allows_reinvite(
+        self, db_session, invitation_service, sample_group_service, sample_group, sample_user, user_factory
+    ):
+        user_factory(email="stale@example.com", username="stale")
+        old_inv = _make_invitation(
+            db_session,
+            group_id=sample_group.id,
+            invited_email="stale@example.com",
+            invited_by=sample_user.id,
+            days_until_expiry=-1,
+        )
+        old_id = old_inv.id
+
+        data = InvitationCreate(username="stale")
+        with patch("app.services.invitation_service.send_invitation_email"):
+            inv = invitation_service.create_invitation(
+                sample_group.id, data, sample_user, sample_group_service
+            )
+
+        assert db_session.get(GroupInvitation, old_id) is None
+        assert inv.id != old_id
+        assert inv.invited_email == "stale@example.com"
+
+
+class TestInvitationCreateValidation:
+    """Exactly one of email/username must be supplied."""
+
+    def test_email_only_is_valid(self):
+        assert InvitationCreate(email="a@example.com").username is None
+
+    def test_username_only_is_valid(self):
+        assert InvitationCreate(username="someone").email is None
+
+    def test_neither_is_rejected(self):
+        with pytest.raises(ValidationError):
+            InvitationCreate()
+
+    def test_both_is_rejected(self):
+        with pytest.raises(ValidationError):
+            InvitationCreate(email="a@example.com", username="someone")
 
 
 # ==================== READ ====================
@@ -488,3 +618,89 @@ class TestInvitationStatus:
             days_until_expiry=-1,
         )
         assert inv.status == "expired"
+
+
+@contextmanager
+def _count_statements(db_session, match: str):
+    """Count SQL statements containing ``match`` issued inside the block."""
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, params, context, executemany):
+        if match in statement:
+            statements.append(statement)
+
+    bind = db_session.get_bind()
+    event.listen(bind, "before_cursor_execute", record)
+    try:
+        yield statements
+    finally:
+        event.remove(bind, "before_cursor_execute", record)
+
+
+class TestInvitationQueryCounts:
+    """InvitationResponse reads two relationship-backed fields per row."""
+
+    def _seed(self, db_session, group_id, inviter_id, n):
+        for i in range(n):
+            _make_invitation(
+                db_session,
+                group_id=group_id,
+                invited_email=f"pending{i}@example.com",
+                invited_by=inviter_id,
+            )
+
+    def test_group_listing_eager_loads_the_response_fields(
+        self, db_session, invitation_service, sample_group_service, sample_group, sample_user
+    ):
+        """group_name and inviter_username must not cost a round trip per row."""
+        self._seed(db_session, sample_group.id, sample_user.id, 5)
+        # Read the fixtures' own attributes first: the commits above expired
+        # them, and their refreshes would otherwise be counted below.
+        expected = (sample_group.name, sample_user.username)
+
+        with _count_statements(db_session, "FROM users") as user_q:
+            with _count_statements(db_session, "FROM groups") as group_q:
+                results = invitation_service.get_group_invitations(
+                    sample_group.id, sample_user, sample_group_service
+                )
+                names = [(r.group_name, r.inviter_username) for r in results]
+
+        assert len(names) == 5
+        assert all(name == expected for name in names)
+        # One selectinload apiece, not one lookup per invitation. The extra
+        # groups query is get_group_by_id, which runs once for the 404 check.
+        assert len(user_q) == 1, user_q
+        assert len(group_q) == 2, group_q
+
+    def test_user_listing_eager_loads_the_response_fields(
+        self,
+        db_session,
+        invitation_service,
+        sample_group_service,
+        sample_user,
+        user_factory,
+    ):
+        """One invitation per group; the inviter lookup must still be one query."""
+        from app.schemas.group import GroupCreate
+
+        invitee = user_factory(email="invitee@example.com", username="invitee")
+        for i in range(4):
+            group = sample_group_service.create_group(
+                GroupCreate(name=f"invite group {i}"), sample_user
+            )
+            _make_invitation(
+                db_session,
+                group_id=group.id,
+                invited_email="invitee@example.com",
+                invited_by=sample_user.id,
+            )
+        # As above — refresh the fixtures before the statements are counted.
+        expected_username = sample_user.username
+        invitee.email  # noqa: B018
+
+        with _count_statements(db_session, "FROM users") as user_q:
+            results = invitation_service.get_user_pending_invitations(invitee)
+            usernames = [r.inviter_username for r in results]
+
+        assert usernames == [expected_username] * 4
+        assert len(user_q) <= 1, user_q
