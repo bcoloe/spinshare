@@ -12,6 +12,7 @@ from app.dependencies import (
     get_current_user_optional,
     get_dealer_service,
     get_group_album_service,
+    require_group_role,
 )
 from app.models import User
 from app.schemas.album import GroupAlbumResponse
@@ -150,13 +151,21 @@ def get_nomination_count(
 # ==================== GUESSING ====================
 
 
-@router.get("/{group_id}/guesses/me", response_model=list[CheckGuessResponse])
+@router.get(
+    "/{group_id}/guesses/me",
+    response_model=list[CheckGuessResponse],
+    dependencies=[Depends(require_group_role())],
+)
 def get_my_group_guesses(
     group_id: int,
     current_user: User = Depends(get_current_user),
     svc: GroupAlbumService = Depends(get_group_album_service),
 ):
-    """Return all of the current user's nomination guesses for albums in a group."""
+    """Return all of the current user's nomination guesses for albums in a group.
+
+    Requires membership, like every other guess endpoint: each entry carries the
+    album's nominators, so this is the guessing game's answer key.
+    """
     return svc.get_my_guesses_for_group(group_id, current_user.id)
 
 
@@ -175,6 +184,8 @@ def check_guess(
     """Submit a nomination guess and receive instant feedback.
     Returns whether the guess was correct and who the actual nominator was.
     Album must have been selected. One guess per member.
+
+    409 details: guessing_disabled (the group turned guessing off).
     """
     return svc.check_guess(group_id, group_album_id, current_user, data)
 
@@ -193,6 +204,8 @@ def get_guess_options(
 
     The pool always contains at least one nominator. All members see the same choices for a
     given album. Pool size is controlled by the group's guess_user_cap setting (default 5).
+
+    409 details: guessing_disabled (the group turned guessing off).
     """
     return svc.get_guess_options(group_id, group_album_id, current_user)
 

@@ -21,7 +21,10 @@ class Review(Base):
     __tablename__ = "reviews"
 
     id = Column(Integer, primary_key=True, index=True)
-    album_id = Column(Integer, ForeignKey("albums.id"), nullable=False)
+    # unique_user_album_review is user_id-leading, so it cannot serve equality
+    # on album_id alone (selectinload(Album.reviews), the GroupAlbum.status
+    # EXISTS, explore subqueries, _refresh_group_album_avgs).
+    album_id = Column(Integer, ForeignKey("albums.id"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     rating = Column(Float, nullable=True)
     comment = Column(String, nullable=True)

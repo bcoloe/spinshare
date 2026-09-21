@@ -80,6 +80,24 @@ def make_mock_group(
 
 # ==================== FIXTURES ====================
 
+@pytest.fixture(autouse=True)
+def _mocked_group_gate():
+    """Keep the group authorization dependencies off a real database.
+
+    ``require_group_role`` / ``require_group_read_access`` resolve a GroupService
+    via ``get_group_service``, so every gated route pulls one in — including in
+    test modules that mock only their own service. Without a default override
+    those would build a GroupService on the app's real engine. A permissive mock
+    stands in, so router tests keep testing routing; the gates themselves are
+    covered in group_authorization_test.py against the test DB.
+    """
+    app.dependency_overrides.setdefault(
+        get_group_service, lambda: MagicMock(spec=GroupService)
+    )
+    yield
+    app.dependency_overrides.pop(get_group_service, None)
+
+
 @pytest.fixture
 def mock_user():
     return make_mock_user()

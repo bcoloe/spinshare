@@ -2,7 +2,17 @@
 
 from enum import StrEnum
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Table,
+    UniqueConstraint,
+)
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -55,6 +65,15 @@ group_members = Table(
     # at a message that was later hard-deleted should decay to "read up to
     # roughly here", not cascade or block the delete.
     Column("last_read_message_id", Integer, nullable=True),
+    # One membership row per (group, user). Without this the check-then-act in
+    # GroupService.add_user has no backstop: a double-clicked Join or an invite
+    # accepted in two tabs inserts a second row, which then double-counts unread
+    # chat, inflates member_count, duplicates notification fan-out, and makes
+    # get_user_role().scalar() pick an arbitrary one of the two roles.
+    UniqueConstraint("group_id", "user_id", name="uq_group_members_group_user"),
+    # The unique constraint's index is group_id-leading, so it cannot serve a
+    # lookup keyed only on user_id ("which groups is this user in?").
+    Index("ix_group_members_user_id", "user_id"),
 )
 
 

@@ -13,6 +13,7 @@ from app.models import (
     Review,
 )
 from app.services.participation_service import ParticipationService
+from sqlalchemy import event, update
 
 
 @pytest.fixture
@@ -720,3 +721,85 @@ class TestCreditExistingReviewers:
         _nominate(db_session, group2, sample_user, album)
         group_album_service.select_daily_albums(group2.id, n=1)
         assert participation_service.get_progress(group2.id, sample_user.id).credits == 1
+
+
+class TestCreditLedgerConcurrency:
+    """The ledger must survive two writers and must never lose a credit."""
+
+    def test_a_concurrent_grant_does_not_raise(
+        self, participation_service, db_session, sample_group, sample_user, sample_album
+    ):
+        """The loser of the race no-ops instead of 500ing on review publish.
+
+        Reproduces the interleaving where the cron draws an album at the same
+        moment the member publishes a review of it: both paths used to pass the
+        "already credited?" check and both insert, and the loser's commit raised
+        IntegrityError out through the router.
+        """
+        _set_threshold(db_session, sample_group.id, 3)
+        _draw(db_session, sample_group, sample_user, sample_album)
+        # The winner's row is already committed when the loser runs.
+        db_session.add(
+            PriorityReviewCredit(
+                group_id=sample_group.id, user_id=sample_user.id, album_id=sample_album.id
+            )
+        )
+        db_session.commit()
+
+        participation_service._grant_credit(
+            sample_group.id, sample_user.id, sample_album.id, commit=True
+        )
+
+        assert _ledger_count(db_session, sample_group.id, sample_user.id) == 1
+        # The loser must not also have applied the balance change.
+        assert participation_service.get_progress(sample_group.id, sample_user.id).credits == 0
+
+    def test_the_balance_delta_is_computed_in_the_database(
+        self, participation_service, db_session, sample_group, sample_user
+    ):
+        """The UPDATE must read ``credits = credits + :n``, not a literal.
+
+        This is the whole defence against a lost update: two grants landing at
+        once must each add to whatever is committed, rather than both reading the
+        same balance in Python and writing back their own total, which silently
+        drops one credit. A true two-connection race cannot be staged inside the
+        savepoint-nested test fixture, so the guarantee is pinned at the SQL the
+        service emits — which is exactly where the guarantee lives.
+        """
+        statements: list[str] = []
+
+        def record(conn, cursor, statement, params, context, executemany):
+            if "group_participation" in statement and statement.lstrip().upper().startswith("UPDATE"):
+                statements.append(statement)
+
+        event.listen(db_session.get_bind(), "before_cursor_execute", record)
+        try:
+            participation_service._add_credits(sample_group.id, sample_user.id, 1)
+            participation_service._add_credits(sample_group.id, sample_user.id, 1)
+        finally:
+            event.remove(db_session.get_bind(), "before_cursor_execute", record)
+
+        assert statements, "expected an UPDATE against group_participation"
+        assert all("credits" in sql and "+" in sql for sql in statements), statements
+        # Both deltas landed: the second added to the first rather than replacing it.
+        assert participation_service._get(sample_group.id, sample_user.id).credits == 2
+
+    def test_first_credit_creates_the_participation_row_once(
+        self, participation_service, db_session, sample_group, sample_user
+    ):
+        """Two first-grants concurrently must not collide on the unique index."""
+        participation_service._get_or_create(sample_group.id, sample_user.id)
+        db_session.commit()
+
+        again = participation_service._get_or_create(sample_group.id, sample_user.id)
+
+        assert again is not None
+        assert (
+            db_session.query(GroupParticipation)
+            .filter(
+                GroupParticipation.group_id == sample_group.id,
+                GroupParticipation.user_id == sample_user.id,
+            )
+            .count()
+            == 1
+        )

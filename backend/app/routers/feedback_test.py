@@ -107,3 +107,34 @@ class TestSubmitFeedback:
         ):
             resp = client.post("/feedback/", json=_VALID_PAYLOAD)
         assert resp.status_code == status.HTTP_502_BAD_GATEWAY
+
+
+class TestExternalFailureHandling:
+    """A GitHub outage must degrade, not 500."""
+
+    def test_transport_failure_returns_502(self, client):
+        import httpx
+
+        payload = {
+            "feedback_type": "bug",
+            "title": "Something is broken",
+            "description": "A description that comfortably clears the minimum length.",
+        }
+        with patch(
+            "app.utils.github_client.httpx.post",
+            side_effect=httpx.ConnectError("name resolution failed"),
+        ):
+            resp = client.post("/feedback/", json=payload)
+
+        assert resp.status_code == status.HTTP_502_BAD_GATEWAY
+
+    def test_an_oversized_description_is_rejected(self, client):
+        """The body is relayed to GitHub verbatim, so it must be bounded."""
+        payload = {
+            "feedback_type": "bug",
+            "title": "Something is broken",
+            "description": "x" * 10_001,
+        }
+        resp = client.post("/feedback/", json=payload)
+
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY

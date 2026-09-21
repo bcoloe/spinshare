@@ -5,6 +5,7 @@ from app.dependencies import (
     get_current_user_optional,
     get_group_service,
     get_participation_service,
+    require_group_role,
 )
 from app.models import User
 from app.models.group import GroupRole
@@ -51,6 +52,15 @@ def search_groups(
 ):
     """Search public groups by partial name and/or member username."""
     groups = group_service.search_groups(query=query, username=username, limit=limit)
+
+    # Both of these used to be one query per result: a role lookup and a full
+    # member-row load to take a length. Settings and bot sources are eager-loaded
+    # by search_groups, so the whole response now costs a fixed number of reads
+    # no matter how many groups match.
+    group_ids = [g.id for g in groups]
+    roles = group_service.get_user_roles(current_user.id, group_ids)
+    member_counts = group_service.get_member_counts(group_ids)
+
     return [
         GroupDetailResponse(
             id=g.id,
@@ -59,10 +69,8 @@ def search_groups(
             is_public=g.is_public,
             is_global=g.is_global,
             is_bot_group=bool(g.bot_sources),
-            member_count=len(g.members),
-            current_user_role=(
-                role.value if (role := group_service.get_user_role(current_user.id, g.id)) else None
-            ),
+            member_count=member_counts.get(g.id, 0),
+            current_user_role=(role.value if (role := roles.get(g.id)) else None),
             settings=GroupSettingsResponse.model_validate(g.settings) if g.settings else None,
         )
         for g in groups
@@ -83,8 +91,12 @@ def get_group_by_name(
     group = group_service.get_group_by_name(group_name)
     if group is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
-    group_service.require_public_or_member(group, current_user)
+    # The role is read first and handed to the gate: it already answers
+    # "is this user a member?", so the gate need not read the same row again.
     current_role = group_service.get_user_role(current_user.id, group.id) if current_user else None
+    group_service.require_public_or_member(
+        group, current_user, is_member=current_role is not None
+    )
     return GroupDetailResponse(
         id=group.id,
         name=group.name,
@@ -110,8 +122,12 @@ def get_group(
     read only the global group or bot groups.
     """
     group = group_service.get_group_by_id(group_id)
-    group_service.require_public_or_member(group, current_user)
+    # The role is read first and handed to the gate: it already answers
+    # "is this user a member?", so the gate need not read the same row again.
     current_role = group_service.get_user_role(current_user.id, group_id) if current_user else None
+    group_service.require_public_or_member(
+        group, current_user, is_member=current_role is not None
+    )
     return GroupDetailResponse(
         id=group.id,
         name=group.name,
@@ -285,13 +301,20 @@ def update_member_role(
 # ==================== PRIORITY PICK ====================
 
 
-@router.get("/{group_id}/participation/me", response_model=ParticipationResponse)
+@router.get(
+    "/{group_id}/participation/me",
+    response_model=ParticipationResponse,
+    dependencies=[Depends(require_group_role())],
+)
 def get_my_participation(
     group_id: int,
     current_user: User = Depends(get_current_user),
     participation_service: ParticipationService = Depends(get_participation_service),
 ):
-    """Return the caller's priority-pick standing (credits, threshold, pending pick)."""
+    """Return the caller's priority-pick standing (credits, threshold, pending pick).
+
+    Requires membership, matching the priority-pick writes below.
+    """
     return participation_service.get_progress(group_id, current_user.id)
 
 

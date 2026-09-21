@@ -1,6 +1,6 @@
 """Genres table definition."""
 
-from sqlalchemy import Column, ForeignKey, Integer, String, Table
+from sqlalchemy import Column, ForeignKey, Index, Integer, String, Table
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -11,6 +11,10 @@ album_genres = Table(
     Base.metadata,
     Column("album_id", Integer, ForeignKey("albums.id")),
     Column("genre_id", Integer, ForeignKey("genres.id")),
+    # Bare association table: without these, every selectinload(Album.genres)
+    # (and the reverse, Genre.albums) is a sequential scan.
+    Index("ix_album_genres_album_id", "album_id"),
+    Index("ix_album_genres_genre_id", "genre_id"),
 )
 
 

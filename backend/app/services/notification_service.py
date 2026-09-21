@@ -11,6 +11,8 @@ from app.models import User
 from app.models.notification import Notification
 from app.schemas.notification import NotificationType
 
+_MAX_UNREAD = 200
+
 
 class NotificationService:
     def __init__(self, db: Session):
@@ -74,7 +76,14 @@ class NotificationService:
     # ==================== READ ====================
 
     def get_unread(self, user: User) -> list[Notification]:
-        """Return all unread notifications for a user, newest first."""
+        """Return a user's unread notifications, newest first.
+
+        Capped at ``_MAX_UNREAD`` rows. The endpoint returns a bare list and so
+        cannot grow an offset/limit contract without changing its response
+        shape, and a user who never clears the bell should not be able to make
+        the request unbounded. The cap keeps the newest, which is what the badge
+        and dropdown actually show.
+        """
         return list(
             self.db.scalars(
                 select(Notification)
@@ -83,6 +92,7 @@ class NotificationService:
                     Notification.read_at.is_(None),
                 )
                 .order_by(Notification.created_at.desc())
+                .limit(_MAX_UNREAD)
             ).all()
         )
 
@@ -150,14 +160,17 @@ class NotificationService:
         return result.rowcount
 
     def mark_all_read(self, user: User) -> None:
-        """Mark all unread notifications for a user as read."""
-        now = datetime.now(timezone.utc)
-        unread = self.db.scalars(
-            select(Notification).where(
+        """Mark all unread notifications for a user as read.
+
+        One UPDATE, for the same reason as ``mark_read_for_group``: the cost
+        must not scale with a backlog the user never looked at.
+        """
+        self.db.execute(
+            update(Notification)
+            .where(
                 Notification.user_id == user.id,
                 Notification.read_at.is_(None),
             )
-        ).all()
-        for n in unread:
-            n.read_at = now
+            .values(read_at=datetime.now(timezone.utc))
+        )
         self.db.commit()

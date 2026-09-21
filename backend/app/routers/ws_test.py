@@ -5,6 +5,7 @@ the handshake, the ticket auth boundary, and that presence is registered and
 torn down around the connection.
 """
 
+import contextlib
 from unittest.mock import patch
 
 import pytest
@@ -17,7 +18,7 @@ from app.utils.security import (
     create_refresh_token,
 )
 from fastapi.testclient import TestClient
-from starlette.websockets import WebSocketDisconnect
+from starlette.websockets import WebSocket, WebSocketDisconnect
 
 
 @pytest.fixture
@@ -240,6 +241,39 @@ class TestLifecycle:
 
         assert event["type"] == "presence.leave"
         assert event["user_id"] == 2
+
+    def test_a_failed_snapshot_send_does_not_leave_a_ghost(self, ws_client, fake_identity):
+        """A peer that drops between accept() and the first frame must be reaped.
+
+        ``manager.connect`` registers the socket before it returns, so if the
+        snapshot write that follows blows up — routine when a phone sleeps mid
+        handshake — the registration has to be undone. Otherwise the user reads
+        as online forever and every later broadcast writes to a dead socket.
+        """
+        # Deliberately no receive_json() here: the snapshot write is what fails,
+        # so no frame is ever sent and a read would block until the test times
+        # out rather than failing. Entering and leaving the context is enough —
+        # the assertions below are the actual contract.
+        with patch.object(WebSocket, "send_json", side_effect=RuntimeError("peer gone")):
+            with contextlib.suppress(WebSocketDisconnect, RuntimeError):
+                with ws_client.websocket_connect(f"/ws/chat?ticket={create_chat_ticket(1)}"):
+                    pass
+
+        assert manager._rooms == {}
+        assert manager.connection_count() == 0
+        assert manager.is_online(10, 1) is False
+
+    def test_a_failed_registration_does_not_leave_a_ghost(self, ws_client, fake_identity):
+        """Same contract when ``connect`` itself fails partway through."""
+        with patch.object(
+            type(manager), "connect", side_effect=RuntimeError("registry blew up")
+        ):
+            with contextlib.suppress(WebSocketDisconnect, RuntimeError):
+                with ws_client.websocket_connect(f"/ws/chat?ticket={create_chat_ticket(1)}"):
+                    pass
+
+        assert manager._rooms == {}
+        assert manager.connection_count() == 0
 
     def test_client_sent_frames_are_discarded(self, ws_client, fake_identity):
         """Nothing a client sends over the socket mutates state."""

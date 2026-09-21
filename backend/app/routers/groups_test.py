@@ -107,6 +107,31 @@ class TestGroupGet:
         resp = client.get("/groups/name/nonexistent")
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_get_group_reads_the_membership_row_once(
+        self, client, mock_group_service, mock_user
+    ):
+        """The access gate and the response's role both need the same
+        ``group_members`` row. The role is read first and handed to the gate, so
+        the endpoint reads that row once rather than twice.
+        """
+        from app.dependencies import get_current_user_optional
+        from app.main import app
+
+        # This route takes the optional-user dependency, which the shared client
+        # fixture does not override; the test needs a signed-in caller.
+        app.dependency_overrides[get_current_user_optional] = lambda: mock_user
+        mock_group_service.get_group_by_id.return_value = make_mock_group(is_public=False)
+        mock_group_service.get_user_role.return_value = GroupRole.Member
+
+        resp = client.get("/groups/1")
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["current_user_role"] == "member"
+        assert mock_group_service.get_user_role.call_count == 1
+        # The gate was told the answer instead of looking it up again.
+        assert mock_group_service.require_public_or_member.call_args.kwargs["is_member"] is True
+        assert mock_group_service.is_user_in_group.call_count == 0
+
 
 class TestGroupUpdate:
     def test_update_group_success(self, client, mock_group_service):
@@ -242,19 +267,22 @@ class TestGroupMembers:
 class TestGroupSearch:
     def test_search_by_name(self, client, mock_group_service):
         mock_group_service.search_groups.return_value = [make_mock_group(name="Bumblebees")]
-        mock_group_service.get_user_role.return_value = None
+        mock_group_service.get_user_roles.return_value = {}
+        mock_group_service.get_member_counts.return_value = {1: 3}
 
         resp = client.get("/groups/search?query=Bumble")
 
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()[0]["name"] == "Bumblebees"
+        assert resp.json()[0]["member_count"] == 3
         mock_group_service.search_groups.assert_called_once_with(
             query="Bumble", username=None, limit=10
         )
 
     def test_search_by_username(self, client, mock_group_service):
         mock_group_service.search_groups.return_value = [make_mock_group()]
-        mock_group_service.get_user_role.return_value = None
+        mock_group_service.get_user_roles.return_value = {1: GroupRole.Member}
+        mock_group_service.get_member_counts.return_value = {1: 1}
 
         resp = client.get("/groups/search?username=test_user")
 
@@ -272,6 +300,31 @@ class TestGroupSearch:
     def test_search_unauthenticated(self, unauthed_client):
         resp = unauthed_client.get("/groups/search?query=Bumble")
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+    @pytest.mark.parametrize("result_count", [1, 30])
+    def test_search_asks_for_roles_and_counts_once(
+        self, client, mock_group_service, result_count
+    ):
+        """The per-result role lookup and member-count load were a 1+4N fan-out.
+
+        Round trips are the dominant cost against a NullPool'd serverless
+        database, so the guarantee worth pinning is structural: however many
+        groups match, the router asks each question exactly once. Counting SQL
+        here is not possible — the service is mocked — but a reintroduced
+        per-group lookup would have to go through one of these calls.
+        """
+        groups = [make_mock_group(id=i, name=f"Group{i}") for i in range(result_count)]
+        mock_group_service.search_groups.return_value = groups
+        mock_group_service.get_user_roles.return_value = {}
+        mock_group_service.get_member_counts.return_value = {g.id: 2 for g in groups}
+
+        resp = client.get("/groups/search?query=Group")
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert len(resp.json()) == result_count
+        assert mock_group_service.get_user_roles.call_count == 1
+        assert mock_group_service.get_member_counts.call_count == 1
+        assert mock_group_service.get_user_role.call_count == 0
 
 
 class TestGroupStats:

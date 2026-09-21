@@ -377,6 +377,15 @@ class TestCheckGuess:
         resp = client.post("/groups/1/albums/1/check-guess", json={"guessed_user_id": 1})
         assert resp.status_code == status.HTTP_403_FORBIDDEN
 
+    def test_guessing_disabled_conflict(self, client, mock_svc):
+        """The machine-readable detail the client keys off, as with the dealer 409s."""
+        mock_svc.check_guess.side_effect = HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="guessing_disabled"
+        )
+        resp = client.post("/groups/1/albums/1/check-guess", json={"guessed_user_id": 1})
+        assert resp.status_code == status.HTTP_409_CONFLICT
+        assert resp.json()["detail"] == "guessing_disabled"
+
     def test_unauthenticated(self, unauthed_client):
         resp = unauthed_client.post("/groups/1/albums/1/check-guess", json={"guessed_user_id": 1})
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
