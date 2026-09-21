@@ -417,4 +417,10 @@ class TestExploreQueryCounts:
             page = explore_service.get_explore_groups()
 
         assert statements == [], statements
-        assert all(g.member_count == 4 for g in page.items)
+        # Scoped to the groups this test created. The page legitimately contains
+        # others — the global group is seeded by migration b7d2e4f1a903 and is
+        # public, so it shows up here with a coalesced count of 0. Asserting over
+        # every item made this pass only against a create_all schema with no
+        # migration-seeded rows, and fail in CI, which runs alembic first.
+        counted = {g.name: g.member_count for g in page.items if g.name.startswith("Counted ")}
+        assert counted == {"Counted 0": 4, "Counted 1": 4, "Counted 2": 4}, counted

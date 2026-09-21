@@ -1,5 +1,6 @@
 """Router tests for POST /feedback/."""
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -113,20 +114,44 @@ class TestExternalFailureHandling:
     """A GitHub outage must degrade, not 500."""
 
     def test_transport_failure_returns_502(self, client):
+        """A GitHub outage must surface as 502, not a 500 with a stack trace.
+
+        The integration is stubbed as configured on purpose: create_issue returns
+        503 "not configured" before it ever reaches httpx when GITHUB_TOKEN and
+        GITHUB_REPO are unset. Relying on the ambient .env made this pass locally
+        and fail in CI, which sets only DATABASE_URL and SECRET_KEY.
+        """
         import httpx
 
+        configured = SimpleNamespace(GITHUB_TOKEN="test-token", GITHUB_REPO="owner/repo")
         payload = {
             "feedback_type": "bug",
             "title": "Something is broken",
             "description": "A description that comfortably clears the minimum length.",
         }
-        with patch(
-            "app.utils.github_client.httpx.post",
-            side_effect=httpx.ConnectError("name resolution failed"),
+        with (
+            patch("app.utils.github_client.get_settings", return_value=configured),
+            patch(
+                "app.utils.github_client.httpx.post",
+                side_effect=httpx.ConnectError("name resolution failed"),
+            ),
         ):
             resp = client.post("/feedback/", json=payload)
 
         assert resp.status_code == status.HTTP_502_BAD_GATEWAY
+
+    def test_unconfigured_integration_returns_503(self, client):
+        """The other side of the same gate, pinned so the 502 test stays honest."""
+        unconfigured = SimpleNamespace(GITHUB_TOKEN=None, GITHUB_REPO=None)
+        payload = {
+            "feedback_type": "bug",
+            "title": "Something is broken",
+            "description": "A description that comfortably clears the minimum length.",
+        }
+        with patch("app.utils.github_client.get_settings", return_value=unconfigured):
+            resp = client.post("/feedback/", json=payload)
+
+        assert resp.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
     def test_an_oversized_description_is_rejected(self, client):
         """The body is relayed to GitHub verbatim, so it must be bounded."""
