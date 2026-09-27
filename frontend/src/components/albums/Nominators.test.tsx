@@ -18,8 +18,8 @@ describe('NominatorSummary', () => {
 
   it('collapses several nominators and lists them on hover', async () => {
     renderWithProviders(<NominatorSummary usernames={['alex', 'kate', 'sam']} />)
-    const summary = screen.getByText('Multiple (3)')
-    expect(summary).toHaveAccessibleName('Nominated by alex, kate, sam')
+    const summary = screen.getByRole('button', { name: 'Nominated by alex, kate, sam' })
+    expect(summary).toHaveTextContent('Multiple (3)')
 
     await userEvent.hover(summary)
     expect(await screen.findByText('sam')).toBeInTheDocument()
@@ -42,5 +42,11 @@ describe('NominatorLinks', () => {
     renderWithProviders(<NominatorLinks usernames={['alex', 'kate', 'sam']} />)
     expect(screen.getByRole('link', { name: 'kate' })).toHaveAttribute('href', '/users/kate')
     expect(screen.getAllByRole('link')).toHaveLength(3)
+  })
+
+  it('renders nothing for an empty list', () => {
+    renderWithProviders(<NominatorLinks usernames={[]} />)
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    expect(screen.queryByText(/and/)).not.toBeInTheDocument()
   })
 })

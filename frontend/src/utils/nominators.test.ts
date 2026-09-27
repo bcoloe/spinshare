@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { nominatorUsernames } from './nominators'
+import { canGuessAlbum, nominatorUsernames } from './nominators'
 
 const MEMBERS = [
   { user_id: 1, username: 'kate' },
@@ -24,5 +24,19 @@ describe('nominatorUsernames', () => {
   it('omits nominators who are no longer members and de-duplicates', () => {
     expect(nominatorUsernames({ added_by: 1, nominator_user_ids: [1, 1, 99] }, MEMBERS))
       .toEqual(['kate'])
+  })
+})
+
+describe('canGuessAlbum', () => {
+  it('asks members other than the nominator to guess', () => {
+    expect(canGuessAlbum({ added_by: 1 }, 2, true)).toBe(true)
+  })
+
+  it('never asks the nominator to guess their own pick', () => {
+    expect(canGuessAlbum({ added_by: 1 }, 1, true)).toBe(false)
+  })
+
+  it('asks nobody to guess when guessing is off', () => {
+    expect(canGuessAlbum({ added_by: 1 }, 2, false)).toBe(false)
   })
 })

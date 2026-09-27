@@ -47,7 +47,7 @@ import ReviewAndGuessForm from '../spin/ReviewAndGuessForm'
 import type { AlbumReviewItem, CheckGuessResponse, GroupAlbumResponse, ReviewResponse } from '../../types/album'
 import type { GroupMemberResponse } from '../../types/group'
 import type { MemberGuessResult } from '../../types/stats'
-import { nominatorUsernames } from '../../utils/nominators'
+import { canGuessAlbum, nominatorUsernames } from '../../utils/nominators'
 
 // ==================== TYPES ====================
 
@@ -385,8 +385,7 @@ function PeerReviewPanel({ ga, review, members, nominators, groupId, allowGuessi
     queryFn: () => albumService.getAllReviews(ga.album_id, groupId),
   })
 
-  const isSelfNominated = currentUserId !== undefined && currentUserId === ga.added_by
-  const canGuess = allowGuessing && !isSelfNominated
+  const canGuess = canGuessAlbum(ga, currentUserId, allowGuessing)
   // Peer guesses would give away the nominator, so only ask for them once this
   // member's own guess is settled. The backend withholds them regardless.
   const guessesSettled = !canGuess || guessResult !== undefined
@@ -584,7 +583,7 @@ function ReviewedCard({ ga, review, nominators, allowGuessing, guessResult, curr
   const { album } = ga
   const groupAvg = ga.avg_rating
   const isSelfNominated = currentUserId !== undefined && currentUserId === ga.added_by
-  const canGuess = allowGuessing && !isSelfNominated
+  const canGuess = canGuessAlbum(ga, currentUserId, allowGuessing)
 
   return (
     <Paper
@@ -699,7 +698,7 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
   const revealedNominators = useMemo(() => {
     const map = new Map<number, string[]>()
     for (const ga of albums) {
-      const hidden = allowGuessing && user?.id !== ga.added_by && !guessMap.has(ga.id)
+      const hidden = canGuessAlbum(ga, user?.id, allowGuessing) && !guessMap.has(ga.id)
       if (!hidden) map.set(ga.id, nominatorUsernames(ga, members))
     }
     return map

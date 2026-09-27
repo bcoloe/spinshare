@@ -2,6 +2,20 @@ import type { GroupAlbumResponse } from '../types/album'
 import type { GroupMemberResponse } from '../types/group'
 
 /**
+ * Whether the viewer is still asked to guess who nominated this album: guessing
+ * is on and they are not its (canonical) nominator, mirroring the backend rule.
+ * Until such a viewer has guessed, the album's nominators must stay hidden.
+ */
+export function canGuessAlbum(
+  ga: Pick<GroupAlbumResponse, 'added_by'>,
+  userId: number | undefined,
+  allowGuessing: boolean,
+): boolean {
+  const isSelfNominated = userId !== undefined && userId === ga.added_by
+  return allowGuessing && !isSelfNominated
+}
+
+/**
  * Usernames of every current member who nominated a group album, alphabetised.
  *
  * Co-nominations share one history row, so `nominator_user_ids` carries them all;
