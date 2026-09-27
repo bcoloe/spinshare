@@ -371,6 +371,24 @@ class TestDealerReads:
         history = dealer_service.get_member_history(sample_group.id, sample_user)
         assert [h.album_id for h in history] == [nominated[0].album_id]
 
+    def test_member_history_lists_every_co_nominator(
+        self, db_session, dealer_service, sample_group, sample_user, user_factory,
+        sample_group_service, nominate_albums
+    ):
+        """One history row per album, carrying all members who nominated it."""
+        nominated = nominate_albums(sample_group, 1)[0]
+        nominated.selected_date = datetime.now(tz=timezone.utc)
+        other = user_factory(email="other@test.com", username="other_member")
+        sample_group_service.add_user(sample_group.id, other.id)
+        db_session.add(GroupAlbum(group_id=sample_group.id, album_id=nominated.album_id, added_by=other.id))
+        db_session.commit()
+
+        history = dealer_service.get_member_history(sample_group.id, sample_user)
+
+        assert len(history) == 1
+        assert history[0].nomination_count == 2
+        assert sorted(history[0].nominator_user_ids) == sorted([sample_user.id, other.id])
+
     def test_member_history_skips_deals_with_no_nomination_rows(
         self, db_session, dealer_service, dealer_group, sample_user, nominate_albums
     ):
