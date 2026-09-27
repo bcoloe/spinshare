@@ -30,6 +30,7 @@ import InviteUserModal from '../components/groups/InviteUserModal'
 import MyNominations from '../components/groups/MyNominations'
 import ChatOverlay from '../components/chat/ChatOverlay'
 import PresenceBadge from '../components/chat/PresenceBadge'
+import RecapPopup from '../components/groups/RecapPopup'
 import ParticipationMeter from '../components/groups/ParticipationMeter'
 import AlbumSearchModal from '../components/albums/AlbumSearchModal'
 import { useGroup, useGroupMembers, useJoinGroup } from '../hooks/useGroups'
@@ -38,6 +39,7 @@ import { useChatUnread } from '../hooks/useChat'
 import { useFavoriteGroup } from '../context/FavoriteGroupContext'
 import { useAuth } from '../hooks/useAuth'
 import { ApiError } from '../services/apiClient'
+import { isRecapEligible } from '../utils/recaps'
 
 type Tab = 'spin' | 'history' | 'info' | 'nominations'
 
@@ -321,6 +323,7 @@ export default function GroupPage() {
           {canInvite && (
             <InviteUserModal groupId={gid} opened={inviteOpened} onClose={closeInvite} />
           )}
+          {isRecapEligible(group) && <RecapPopup groupId={gid} />}
         </>
       )}
 

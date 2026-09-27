@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, Group, List, Modal, Stack, Text, ThemeIcon } from '@mantine/core'
+import { Button, Group, Modal, Stack, Text, ThemeIcon } from '@mantine/core'
 import { IconSparkles } from '@tabler/icons-react'
 import { usePendingRecaps, useMarkRecapSeen } from '../../hooks/useRecaps'
-import type { RecapSummary } from '../../types/recap'
 
 // Parse "YYYY-MM-DD" as a local date and render a "Jul 27 – Aug 2" range
 // (week_end is exclusive, so the inclusive last day is one earlier).
@@ -20,44 +19,34 @@ function formatWeekRange(weekStart: string, weekEnd: string): string {
 }
 
 /**
- * Shows a one-time-per-session pop-up the first time a member returns after a
- * new weekly recap has been generated. Dismissing (or viewing) marks the shown
- * recaps as seen server-side so it won't reappear.
+ * Shows a pop-up on a group's page when that group has a weekly recap the
+ * member hasn't seen yet. Each group is handled independently: dismissing (or
+ * viewing) marks only this group's recap as seen server-side, so the member's
+ * other groups still prompt on their next visit.
  */
-export default function RecapPopup() {
+export default function RecapPopup({ groupId }: { groupId: number }) {
   const navigate = useNavigate()
   const { data: pending = [] } = usePendingRecaps(true)
   const markSeen = useMarkRecapSeen()
-  const [opened, setOpened] = useState(false)
-  const [handled, setHandled] = useState(false)
+  const recap = pending.find((r) => r.group_id === groupId)
+  // Derived rather than effect-driven: the modal is open whenever this group
+  // has a pending recap the user hasn't dismissed in this session. Keying on
+  // the recap id keeps it correct when GroupPage stays mounted across groups.
+  const [dismissedRecapId, setDismissedRecapId] = useState<number | null>(null)
 
-  useEffect(() => {
-    if (!handled && pending.length > 0) {
-      setOpened(true)
-      setHandled(true)
-    }
-  }, [pending, handled])
-
-  const markAllSeen = () => {
-    for (const r of pending) {
-      markSeen.mutate({ groupId: r.group_id, recapId: r.id })
-    }
-  }
+  if (!recap) return null
+  const opened = recap.id !== dismissedRecapId
 
   const handleDismiss = () => {
-    markAllSeen()
-    setOpened(false)
+    markSeen.mutate({ groupId: recap.group_id, recapId: recap.id })
+    setDismissedRecapId(recap.id)
   }
 
-  const handleView = (recap: RecapSummary) => {
-    markAllSeen()
-    setOpened(false)
+  const handleView = () => {
+    handleDismiss()
     // ?recap=open tells GroupInfo to auto-open the recap overlay on arrival.
     navigate(`/groups/${recap.group_id}?tab=info&recap=open`)
   }
-
-  if (pending.length === 0) return null
-  const primary = pending[0]
 
   return (
     <Modal
@@ -74,30 +63,16 @@ export default function RecapPopup() {
       centered
     >
       <Stack gap="md">
-        {pending.length === 1 ? (
-          <Text size="sm">
-            The weekly recap for <strong>{primary.group_name}</strong> (
-            {formatWeekRange(primary.week_start, primary.week_end)}) is ready. See who
-            added and reviewed the most, the week's favorite album, and how the group did
-            at guessing.
-          </Text>
-        ) : (
-          <>
-            <Text size="sm">Fresh weekly recaps are ready for your groups:</Text>
-            <List spacing="xs" size="sm">
-              {pending.map((r) => (
-                <List.Item key={r.id}>
-                  <strong>{r.group_name}</strong> · {formatWeekRange(r.week_start, r.week_end)}
-                </List.Item>
-              ))}
-            </List>
-          </>
-        )}
+        <Text size="sm">
+          The weekly recap for <strong>{recap.group_name}</strong> (
+          {formatWeekRange(recap.week_start, recap.week_end)}) is ready. See who added and
+          reviewed the most, the week's favorite album, and how the group did at guessing.
+        </Text>
         <Group justify="flex-end" gap="sm">
           <Button variant="subtle" color="gray" onClick={handleDismiss}>
             Dismiss
           </Button>
-          <Button onClick={() => handleView(primary)} leftSection={<IconSparkles size={16} />}>
+          <Button onClick={handleView} leftSection={<IconSparkles size={16} />}>
             View recap
           </Button>
         </Group>
