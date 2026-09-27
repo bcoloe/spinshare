@@ -1,0 +1,31 @@
+{
+  "summary": "## Review\n\n**Intent:** <one or two sentences restating what this PR sets out to do, in your own words, from the description + commits + code.>\n\n**Overall:** <your take as a senior engineer — is the intent met? what is the shape of the risk?>\n\n**Findings:** 1 P0, 1 P1, 1 P2.\n\n<Anything that could not be anchored to a diff line goes here, under a `### Not anchored` heading.>",
+  "event": "COMMENT",
+  "findings": [
+    {
+      "path": "backend/app/services/draw_service.py",
+      "line": 142,
+      "category": "Robustness",
+      "priority": "P0",
+      "feedback": "`nominations[0]` raises IndexError when a group has no nominations for the day — the daily draw job dies for every group after this one. Guard and skip instead.",
+      "suggestion": "    if not nominations:\n        logger.info(\"No nominations for group %s on %s; skipping draw\", group.id, draw_date)\n        return None"
+    },
+    {
+      "path": "backend/app/routers/groups.py",
+      "line": 88,
+      "start_line": 86,
+      "category": "Unification",
+      "priority": "P1",
+      "feedback": "This membership check is the fourth copy of the same three lines. `require_group_member()` in `app/utils/authz.py` already does it and raises the matching 403.",
+      "suggestion": "    require_group_member(db, current_user.id, group_id)"
+    },
+    {
+      "path": "backend/app/services/draw_service.py",
+      "line": 205,
+      "category": "Style",
+      "priority": "P2",
+      "feedback": "Comment restates the code (`# increment the counter`). Drop it, or replace it with why the counter skips already-drawn albums.",
+      "suggestion": ""
+    }
+  ]
+}
