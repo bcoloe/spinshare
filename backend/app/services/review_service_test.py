@@ -861,3 +861,66 @@ class TestReviewQueryCounts:
             review_service.get_album_stats(sample_album.id)
 
         assert len(statements) == 1, statements
+
+
+class TestAvgRefreshWithDuplicateMemberships:
+    """The cached average must not double-count a duplicated membership row.
+
+    group_members had no unique constraint until 40b659edcbad, and that migration
+    is not applied to production yet, so duplicate (group_id, user_id) rows can
+    still exist in live data. The constraint is dropped inside the transaction
+    here to reproduce that state; the fixture rolls it back.
+    """
+
+    def test_a_duplicated_membership_does_not_skew_the_average(
+        self, db_session, review_service, sample_group, sample_album, sample_user, user_factory
+    ):
+        from sqlalchemy import text
+
+        from app.models.group import group_members
+        from app.models.review import Review
+
+        db_session.execute(
+            text("ALTER TABLE group_members DROP CONSTRAINT uq_group_members_group_user")
+        )
+
+        other = user_factory(email="dupe@test.com", username="dupe_member")
+        for user_id in (sample_user.id, other.id):
+            db_session.execute(
+                group_members.insert().values(
+                    group_id=sample_group.id, user_id=user_id, role="member"
+                )
+            )
+        # The duplicate row: same member, same group, twice.
+        db_session.execute(
+            group_members.insert().values(
+                group_id=sample_group.id, user_id=other.id, role="member"
+            )
+        )
+        db_session.add(
+            GroupAlbum(
+                group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id
+            )
+        )
+        db_session.add_all(
+            [
+                Review(album_id=sample_album.id, user_id=sample_user.id, rating=10.0),
+                Review(album_id=sample_album.id, user_id=other.id, rating=2.0),
+            ]
+        )
+        db_session.commit()
+
+        review_service._refresh_group_album_avgs(sample_album.id)
+
+        ga = (
+            db_session.query(GroupAlbum)
+            .filter(
+                GroupAlbum.group_id == sample_group.id,
+                GroupAlbum.album_id == sample_album.id,
+            )
+            .first()
+        )
+        # Two reviewers, so 6.0. Counting the duplicated membership twice would
+        # weight the 2.0 double and give (10+2+2)/3 = 4.67.
+        assert ga.review_count == 2, ga.review_count
+        assert ga.avg_rating == 6.0, ga.avg_rating

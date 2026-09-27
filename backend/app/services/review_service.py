@@ -117,19 +117,37 @@ class ReviewService:
         # disagree with them. One row per (group, reviewing member) is a handful
         # of floats; the cost here was always the round trips, not the volume.
         group_ids = {ga.group_id for ga in rows}
+
+        # DISTINCT before the join, not after. group_members had no unique
+        # constraint until 40b659edcbad, and that migration is not applied to
+        # production yet, so duplicate (group_id, user_id) rows still exist in
+        # live data. Joining them directly multiplied a member's rating by the
+        # number of rows they happen to have, skewing the cached average and
+        # inflating review_count — the predecessor's Review.user_id.in_(ids) was
+        # immune to that because a set cannot hold a member twice.
+        #
+        # Deduplicating on (group_id, user_id) rather than DISTINCT over the
+        # result: two different members legitimately share a rating, and
+        # collapsing those would under-count just as badly as double-counting.
+        distinct_members = (
+            select(group_members.c.group_id, group_members.c.user_id)
+            .where(group_members.c.group_id.in_(group_ids))
+            .distinct()
+            .subquery()
+        )
+
         ratings_by_group: dict[int, list[float]] = {}
         for group_id, rating in self.db.execute(
-            select(group_members.c.group_id, Review.rating)
-            .join(Review, Review.user_id == group_members.c.user_id)
+            select(distinct_members.c.group_id, Review.rating)
+            .join(Review, Review.user_id == distinct_members.c.user_id)
             .where(
-                group_members.c.group_id.in_(group_ids),
                 Review.album_id == album_id,
                 Review.is_draft == False,  # noqa: E712
                 Review.rating.isnot(None),
             )
             # Deterministic accumulation order, so the same ratings always round
             # to the same cached average.
-            .order_by(group_members.c.group_id, Review.id)
+            .order_by(distinct_members.c.group_id, Review.id)
         ).all():
             ratings_by_group.setdefault(group_id, []).append(rating)
 
