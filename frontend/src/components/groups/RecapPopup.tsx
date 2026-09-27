@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button, Group, Modal, Stack, Text, ThemeIcon } from '@mantine/core'
 import { IconSparkles } from '@tabler/icons-react'
@@ -29,23 +29,17 @@ export default function RecapPopup({ groupId }: { groupId: number }) {
   const { data: pending = [] } = usePendingRecaps(true)
   const markSeen = useMarkRecapSeen()
   const recap = pending.find((r) => r.group_id === groupId)
-  // Tracks the recap already surfaced so the modal opens once per recap even
-  // while the pending query refetches (GroupPage isn't remounted on group switch).
-  const [shownRecapId, setShownRecapId] = useState<number | null>(null)
-  const [opened, setOpened] = useState(false)
-
-  useEffect(() => {
-    if (recap && recap.id !== shownRecapId) {
-      setShownRecapId(recap.id)
-      setOpened(true)
-    }
-  }, [recap, shownRecapId])
+  // Derived rather than effect-driven: the modal is open whenever this group
+  // has a pending recap the user hasn't dismissed in this session. Keying on
+  // the recap id keeps it correct when GroupPage stays mounted across groups.
+  const [dismissedRecapId, setDismissedRecapId] = useState<number | null>(null)
 
   if (!recap) return null
+  const opened = recap.id !== dismissedRecapId
 
   const handleDismiss = () => {
     markSeen.mutate({ groupId: recap.group_id, recapId: recap.id })
-    setOpened(false)
+    setDismissedRecapId(recap.id)
   }
 
   const handleView = () => {

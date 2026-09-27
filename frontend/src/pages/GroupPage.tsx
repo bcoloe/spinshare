@@ -39,6 +39,7 @@ import { useChatUnread } from '../hooks/useChat'
 import { useFavoriteGroup } from '../context/FavoriteGroupContext'
 import { useAuth } from '../hooks/useAuth'
 import { ApiError } from '../services/apiClient'
+import { isRecapEligible } from '../utils/recaps'
 
 type Tab = 'spin' | 'history' | 'info' | 'nominations'
 
@@ -322,10 +323,7 @@ export default function GroupPage() {
           {canInvite && (
             <InviteUserModal groupId={gid} opened={inviteOpened} onClose={closeInvite} />
           )}
-          {/* Weekly recaps only exist for regular member groups. */}
-          {!group.is_global && !group.is_bot_group && !group.settings?.dealer_mode && (
-            <RecapPopup groupId={gid} />
-          )}
+          {isRecapEligible(group) && <RecapPopup groupId={gid} />}
         </>
       )}
 

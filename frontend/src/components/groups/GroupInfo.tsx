@@ -22,6 +22,7 @@ import MemberList from './MemberList'
 import WeeklyRecap from './WeeklyRecap'
 import { useGroupStats, useGroupPendingInvitations, useRevokeInvitation } from '../../hooks/useGroups'
 import { useGroupRecaps } from '../../hooks/useRecaps'
+import { isRecapEligible } from '../../utils/recaps'
 import type { GroupDetailResponse, GuessHistogramBucket, MemberGuessAccuracyItem } from '../../types/group'
 
 // 20 visually distinct colors — enough headroom for any realistic group size.
@@ -188,15 +189,14 @@ export default function GroupInfo({ group }: Props) {
   const { data: pendingInvitations = [] } = useGroupPendingInvitations(group.id, canManage)
   const revokeInvitation = useRevokeInvitation(group.id)
 
-  // Weekly recaps only exist for regular member groups (not global/bot/dealer).
-  const recapEligible = !group.is_global && !group.is_bot_group && !group.settings?.dealer_mode
+  const recapEligible = isRecapEligible(group)
   const { data: recaps } = useGroupRecaps(group.id, recapEligible)
   const hasRecaps = recapEligible && !!recaps && recaps.length > 0
   const [recapOpened, { open: openRecap, close: closeRecap }] = useDisclosure()
   const [searchParams, setSearchParams] = useSearchParams()
 
-  // Auto-open the recap overlay when arriving from the login pop-up's "View
-  // recap" action (?recap=open), then strip the param so a refresh or reopen
+  // Auto-open the recap overlay when arriving from the group's recap pop-up
+  // "View recap" action (?recap=open), then strip the param so a refresh or reopen
   // doesn't force it open again.
   useEffect(() => {
     if (hasRecaps && searchParams.get('recap')) {
