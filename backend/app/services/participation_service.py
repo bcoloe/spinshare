@@ -158,33 +158,40 @@ class ParticipationService:
             self._get_or_create(group_id, user_id)
             return
 
-        updated = self.db.execute(
-            update(GroupParticipation)
-            .where(
-                GroupParticipation.group_id == group_id,
-                GroupParticipation.user_id == user_id,
-            )
-            .values(credits=GroupParticipation.credits + amount)
-        )
-        if updated.rowcount == 0:
-            # No row yet. insert-ignore so a concurrent first grant cannot make
-            # this a 500, then retry the delta against whichever row now exists.
-            self.db.execute(
-                pg_insert(GroupParticipation)
-                .values(group_id=group_id, user_id=user_id, credits=0)
-                .on_conflict_do_nothing(index_elements=["group_id", "user_id"])
-            )
-            self.db.execute(
+        # synchronize_session="evaluate" applies the same delta to a matching row
+        # already loaded in this Session, so it does not keep a stale balance.
+        # Scoped deliberately: expire_all() would drop every eager-loaded object
+        # in the Session and re-fetch it on next access, which is the N+1 this
+        # change set is otherwise removing. "evaluate" does it in Python, so
+        # unlike "fetch" it costs no extra round trip.
+        def _apply_delta():
+            return self.db.execute(
                 update(GroupParticipation)
                 .where(
                     GroupParticipation.group_id == group_id,
                     GroupParticipation.user_id == user_id,
                 )
                 .values(credits=GroupParticipation.credits + amount)
+                .execution_options(synchronize_session="evaluate")
             )
-        # The UPDATE bypassed the identity map, so any GroupParticipation already
-        # loaded in this Session still holds the pre-update balance.
-        self.db.expire_all()
+
+        if _apply_delta().rowcount == 0:
+            # No row yet. insert-ignore so a concurrent first grant cannot make
+            # this a 500, then retry the delta against whichever row now exists.
+            #
+            # The retry always matches. ON CONFLICT DO NOTHING takes a speculative
+            # insertion lock and waits on a conflicting uncommitted row rather
+            # than skipping past it, and under READ COMMITTED (this app's
+            # isolation level) the retry takes a fresh snapshot, so the winner's
+            # row is visible by then. Verified both ways against Postgres: after
+            # the other transaction commits the insert reports 0 rows and the
+            # update matches 1; after it rolls back the insert itself matches 1.
+            self.db.execute(
+                pg_insert(GroupParticipation)
+                .values(group_id=group_id, user_id=user_id, credits=0)
+                .on_conflict_do_nothing(index_elements=["group_id", "user_id"])
+            )
+            _apply_delta()
 
     def _review_credit_amount(self, group_id: int, user_id: int, album_id: int) -> int:
         """Credits granted for a single review. Flat +1 today.
@@ -481,6 +488,16 @@ class ParticipationService:
         two reviews concurrently (two tabs) had both calls see no row and both
         insert, and the loser's flush raised IntegrityError against
         unique_participation_per_group — a 500 on an ordinary review publish.
+
+        The trailing lookup always finds a row, so the return type holds. The
+        worry would be DO NOTHING skipping a row a concurrent transaction has not
+        committed, leaving nothing for the re-read to find — but that is not how
+        it behaves. ON CONFLICT takes a speculative insertion lock and *waits* on
+        the conflicting uncommitted row; when that transaction commits, our insert
+        reports 0 rows and, under READ COMMITTED (this app's isolation level), the
+        re-read takes a fresh snapshot and sees the committed row. When it rolls
+        back instead, our own insert succeeds. Verified against Postgres both
+        ways; the ``contended_first_credit`` scenario in scripts/stress_sim.py pins it.
         """
         participation = self._get(group_id, user_id)
         if participation is not None:

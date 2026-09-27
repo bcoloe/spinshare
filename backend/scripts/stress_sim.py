@@ -409,6 +409,76 @@ def scenario_invitation_accept(workers=10):
     )
 
 
+def scenario_contended_first_credit(workers=10):
+    """A member's FIRST credit, granted concurrently from N connections.
+
+    Pins the ON CONFLICT DO NOTHING contract that _get_or_create and _add_credits
+    depend on. The worry raised in review was that DO NOTHING skips a row a
+    concurrent transaction has not committed, leaving the follow-up read to find
+    nothing -- _get_or_create returning None against its annotation, and
+    _add_credits silently dropping the delta.
+
+    It does not behave that way: ON CONFLICT takes a speculative insertion lock
+    and waits on the conflicting row, and under READ COMMITTED the follow-up
+    statement takes a fresh snapshot and sees the winner's committed row. Every
+    worker here races to create the same participation row from scratch, so if
+    the pessimistic reading were right this would produce a None dereference or
+    a lost credit.
+    """
+    reset()
+    owner, member = seed_users(2, "f")
+    gid = seed_group(owner, priority_pick_threshold=3)
+    db = Session()
+    GroupService(db).add_user(gid, member)
+    db.close()
+
+    album_ids = []
+    for i in range(workers):
+        aid = seed_album(f"First Credit {i}", f"sp-first-{i}")
+        album_ids.append(aid)
+        db = Session()
+        ga = GroupAlbum(group_id=gid, album_id=aid, added_by=owner)
+        db.add(ga)
+        db.flush()
+        ga.selected_date = func.now()
+        db.commit()
+        db.close()
+
+    def work(i):
+        db = Session()
+        try:
+            # No participation row exists yet: every worker takes the create path.
+            ParticipationService(db)._grant_credit(gid, member, album_ids[i], commit=True)
+        finally:
+            db.close()
+
+    outcomes = run_workers(work, workers)
+    errs = [v for k, v in outcomes if k != "ok"]
+    db = Session()
+    rows = db.execute(
+        select(func.count()).select_from(GroupParticipation).where(
+            GroupParticipation.group_id == gid, GroupParticipation.user_id == member
+        )
+    ).scalar()
+    balance = db.execute(
+        select(GroupParticipation.credits).where(
+            GroupParticipation.group_id == gid, GroupParticipation.user_id == member
+        )
+    ).scalar()
+    db.close()
+
+    record(
+        "contended first credit -> no None deref, no error",
+        not errs,
+        f"{errs[:2]}" if errs else "",
+    )
+    record(
+        "contended first credit -> exactly one row, nothing dropped",
+        rows == 1 and balance == workers,
+        f"rows={rows} balance={balance} expected={workers}",
+    )
+
+
 def scenario_mixed_load(seconds_ops=240):
     """Randomised mixed workload -- the regression sweep.
 
@@ -472,6 +542,7 @@ def main():
         "credit": scenario_credit_ledger,
         "dupcredit": scenario_duplicate_credit,
         "invite": scenario_invitation_accept,
+        "firstcredit": scenario_contended_first_credit,
         "mixed": scenario_mixed_load,
     }
     for name, fn in scenarios.items():

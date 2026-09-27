@@ -92,7 +92,12 @@ class PublicUserResponse(BaseModel):
     name_is_public: bool = False
     created_at: datetime
 
-    model_config = ConfigDict(from_attributes=True)
+    # Deliberately no ``from_attributes``. With it, ``model_validate(user)`` on a
+    # raw ORM row — which is what FastAPI does if an endpoint declares this as
+    # its response_model and returns a User — reads first_name/last_name straight
+    # off the row and silently bypasses the name_is_public check below, leaking
+    # real names. Nothing needs it: every construction site goes through
+    # ``from_user``, and an already-built instance re-validates without it.
 
     @classmethod
     def from_user(cls, user) -> "PublicUserResponse":
