@@ -41,11 +41,13 @@ import { useAuth } from '../../hooks/useAuth'
 import { useCheckGuess, useGuessOptions, useUpdateReview } from '../../hooks/useDailySpin'
 import { useUnseenReviews } from '../../context/UnseenReviewsContext'
 import { ApiError } from '../../services/apiClient'
+import { NominatorLinks, NominatorSummary } from '../albums/Nominators'
 import GuessResult from '../spin/GuessResult'
 import ReviewAndGuessForm from '../spin/ReviewAndGuessForm'
 import type { AlbumReviewItem, CheckGuessResponse, GroupAlbumResponse, ReviewResponse } from '../../types/album'
 import type { GroupMemberResponse } from '../../types/group'
 import type { MemberGuessResult } from '../../types/stats'
+import { nominatorUsernames } from '../../utils/nominators'
 
 // ==================== TYPES ====================
 
@@ -62,10 +64,6 @@ function formatDate(dateStr: string | null): string {
     month: 'short',
     day: 'numeric',
   })
-}
-
-function getNominator(ga: GroupAlbumResponse, members: GroupMemberResponse[]): string {
-  return members.find((m) => m.user_id === ga.added_by)?.username ?? '—'
 }
 
 // The date an album entered the member's history: dealt (dealer groups) or selected
@@ -85,9 +83,9 @@ function formatReleaseDate(releaseDate: string | null): string {
 
 function sortAlbums(
   albums: GroupAlbumResponse[],
-  members: GroupMemberResponse[],
   field: SortField,
   dir: SortDir,
+  nominatorKey: (ga: GroupAlbumResponse) => string = () => '',
 ): GroupAlbumResponse[] {
   return [...albums].sort((a, b) => {
     let av = '',
@@ -110,8 +108,8 @@ function sortAlbums(
         bv = b.album.release_date ?? ''
         break
       case 'nominator':
-        av = getNominator(a, members)
-        bv = getNominator(b, members)
+        av = nominatorKey(a)
+        bv = nominatorKey(b)
         break
     }
     return dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
@@ -120,10 +118,10 @@ function sortAlbums(
 
 function sortReviewedAlbums(
   albums: GroupAlbumResponse[],
-  members: GroupMemberResponse[],
   reviewMap: Map<number, ReviewResponse>,
   field: ReviewedSortField,
   dir: SortDir,
+  nominatorKey: (ga: GroupAlbumResponse) => string,
 ): GroupAlbumResponse[] {
   if (field === 'rating') {
     return [...albums].sort((a, b) => {
@@ -139,7 +137,7 @@ function sortReviewedAlbums(
       return dir === 'asc' ? ar - br : br - ar
     })
   }
-  return sortAlbums(albums, members, field, dir)
+  return sortAlbums(albums, field, dir, nominatorKey)
 }
 
 // ==================== SORT BUTTON ====================
@@ -363,6 +361,7 @@ interface PeerReviewPanelProps {
   ga: GroupAlbumResponse
   review: ReviewResponse
   members: GroupMemberResponse[]
+  nominators: string[]
   groupId: number
   allowGuessing: boolean
   guessResult: CheckGuessResponse | undefined
@@ -370,7 +369,7 @@ interface PeerReviewPanelProps {
   startInEditMode?: boolean
 }
 
-function PeerReviewPanel({ ga, review, members, groupId, allowGuessing, guessResult, currentUserId, startInEditMode = false }: PeerReviewPanelProps) {
+function PeerReviewPanel({ ga, review, members, nominators, groupId, allowGuessing, guessResult, currentUserId, startInEditMode = false }: PeerReviewPanelProps) {
   const [editMode, setEditMode] = useState(false)
   const [editRating, setEditRating] = useState<number>(review.rating ?? 0)
   const [editComment, setEditComment] = useState(review.comment ?? '')
@@ -448,6 +447,12 @@ function PeerReviewPanel({ ga, review, members, groupId, allowGuessing, guessRes
         guessResult
           ? <GuessResult result={guessResult} />
           : <InlineGuessForm groupId={groupId} ga={ga} />
+      )}
+      {/* Guessers see the nominators in their GuessResult; everyone else sees them here */}
+      {!canGuess && nominators.length > 0 && (
+        <Text size="sm" c="dimmed">
+          Nominated by <NominatorLinks usernames={nominators} />
+        </Text>
       )}
       {reviewsLoading
         ? <Skeleton h={60} radius="sm" />
@@ -567,7 +572,7 @@ function PeerReviewPanel({ ga, review, members, groupId, allowGuessing, guessRes
 interface ReviewedCardProps {
   ga: GroupAlbumResponse
   review: ReviewResponse
-  members: GroupMemberResponse[]
+  nominators: string[]
   allowGuessing: boolean
   guessResult: CheckGuessResponse | undefined
   currentUserId: number | undefined
@@ -575,10 +580,9 @@ interface ReviewedCardProps {
   onClick: () => void
 }
 
-function ReviewedCard({ ga, review, members, allowGuessing, guessResult, currentUserId, hasNewReviews, onClick }: ReviewedCardProps) {
+function ReviewedCard({ ga, review, nominators, allowGuessing, guessResult, currentUserId, hasNewReviews, onClick }: ReviewedCardProps) {
   const { album } = ga
   const groupAvg = ga.avg_rating
-  const nominator = getNominator(ga, members)
   const isSelfNominated = currentUserId !== undefined && currentUserId === ga.added_by
   const canGuess = allowGuessing && !isSelfNominated
 
@@ -611,16 +615,15 @@ function ReviewedCard({ ga, review, members, allowGuessing, guessResult, current
           {canGuess && !guessResult ? (
             <Badge variant="light" color="violet" size="xs">Guess?</Badge>
           ) : (
-            <Text
-              size="xs"
-              lineClamp={1}
+            <NominatorSummary
+              usernames={nominators}
               c={
                 isSelfNominated ? 'yellow.5'
                 : canGuess && guessResult
                   ? guessResult.correct ? 'green.6' : 'red.6'
                   : 'dimmed'
               }
-            >{nominator}</Text>
+            />
           )}
         </Stack>
       </Group>
@@ -690,6 +693,18 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
     return map
   }, [myGuessesList])
 
+  // Nominators of each album whose nominators this member may see. An album is
+  // absent while the member still has a guess to make on it, so the history
+  // (including its filter and sort) never gives the answer away.
+  const revealedNominators = useMemo(() => {
+    const map = new Map<number, string[]>()
+    for (const ga of albums) {
+      const hidden = allowGuessing && user?.id !== ga.added_by && !guessMap.has(ga.id)
+      if (!hidden) map.set(ga.id, nominatorUsernames(ga, members))
+    }
+    return map
+  }, [albums, members, allowGuessing, user?.id, guessMap])
+
   const pending = useMemo(
     () => albums.filter((ga) => !reviewMap.get(ga.album_id)),
     [albums, reviewMap],
@@ -707,12 +722,12 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
   )
 
   const sortedPending = useMemo(
-    () => sortAlbums(pending, members, unreviewedField, unreviewedDir),
-    [pending, members, unreviewedField, unreviewedDir],
+    () => sortAlbums(pending, unreviewedField, unreviewedDir),
+    [pending, unreviewedField, unreviewedDir],
   )
   const sortedInProgress = useMemo(
-    () => sortAlbums(inProgress, members, unreviewedField, unreviewedDir),
-    [inProgress, members, unreviewedField, unreviewedDir],
+    () => sortAlbums(inProgress, unreviewedField, unreviewedDir),
+    [inProgress, unreviewedField, unreviewedDir],
   )
   const filteredReviewed = useMemo(() => {
     const q = reviewedFilter.toLowerCase()
@@ -720,13 +735,20 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
     return reviewed.filter(
       (ga) =>
         ga.album.title.toLowerCase().includes(q) ||
-        ga.album.artist.toLowerCase().includes(q),
+        ga.album.artist.toLowerCase().includes(q) ||
+        (revealedNominators.get(ga.id) ?? []).some((u) => u.toLowerCase().includes(q)),
     )
-  }, [reviewed, reviewedFilter])
+  }, [reviewed, reviewedFilter, revealedNominators])
 
   const sortedReviewed = useMemo(
-    () => sortReviewedAlbums(filteredReviewed, members, reviewMap, reviewedField, reviewedDir),
-    [filteredReviewed, members, reviewMap, reviewedField, reviewedDir],
+    () => sortReviewedAlbums(
+      filteredReviewed,
+      reviewMap,
+      reviewedField,
+      reviewedDir,
+      (ga) => (revealedNominators.get(ga.id) ?? []).join(', '),
+    ),
+    [filteredReviewed, reviewMap, reviewedField, reviewedDir, revealedNominators],
   )
 
   const toggleExpand = (id: number) => setExpandedId((prev) => (prev === id ? null : id))
@@ -834,7 +856,7 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
           <Text fw={600} size="sm">Review History</Text>
           <Group gap="xs" align="center" wrap="nowrap">
             <TextInput
-              placeholder="Filter by album or artist..."
+              placeholder="Filter by album, artist, or nominator..."
               size="xs"
               value={reviewedFilter}
               onChange={(e) => setReviewedFilter(e.currentTarget.value)}
@@ -869,7 +891,7 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
                 key={ga.id}
                 ga={ga}
                 review={reviewMap.get(ga.album_id)!}
-                members={members}
+                nominators={revealedNominators.get(ga.id) ?? []}
                 allowGuessing={allowGuessing}
                 guessResult={guessMap.get(ga.id)}
                 currentUserId={user?.id}
@@ -930,6 +952,7 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
                     ga={ga}
                     review={review}
                     members={members}
+                    nominators={revealedNominators.get(ga.id) ?? []}
                     groupId={groupId}
                     allowGuessing={allowGuessing}
                     guessResult={guessMap.get(ga.id)}
