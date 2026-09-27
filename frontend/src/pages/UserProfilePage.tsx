@@ -643,9 +643,8 @@ export default function UserProfilePage() {
         )}
       </Stack>
 
-      {profile?.email && (
+      {profile && (
         <InviteToGroupModal
-          targetEmail={profile.email}
           targetUsername={profile.username}
           opened={inviteOpened}
           onClose={closeInvite}

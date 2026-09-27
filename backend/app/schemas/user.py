@@ -77,6 +77,42 @@ class UserResponse(UserBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PublicUserResponse(BaseModel):
+    """Schema for exposing a user to *other* authenticated users.
+
+    Deliberately omits ``email`` and ``is_admin``. Real names are surfaced only
+    when the user has opted in via ``name_is_public`` — build instances with
+    :meth:`from_user` so that rule is applied consistently.
+    """
+
+    id: int
+    username: str
+    first_name: str | None = None
+    last_name: str | None = None
+    name_is_public: bool = False
+    created_at: datetime
+
+    # Deliberately no ``from_attributes``. With it, ``model_validate(user)`` on a
+    # raw ORM row — which is what FastAPI does if an endpoint declares this as
+    # its response_model and returns a User — reads first_name/last_name straight
+    # off the row and silently bypasses the name_is_public check below, leaking
+    # real names. Nothing needs it: every construction site goes through
+    # ``from_user``, and an already-built instance re-validates without it.
+
+    @classmethod
+    def from_user(cls, user) -> "PublicUserResponse":
+        """Build a response from a ``User`` ORM object, honouring name privacy."""
+        name_is_public = bool(user.name_is_public)
+        return cls(
+            id=user.id,
+            username=user.username,
+            first_name=user.first_name if name_is_public else None,
+            last_name=user.last_name if name_is_public else None,
+            name_is_public=name_is_public,
+            created_at=user.created_at,
+        )
+
+
 class UserWithStats(UserResponse):
     """User response with statistics"""
 
@@ -142,11 +178,17 @@ class SpotifyTokenResponse(BaseModel):
 
 
 class PublicProfileResponse(BaseModel):
+    """Profile of a user as shown to *other* authenticated users.
+
+    Deliberately omits ``email`` — this endpoint is readable by any logged-in user
+    and the address is private. ``is_admin`` is intentionally present: the profile
+    shows an Admin badge and site admins toggle the flag from here.
+    """
+
     id: int
     username: str
     first_name: str | None
     last_name: str | None
-    email: str
     is_admin: bool
     member_since: datetime
     total_reviews: int

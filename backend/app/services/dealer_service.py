@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import Album, AlbumDeal, Group, GroupAlbum, GroupSettings, Review, User
@@ -21,6 +22,12 @@ from app.schemas.album import GroupAlbumResponse
 from app.schemas.group_album import DealRollResponse, DealsTodayResponse
 from app.services import group_service as gs
 from app.utils.time_helpers import DEFAULT_TZ, date_in_tz, group_today
+
+# Hard cap on the history listings. They return a bare list, so they cannot gain
+# an offset/limit contract without changing their response shape; until they do,
+# this bounds a long-running group's history instead of returning all of it
+# (and enriching every row) on every page load.
+_MAX_HISTORY = 500
 
 
 def _global_candidate_album_ids(db: Session, global_group_id: int):
@@ -134,6 +141,7 @@ class DealerService:
             .order_by(AlbumDeal.id)
             .all()
         )
+        pool_size: int | None = None
         if not queued:
             pool = self._eligible_album_ids(group_id, user.id)
             if not pool:
@@ -141,6 +149,11 @@ class DealerService:
                     status_code=status.HTTP_409_CONFLICT,
                     detail="dealer_pool_empty",
                 )
+            # With no queued rows for this user, the sampling pool and the
+            # availability pool are the same set (they differ only by queued
+            # rows). Revealing one deal below removes exactly that album from
+            # it, so the post-roll count is known without re-querying.
+            pool_size = len(pool)
             draw_n = min(settings.dealer_rolls_per_day - rolls_used, len(pool))
             queued = [
                 AlbumDeal(group_id=group_id, user_id=user.id, album_id=album_id)
@@ -163,7 +176,9 @@ class DealerService:
             deal=self._deal_response(canonical[deal.album_id], deal),
             rolls_used_today=rolls_used + 1,
             rolls_per_day=settings.dealer_rolls_per_day,
-            pool_remaining=self.get_pool_count(group_id, user.id),
+            pool_remaining=(
+                pool_size - 1 if pool_size is not None else self.get_pool_count(group_id, user.id)
+            ),
         )
 
     # ==================== READS ====================
@@ -226,13 +241,7 @@ class DealerService:
         group_service = gs.GroupService(self.db)
         group_service.require_membership(user.id, group_id)
 
-        selected_album_ids = {
-            row[0]
-            for row in self.db.query(GroupAlbum.album_id)
-            .filter(GroupAlbum.group_id == group_id, GroupAlbum.selected_date.isnot(None))
-            .distinct()
-            .all()
-        }
+        selected_album_ids = set(self._recent_selected_album_ids(group_id))
         deal_by_album = {
             deal.album_id: deal
             for deal in self.db.query(AlbumDeal)
@@ -241,6 +250,8 @@ class DealerService:
                 AlbumDeal.user_id == user.id,
                 AlbumDeal.revealed_at.isnot(None),
             )
+            .order_by(AlbumDeal.revealed_at.desc(), AlbumDeal.id.desc())
+            .limit(_MAX_HISTORY)
             .all()
         }
 
@@ -252,7 +263,7 @@ class DealerService:
             for album_id, ga in canonical.items()
         ]
         responses.sort(key=lambda r: (r.dealt_at or r.selected_date or r.added_at), reverse=True)
-        return responses
+        return responses[:_MAX_HISTORY]
 
     def get_public_history(self, group_id: int) -> list[GroupAlbumResponse]:
         """Return the group's shared review history for anonymous visitors.
@@ -269,33 +280,37 @@ class DealerService:
         group = group_service.get_group_by_id(group_id)
         group_service.require_public_or_member(group, None)
 
-        selected_album_ids = {
-            row[0]
-            for row in self.db.query(GroupAlbum.album_id)
-            .filter(GroupAlbum.group_id == group_id, GroupAlbum.selected_date.isnot(None))
-            .distinct()
-            .all()
-        }
-        canonical = self.canonical_group_albums(group_id, list(selected_album_ids))
+        canonical = self.canonical_group_albums(
+            group_id, self._recent_selected_album_ids(group_id)
+        )
         responses = [self._deal_response(ga, None) for ga in canonical.values()]
         responses.sort(key=lambda r: (r.selected_date or r.added_at), reverse=True)
-        return responses
+        return responses[:_MAX_HISTORY]
 
     def get_pool_count(self, group_id: int, user_id: int) -> int:
         """Return the number of albums still available for this user to draw.
 
         Queued (pre-drawn, unrevealed) albums count as available: they will be
         revealed by the user's next rolls, or purged back to the pool.
+
+        Counted in the database. In the global group the pool is every album
+        nominated anywhere, so materialising the ids just to ``len()`` them sent
+        the whole id list over the wire for a single integer.
         """
-        return len(self._eligible_album_ids(group_id, user_id, exclude_queued=False))
+        return (
+            self._eligible_album_id_query(group_id, user_id, exclude_queued=False)
+            .with_entities(func.count(func.distinct(GroupAlbum.album_id)))
+            .scalar()
+            or 0
+        )
 
     # ==================== HELPERS ====================
 
-    def _eligible_album_ids(
+    def _eligible_album_id_query(
         self, group_id: int, user_id: int, *, exclude_queued: bool = True
-    ) -> list[int]:
-        """Distinct albums still dealable to this user, minus albums already dealt to
-        the user, minus albums the user has a published review for.
+    ):
+        """Query selecting the album ids still dealable to this user, minus albums
+        already dealt to the user, minus albums the user has a published review for.
 
         For regular groups the candidate pool is that group's pending nominations. For
         the global group it's every album nominated in any non-global group (mirroring
@@ -306,6 +321,9 @@ class DealerService:
         album so a new draw can never duplicate the pre-drawn allotment. Pass
         exclude_queued=False for the user-facing availability count, where queued
         albums are still theirs to draw.
+
+        Returned unexecuted so callers can either materialise the ids (sampling)
+        or count them in the database (``get_pool_count``).
         """
         deal_filters = [AlbumDeal.group_id == group_id, AlbumDeal.user_id == user_id]
         if not exclude_queued:
@@ -325,13 +343,38 @@ class DealerService:
                 GroupAlbum.group_id == group_id, GroupAlbum.selected_date.is_(None)
             )
 
+        return query.filter(
+            GroupAlbum.album_id.notin_(dealt_subq),
+            GroupAlbum.album_id.notin_(reviewed_subq),
+        )
+
+    def _eligible_album_ids(
+        self, group_id: int, user_id: int, *, exclude_queued: bool = True
+    ) -> list[int]:
+        """Materialised album ids for the sampling pool (see _eligible_album_id_query)."""
         return [
             row[0]
-            for row in query.filter(
-                GroupAlbum.album_id.notin_(dealt_subq),
-                GroupAlbum.album_id.notin_(reviewed_subq),
+            for row in self._eligible_album_id_query(
+                group_id, user_id, exclude_queued=exclude_queued
             )
             .distinct()
+            .all()
+        ]
+
+    def _recent_selected_album_ids(self, group_id: int) -> list[int]:
+        """The group's most recently selected distinct album ids, newest first.
+
+        Bounded by ``_MAX_HISTORY``: the history endpoints return a bare list
+        with no offset/limit contract, and every id here fans out into the
+        canonical-album enrichment below.
+        """
+        return [
+            row[0]
+            for row in self.db.query(GroupAlbum.album_id)
+            .filter(GroupAlbum.group_id == group_id, GroupAlbum.selected_date.isnot(None))
+            .group_by(GroupAlbum.album_id)
+            .order_by(func.max(GroupAlbum.selected_date).desc())
+            .limit(_MAX_HISTORY)
             .all()
         ]
 
@@ -428,14 +471,26 @@ class DealerService:
         ):
             originals.setdefault(album_id, added_by)
 
-        for album_id in missing:
-            self.db.add(
-                GroupAlbum(
-                    group_id=global_group_id,
-                    album_id=album_id,
-                    added_by=originals.get(album_id),
-                )
-            )
+        # insert-ignore rather than plain inserts: two callers can reach this with
+        # the same missing album at once (two members rolling it in the global
+        # group, or two first-visitors-of-the-day on the public spin). `originals`
+        # is derived deterministically, so both compute the *same* added_by and
+        # collide on unique_user_album_per_group. That surfaced as a 500 raised
+        # after the caller's own commit — roll() has already persisted revealed_at
+        # by this point, so the member burned a roll and got an error page.
+        # Skipping the duplicate leaves the winner's row in place, which is all
+        # any caller needs.
+        rows = [
+            {
+                "group_id": global_group_id,
+                "album_id": album_id,
+                "added_by": originals.get(album_id),
+            }
+            for album_id in missing
+        ]
+        self.db.execute(
+            pg_insert(GroupAlbum).values(rows).on_conflict_do_nothing()
+        )
         # Callers invoke this well after their own commit (roll(), the public-spin
         # draw) or not at all (the read-only history/today endpoints), so without an
         # explicit commit here these inserts get silently rolled back on session

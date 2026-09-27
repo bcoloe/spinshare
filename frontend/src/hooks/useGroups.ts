@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { groupService } from '../services/groupService'
 import { invitationService } from '../services/invitationService'
 import { inviteLinkService } from '../services/inviteLinkService'
-import type { GroupCreate, GroupModify } from '../types/group'
+import type { GroupCreate, GroupModify, InvitationCreate } from '../types/group'
 
 export function useMyGroups(username: string) {
   return useQuery({
@@ -150,7 +150,7 @@ export function useDeleteGroup() {
 export function useSendInvitation(groupId: number) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (email: string) => invitationService.send(groupId, email),
+    mutationFn: (invitee: InvitationCreate) => invitationService.send(groupId, invitee),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'invitations'] }),
   })
 }

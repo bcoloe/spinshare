@@ -14,7 +14,7 @@ class GroupInvitation(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     group_id = Column(Integer, ForeignKey("groups.id", ondelete="CASCADE"), nullable=False, index=True)
-    invited_email = Column(String, nullable=False)
+    invited_email = Column(String, nullable=False, index=True)
     invited_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     token = Column(String, unique=True, nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

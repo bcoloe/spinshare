@@ -1,7 +1,10 @@
 """Tests for NotificationService."""
 
+from contextlib import contextmanager
+
 import pytest
 from fastapi import HTTPException, status
+from sqlalchemy import event
 
 from app.models.notification import Notification
 from app.schemas.notification import NotificationType
@@ -315,3 +318,38 @@ class TestMarkReadForGroup:
         )
 
         assert cleared == 0
+
+
+@contextmanager
+def _count_statements(db_session, match: str):
+    """Count SQL statements containing ``match`` issued inside the block."""
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, params, context, executemany):
+        if match in statement:
+            statements.append(statement)
+
+    bind = db_session.get_bind()
+    event.listen(bind, "before_cursor_execute", record)
+    try:
+        yield statements
+    finally:
+        event.remove(bind, "before_cursor_execute", record)
+
+
+class TestNotificationQueryCounts:
+    def test_mark_all_read_is_one_update(self, notification_service, db_session, sample_user):
+        """One UPDATE regardless of backlog size, like mark_read_for_group.
+
+        This fires on a UI signal rather than a deliberate per-row action, so a
+        user who has ignored the bell for months must not pay one round trip per
+        unread row to clear it.
+        """
+        for _ in range(8):
+            _make_notification(db_session, user_id=sample_user.id)
+
+        with _count_statements(db_session, "UPDATE notifications") as statements:
+            notification_service.mark_all_read(sample_user)
+
+        assert len(statements) == 1, statements
+        assert notification_service.get_unread(sample_user) == []

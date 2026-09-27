@@ -40,6 +40,7 @@ def run(n: int | None, group_id: int | None, db: Session) -> None:
 
     groups = db.query(Group).all() if group_id is None else [_get_group(db, group_id)]
 
+    failed = 0
     for group in groups:
         # --n flag overrides per-group setting; otherwise use the group's configured count.
         group_n = n if n is not None else (
@@ -50,7 +51,21 @@ def run(n: int | None, group_id: int | None, db: Session) -> None:
             titles = [ga.albums.title for ga in selected]
             log.info("Group %d (%s): today's albums: %s", group.id, group.name, titles)
         except Exception as exc:
-            log.warning("Group %d (%s): skipped — %s", group.id, group.name, exc)
+            # The rollback is what keeps one bad group from taking the rest of the
+            # run with it. Every group shares this Session, so a DB-level failure
+            # leaves it in pending-rollback; without this, each later group dies on
+            # its first query with PendingRollbackError and is logged as another
+            # benign "skipped", so a run that silently spun nothing still reads as
+            # a success. Rolling back returns the Session to a usable state.
+            failed += 1
+            db.rollback()
+            log.exception("Group %d (%s): skipped — %s", group.id, group.name, exc)
+
+    if failed:
+        # Loud, and non-zero on the way out: a partial run must not look clean to
+        # whatever is scheduling this.
+        log.error("Daily selection finished with %d of %d group(s) skipped", failed, len(groups))
+        sys.exit(1)
 
 
 def _get_group(db: Session, group_id: int) -> Group:

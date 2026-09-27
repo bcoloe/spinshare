@@ -1,14 +1,19 @@
 import random
+from contextlib import contextmanager
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 import pytest
-from app.models import BotSource, GroupAlbum
-from app.models.group import Group, GroupRole
+from app.models import Album, BotSource, GroupAlbum, Review, User
+from app.models.group import Group, GroupRole, group_members
+from app.models.group_settings import GroupSettings
 from app.schemas.group import GroupCreate, GroupModifyRequest, GroupSettingsUpdate
 from app.schemas.notification import NotificationType
 from app.services.notification_service import NotificationService
 from fastapi import HTTPException, status
 from pydantic import ValidationError
+from sqlalchemy import event, func, select
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 
 class TestGroupServiceCreate:
@@ -76,6 +81,105 @@ class TestGroupServiceCreate:
         assert exc_info.value.status_code == status.HTTP_409_CONFLICT
         assert exc_info.value.detail == "Group name already registered"
 
+    def test_create_group_creates_settings(self, sample_group_service, sample_user, db_session):
+        """Settings land in the same transaction as the group.
+
+        A group without GroupSettings 404s on every daily selection and dealer roll.
+        """
+        group = sample_group_service.create_group(GroupCreate(name="Bumblebees"), sample_user)
+
+        settings = (
+            db_session.query(GroupSettings).filter(GroupSettings.group_id == group.id).first()
+        )
+        assert settings is not None
+
+
+class TestGroupServiceCreateAtomicity:
+    """create_group must be all-or-nothing.
+
+    It used to span four commits, and with the NullPool engine every commit closes
+    the connection — so a blip between them left a durable group with no owner
+    (undeletable, and its name blocks any retry) or with no settings.
+    """
+
+    def test_create_group_commits_once(self, sample_group_service, sample_user):
+        """The whole creation is a single transaction, not a chain of four."""
+        with patch.object(
+            sample_group_service.db, "commit", wraps=sample_group_service.db.commit
+        ) as commit:
+            sample_group_service.create_group(GroupCreate(name="Bumblebees"), sample_user)
+
+        assert commit.call_count == 1
+
+    @pytest.mark.parametrize("failing_step", ["add_user", "set_user_role"])
+    def test_create_group_rolls_back_on_mid_sequence_failure(
+        self, sample_group_service, sample_user, db_session, failing_step
+    ):
+        """A failure after the group row is written takes the group with it."""
+        with (
+            patch.object(
+                sample_group_service,
+                failing_step,
+                side_effect=OperationalError("x", {}, Exception()),
+            ),
+            patch.object(db_session, "rollback", wraps=db_session.rollback) as rollback,
+        ):
+            with pytest.raises(OperationalError):
+                sample_group_service.create_group(GroupCreate(name="Doomed"), sample_user)
+
+        rollback.assert_called()
+        assert not any(isinstance(obj, Group) for obj in db_session.new)
+        assert db_session.query(Group).filter(Group.name == "Doomed").first() is None
+
+    def test_create_group_rolls_back_when_settings_insert_fails(
+        self, sample_group_service, sample_user, db_session
+    ):
+        """A failure on the final settings insert must not strand an ownerless group."""
+        real_add = db_session.add
+
+        def _add(obj):
+            if isinstance(obj, GroupSettings):
+                raise OperationalError("x", {}, Exception())
+            return real_add(obj)
+
+        with (
+            patch.object(db_session, "add", side_effect=_add),
+            patch.object(db_session, "rollback", wraps=db_session.rollback) as rollback,
+        ):
+            with pytest.raises(OperationalError):
+                sample_group_service.create_group(GroupCreate(name="Doomed"), sample_user)
+
+        rollback.assert_called()
+        assert db_session.query(Group).filter(Group.name == "Doomed").first() is None
+
+    def test_create_group_name_free_again_after_failure(self, sample_group_service, db_session):
+        """Nothing survives the failure, so the name can still be claimed afterwards.
+
+        Under the old four-commit flow the group row was already durable when the
+        next step blew up, so every retry 409'd on a name nobody could use or delete.
+        """
+        doomed_user = User(email="doomed@test.com", username="doomed_user", password_hash="x")
+        db_session.add(doomed_user)
+        db_session.commit()
+
+        with patch.object(
+            sample_group_service, "add_user", side_effect=OperationalError("x", {}, Exception())
+        ):
+            with pytest.raises(OperationalError):
+                sample_group_service.create_group(GroupCreate(name="Doomed"), doomed_user)
+
+        # create_group's rollback unwinds this session's outer transaction too, so
+        # the actor has to be re-created before retrying.
+        retry_user = User(email="retry@test.com", username="retry_user", password_hash="x")
+        db_session.add(retry_user)
+        db_session.commit()
+
+        group = sample_group_service.create_group(GroupCreate(name="Doomed"), retry_user)
+
+        assert group.id is not None
+        assert sample_group_service.get_user_role(retry_user.id, group.id) == GroupRole.Owner
+        assert group.settings is not None
+
 
 class TestGroupServiceAddUser:
     def test_add_user_successful(self, sample_group_service, sample_group, user_factory):
@@ -110,6 +214,72 @@ class TestGroupServiceAddUser:
         assert user_join_date == sample_group_service.get_group_join_date(
             new_user.id, sample_group.id
         )
+
+    def test_add_user_twice_leaves_exactly_one_membership_row(
+        self, sample_group_service, sample_group, user_factory, db_session
+    ):
+        """A repeated join must not create a second membership row.
+
+        The older duplicate test above asserts through get_group_join_date, which
+        calls .scalar() and so happily reports the first of two rows. This one
+        counts the rows, which is the only assertion that can actually see the
+        duplicate that used to be possible here.
+        """
+        new_user = user_factory(email="another@test.com", username="another_user")
+
+        sample_group_service.add_user(sample_group.id, new_user.id)
+        sample_group_service.add_user(sample_group.id, new_user.id)
+
+        count = db_session.execute(
+            select(func.count())
+            .select_from(group_members)
+            .where(
+                group_members.c.group_id == sample_group.id,
+                group_members.c.user_id == new_user.id,
+            )
+        ).scalar_one()
+        assert count == 1
+
+    def test_duplicate_membership_row_is_rejected_by_the_database(
+        self, sample_group_service, sample_group, user_factory, db_session
+    ):
+        """The unique constraint exists and bites.
+
+        Before uq_group_members_group_user, this insert succeeded and add_user's
+        ``except IntegrityError`` branch was unreachable dead code.
+        """
+        new_user = user_factory(email="another@test.com", username="another_user")
+        sample_group_service.add_user(sample_group.id, new_user.id)
+
+        with pytest.raises(IntegrityError):
+            with db_session.begin_nested():
+                db_session.execute(
+                    group_members.insert().values(
+                        group_id=sample_group.id,
+                        user_id=new_user.id,
+                        role=GroupRole.Member.value,
+                    )
+                )
+
+    def test_add_user_racing_past_the_membership_check_raises_409(
+        self, sample_group_service, sample_group, user_factory, db_session
+    ):
+        """Two concurrent joins: the loser gets a 409, not a duplicate row.
+
+        add_user is a check-then-act, so a second caller can pass
+        is_user_in_group before the first commits. Patching that check to False
+        reproduces exactly that interleaving. The database now stops the second
+        insert, and add_user's previously dead IntegrityError handler turns it
+        into a 409 rather than a 500.
+        """
+        new_user = user_factory(email="another@test.com", username="another_user")
+        sample_group_service.add_user(sample_group.id, new_user.id)
+
+        with patch.object(sample_group_service, "is_user_in_group", return_value=False):
+            with pytest.raises(HTTPException) as exc_info:
+                sample_group_service.add_user(sample_group.id, new_user.id)
+
+        assert exc_info.value.status_code == status.HTTP_409_CONFLICT
 
 
 class TestGroupServiceDelete:
@@ -950,3 +1120,151 @@ class TestGroupJoinNotifications:
 
         ns = NotificationService(db_session)
         assert ns.get_unread(new_user) == []
+
+
+# ==================== QUERY-COUNT GUARDS ====================
+#
+# app.database uses a NullPool against a serverless Postgres, so a statement is
+# a network round trip and the statement count is what a call costs. No model
+# declares ``lazy=``, so any relationship touched inside a loop is silently an
+# N+1 that no correctness test would notice. These assert the count does not
+# grow with the data.
+
+
+@contextmanager
+def count_statements(db_session):
+    """Collect the SQL the session emits inside the block, minus savepoint noise."""
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, params, context, executemany):
+        head = statement.lstrip().upper()
+        if head.startswith(("SAVEPOINT", "RELEASE SAVEPOINT", "ROLLBACK TO SAVEPOINT")):
+            return
+        statements.append(statement)
+
+    bind = db_session.get_bind()
+    event.listen(bind, "before_cursor_execute", record)
+    try:
+        yield statements
+    finally:
+        event.remove(bind, "before_cursor_execute", record)
+
+
+def _add_albums(db_session, group, user, count, *, offset=0, reviewed=True):
+    """Nominate ``count`` albums into ``group``, optionally each with a review."""
+    for i in range(count):
+        album = Album(
+            spotify_album_id=f"stats-{offset + i}",
+            title=f"Album {offset + i}",
+            artist=f"Artist {offset + i}",
+            release_date=f"{1970 + (offset + i) % 50}-01-01",
+        )
+        db_session.add(album)
+        db_session.flush()
+        db_session.add(
+            GroupAlbum(
+                group_id=group.id,
+                album_id=album.id,
+                added_by=user.id,
+                selected_date=datetime.now(timezone.utc),
+            )
+        )
+        if reviewed:
+            db_session.add(Review(user_id=user.id, album_id=album.id, rating=7.0))
+    db_session.commit()
+
+
+class TestGroupServiceQueryCounts:
+    def test_group_stats_does_not_scale_with_album_count(
+        self, sample_group_service, sample_group, sample_user, db_session
+    ):
+        """``albums_reviewed`` reads the ``status`` hybrid, whose Python branch
+        walks ``albums.reviews`` — a relationship the method's eager load does
+        not cover. Counting it in Python was one query per album.
+        """
+        _add_albums(db_session, sample_group, sample_user, 3)
+        group_id = sample_group.id
+        with count_statements(db_session) as small:
+            small_stats = sample_group_service.get_group_stats(group_id)
+
+        _add_albums(db_session, sample_group, sample_user, 27, offset=100)
+        with count_statements(db_session) as large:
+            large_stats = sample_group_service.get_group_stats(group_id)
+
+        assert small_stats["albums_reviewed"] == 3
+        assert large_stats["albums_reviewed"] == 30
+        assert len(large) == len(small), (small, large)
+
+    def test_set_user_role_reads_group_members_once(
+        self, sample_group_service, sample_group, sample_user, group_member, db_session
+    ):
+        """Membership and role, for both the setter and the target, are one read."""
+        group_id, setter_id, target_id = sample_group.id, sample_user.id, group_member.id
+
+        with count_statements(db_session) as statements:
+            sample_group_service.set_user_role(
+                target_id, setter_id, group_id, GroupRole.Admin
+            )
+
+        reads = [
+            s
+            for s in statements
+            if "group_members" in s and s.lstrip().upper().startswith("SELECT")
+        ]
+        assert len(reads) == 1, reads
+        assert sample_group_service.get_user_role(target_id, group_id) == GroupRole.Admin
+
+    def test_add_user_fans_out_notifications_in_one_insert(
+        self, sample_group_service, sample_group, db_session, user_factory
+    ):
+        """``NotificationService.create`` commits per recipient; the fan-out must
+        not pay three round trips per existing member."""
+        for i in range(5):
+            member = user_factory(email=f"fan{i}@test.com", username=f"fanmember{i}")
+            db_session.execute(
+                group_members.insert().values(
+                    group_id=sample_group.id, user_id=member.id, role=GroupRole.Member.value
+                )
+            )
+        db_session.commit()
+        joiner = user_factory(email="joiner@test.com", username="joiner")
+        group_id, joiner_id = sample_group.id, joiner.id
+
+        with count_statements(db_session) as statements:
+            sample_group_service.add_user(group_id, joiner_id)
+
+        inserts = [
+            s for s in statements if s.lstrip().upper().startswith("INSERT INTO NOTIFICATIONS")
+        ]
+        assert len(inserts) == 1, inserts
+        ns = NotificationService(db_session)
+        # All six prior members (owner + five) were notified.
+        assert sum(len(ns.get_unread(u)) for u in db_session.query(User).all()) == 6
+
+    def test_search_groups_eager_loads_settings_and_bot_sources(
+        self, sample_group_service, sample_user, db_session
+    ):
+        """The search response renders both per result, so they must not be
+        lazy-loaded one group at a time."""
+
+        def make(n, offset):
+            for i in range(n):
+                group = Group(name=f"searchable-{offset + i}", is_public=True)
+                db_session.add(group)
+                db_session.flush()
+                db_session.add(GroupSettings(group_id=group.id))
+            db_session.commit()
+
+        def render(limit):
+            with count_statements(db_session) as statements:
+                for g in sample_group_service.search_groups(query="searchable", limit=limit):
+                    _ = bool(g.bot_sources), g.settings
+            return statements
+
+        make(3, 0)
+        small = render(50)
+        make(27, 100)
+        large = render(50)
+
+        assert len(large) == len(small), (small, large)
+        assert len(small) <= 3

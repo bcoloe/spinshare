@@ -13,6 +13,9 @@ MIN_GUESS_USER_CAP = 3
 MAX_GUESS_USER_CAP = 10
 MAX_DAILY_NOMINATION_LIMIT = 50
 MAX_DEALER_ROLLS_PER_DAY = 10
+MAX_PRIORITY_PICK_THRESHOLD = 100
+# Largest value an int4 primary key can hold.
+MAX_PK = 2**31 - 1
 
 
 class GroupBase(BaseModel):
@@ -125,6 +128,19 @@ class GroupSettingsUpdate(BaseModel):
             return v
         if v < 1 or v > MAX_DEALER_ROLLS_PER_DAY:
             raise ValueError(f"Must be between 1 and {MAX_DEALER_ROLLS_PER_DAY}")
+        return v
+
+    @field_validator("priority_pick_threshold")
+    @classmethod
+    def validate_priority_pick_threshold(cls, v):
+        # None disables the feature; any stored value is a credit *cost*, so it has
+        # to be a positive number the ledger can actually debit. A negative value
+        # would read as "enabled" while inverting every comparison that guards a
+        # promotion, and an unbounded one overflows the int4 column on write.
+        if v is None:
+            return v
+        if v < 1 or v > MAX_PRIORITY_PICK_THRESHOLD:
+            raise ValueError(f"Must be between 1 and {MAX_PRIORITY_PICK_THRESHOLD}")
         return v
 
     @field_validator("timezone")
@@ -258,13 +274,15 @@ class RoleUpdateRequest(BaseModel):
 class AddMemberRequest(BaseModel):
     """Schema for adding a user to a group by admin"""
 
-    user_id: int
+    # Primary keys are positive int4; reject anything that could never name a row
+    # rather than spending a query on it.
+    user_id: int = Field(..., gt=0, le=MAX_PK)
 
 
 class JoinGroupRequest(BaseModel):
     """Join group request schema"""
 
-    id: int
+    id: int = Field(..., gt=0, le=MAX_PK)
 
 
 class JoinGroupResponse(BaseModel):

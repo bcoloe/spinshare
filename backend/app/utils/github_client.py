@@ -43,16 +43,27 @@ def create_issue(*, title: str, body: str, label: str) -> GitHubIssueResult:
             detail="GitHub integration not configured",
         )
 
-    resp = httpx.post(
-        f"{_GITHUB_API_BASE}/repos/{settings.GITHUB_REPO}/issues",
-        json={"title": title, "body": body, "labels": [label]},
-        headers={
-            "Authorization": f"Bearer {settings.GITHUB_TOKEN}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": _GITHUB_API_VERSION,
-        },
-        timeout=10,
-    )
+    try:
+        resp = httpx.post(
+            f"{_GITHUB_API_BASE}/repos/{settings.GITHUB_REPO}/issues",
+            json={"title": title, "body": body, "labels": [label]},
+            headers={
+                "Authorization": f"Bearer {settings.GITHUB_TOKEN}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": _GITHUB_API_VERSION,
+            },
+            timeout=10,
+        )
+    except httpx.HTTPError as exc:
+        # Transport failures are a different exception tree from the HTTP errors
+        # handled below, and nothing upstream caught them: GitHub being briefly
+        # unreachable returned a 500 with a stack trace from POST /feedback/,
+        # even though this function's contract promises 502/503.
+        log.error("GitHub issue creation failed at the transport layer: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach GitHub",
+        ) from exc
 
     if not resp.is_success:
         log.error(
