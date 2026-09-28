@@ -571,6 +571,11 @@ class GroupService:
                 detail=f"Unable to find group with id {group_id}",
             )
 
+        # Stamped in one query: GroupAlbum.status would otherwise load every review
+        # (comments included) of every album in the group just to test existence.
+        from app.services.album_service import AlbumService  # local: album_service imports this module
+
+        AlbumService(self.db).stamp_review_presence(group.albums)
         albums_reviewed = sum(1 for a in group.albums if a.status == "reviewed")
         member_ids = {m.id for m in group.members}
 

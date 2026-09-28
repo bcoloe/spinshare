@@ -287,13 +287,24 @@ class DealerService:
         Queued (pre-drawn, unrevealed) albums count as available: they will be
         revealed by the user's next rolls, or purged back to the pool.
         """
-        return len(self._eligible_album_ids(group_id, user_id, exclude_queued=False))
+        return self._eligible_album_query(group_id, user_id, exclude_queued=False).count()
 
     # ==================== HELPERS ====================
 
     def _eligible_album_ids(
         self, group_id: int, user_id: int, *, exclude_queued: bool = True
     ) -> list[int]:
+        """Distinct album ids from _eligible_album_query."""
+        return [
+            row[0]
+            for row in self._eligible_album_query(
+                group_id, user_id, exclude_queued=exclude_queued
+            ).all()
+        ]
+
+    def _eligible_album_query(
+        self, group_id: int, user_id: int, *, exclude_queued: bool = True
+    ):
         """Distinct albums still dealable to this user, minus albums already dealt to
         the user, minus albums the user has a published review for.
 
@@ -325,15 +336,10 @@ class DealerService:
                 GroupAlbum.group_id == group_id, GroupAlbum.selected_date.is_(None)
             )
 
-        return [
-            row[0]
-            for row in query.filter(
-                GroupAlbum.album_id.notin_(dealt_subq),
-                GroupAlbum.album_id.notin_(reviewed_subq),
-            )
-            .distinct()
-            .all()
-        ]
+        return query.filter(
+            GroupAlbum.album_id.notin_(dealt_subq),
+            GroupAlbum.album_id.notin_(reviewed_subq),
+        ).distinct()
 
     def _is_global(self, group_id: int) -> bool:
         return bool(
@@ -376,10 +382,7 @@ class DealerService:
         rows = (
             self.db.query(GroupAlbum, subq.c.nomination_count)
             .join(subq, GroupAlbum.id == subq.c.canonical_id)
-            .options(
-                selectinload(GroupAlbum.albums).selectinload(Album.genres),
-                selectinload(GroupAlbum.albums).selectinload(Album.reviews),
-            )
+            .options(selectinload(GroupAlbum.albums).selectinload(Album.genres))
             .all()
         )
 
@@ -398,6 +401,10 @@ class DealerService:
             ga.nomination_count = count
             ga.nominator_user_ids = nominators_by_album.get(ga.album_id, [])
             result[ga.album_id] = ga
+
+        from app.services.album_service import AlbumService
+
+        AlbumService(self.db).stamp_review_presence(list(result.values()))
         return result
 
     def ensure_global_canonical_rows(self, global_group_id: int, album_ids: list[int]) -> None:

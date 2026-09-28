@@ -69,7 +69,12 @@ export default function GroupPage() {
   const isMember = !!group?.current_user_role
   const canAnonymouslyView = !!group && (group.is_global || group.is_bot_group)
   const { data: members = [], isLoading: membersLoading } = useGroupMembers(gid, isMember || canAnonymouslyView)
-  const { data: historyAlbums = [], isLoading: albumsLoading } = useGroupHistory(gid, isMember || canAnonymouslyView)
+  // Only the Review History tab renders the history, and it is the heaviest read
+  // in the app — don't pay for it on every visit to the spin tab.
+  const { data: historyAlbums = [], isLoading: albumsLoading } = useGroupHistory(
+    gid,
+    (isMember || canAnonymouslyView) && tab === 'history',
+  )
   const { data: nominationCount } = useNominationCount(gid, isMember)
   const joinGroup = useJoinGroup()
 

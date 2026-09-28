@@ -18,6 +18,38 @@ def _mark_selected(db_session, group_album: GroupAlbum):
 # ==================== DAILY SELECTION ====================
 
 
+
+class TestListsDoNotLoadReviews:
+    """List reads stamp has_any_review instead of loading every album review."""
+
+    def _add_review(self, db_session, ga, user):
+        from app.models import Review
+
+        db_session.add(Review(album_id=ga.album_id, user_id=user.id, rating=6.0))
+        db_session.commit()
+
+    def test_get_todays_albums(self, db_session, group_album_service, sample_group, sample_user, sample_group_album):
+        _mark_selected(db_session, sample_group_album)
+        self._add_review(db_session, sample_group_album, sample_user)
+        db_session.expire_all()
+
+        [ga] = group_album_service.get_todays_albums(sample_group.id, sample_user)
+
+        assert ga.status == "reviewed"
+        assert "reviews" not in ga.albums.__dict__
+
+    def test_get_catchup_albums(self, db_session, group_album_service, sample_group, sample_user, sample_group_album):
+        sample_group.settings.catch_up_enabled = True
+        sample_group_album.selected_date = datetime.now(tz=timezone.utc) - timedelta(days=2)
+        db_session.commit()
+        db_session.expire_all()
+
+        [ga] = group_album_service.get_catchup_albums(sample_group.id, sample_user)
+
+        assert ga.status == "selected"
+        assert "reviews" not in ga.albums.__dict__
+
+
 class TestSelectDailyAlbums:
     def test_select_one_album(
         self, group_album_service, sample_group, sample_group_album

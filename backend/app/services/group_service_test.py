@@ -11,6 +11,23 @@ from fastapi import HTTPException, status
 from pydantic import ValidationError
 
 
+
+class TestGroupStatsDoesNotLoadReviews:
+    def test_reviewed_count_without_review_load(self, db_session, sample_group_service, sample_group, sample_user, sample_group_album):
+        from app.models import Review
+
+        sample_group_album.selected_date = datetime.now(timezone.utc)
+        db_session.add(Review(album_id=sample_group_album.album_id, user_id=sample_user.id, rating=7.0))
+        db_session.commit()
+        db_session.expire_all()
+
+        stats = sample_group_service.get_group_stats(sample_group.id)
+
+        assert stats["albums_reviewed"] == 1
+        ga = db_session.get(GroupAlbum, sample_group_album.id)
+        assert "reviews" not in ga.albums.__dict__
+
+
 class TestGroupServiceCreate:
     def test_create_group_successful(self, sample_group_service, sample_user):
         """Test successful creation of a new group"""

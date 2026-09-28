@@ -14,6 +14,68 @@ def mock_ytmusic(request):
         yield
 
 
+class TestStampReviewPresence:
+    """GroupAlbum.status must be answerable without loading an album's reviews."""
+
+    def _select(self, db_session, ga):
+        from datetime import datetime, timezone
+
+        ga.selected_date = datetime.now(timezone.utc)
+        db_session.commit()
+
+    def test_stamps_reviewed_and_unreviewed(
+        self, db_session, album_service, sample_group, sample_user, sample_group_album
+    ):
+        from app.models import Review
+
+        other_album = Album(spotify_album_id="spotify_other", title="Kid A", artist="Radiohead")
+        db_session.add(other_album)
+        db_session.commit()
+        other_ga = GroupAlbum(group_id=sample_group.id, album_id=other_album.id, added_by=sample_user.id)
+        db_session.add(other_ga)
+        # A draft still counts as "has a review", matching the relationship-based check.
+        db_session.add(Review(album_id=sample_group_album.album_id, user_id=sample_user.id, is_draft=True))
+        db_session.commit()
+        self._select(db_session, sample_group_album)
+        self._select(db_session, other_ga)
+
+        album_service.stamp_review_presence([sample_group_album, other_ga])
+
+        assert sample_group_album.has_any_review is True
+        assert other_ga.has_any_review is False
+        assert sample_group_album.status == "reviewed"
+        assert other_ga.status == "selected"
+
+    def test_status_does_not_load_reviews_once_stamped(
+        self, db_session, album_service, sample_group_album
+    ):
+        self._select(db_session, sample_group_album)
+        db_session.expire_all()
+
+        album_service.stamp_review_presence([sample_group_album])
+        _ = sample_group_album.status
+
+        assert "reviews" not in sample_group_album.albums.__dict__
+
+    def test_get_group_albums_reports_status_without_review_load(
+        self, db_session, album_service, sample_group, sample_user, sample_group_album
+    ):
+        from app.models import Review
+
+        db_session.add(Review(album_id=sample_group_album.album_id, user_id=sample_user.id, rating=7.0))
+        db_session.commit()
+        self._select(db_session, sample_group_album)
+        db_session.expire_all()
+
+        [ga] = album_service.get_group_albums(sample_group.id)
+
+        assert ga.status == "reviewed"
+        assert "reviews" not in ga.albums.__dict__
+
+    def test_empty_list_is_a_no_op(self, album_service):
+        album_service.stamp_review_presence([])
+
+
 class TestAlbumServiceCreate:
     def test_create_album_success(self, album_service):
         data = AlbumCreate(

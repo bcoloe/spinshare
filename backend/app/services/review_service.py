@@ -49,7 +49,8 @@ class ReviewService:
         if not data.is_draft:
             self._notify_co_reviewers(album_id, user_id)
             ParticipationService(self.db).award_review_credit(user_id, review)
-        self._refresh_group_album_avgs(album_id)
+            # Drafts never count toward averages, so only a published review moves them.
+            self._refresh_group_album_avgs(album_id)
         review.is_first_review = (
             not data.is_draft
             and group_id is not None
@@ -228,31 +229,31 @@ class ReviewService:
         Buckets span [0,1), [1,2), ..., [8,9), [9,10] (last bucket is inclusive on both ends).
         Draft reviews and unrated reviews are excluded.
         """
-        reviews = (
-            self.db.query(Review)
-            .filter(
-                Review.album_id == album_id,
-                Review.is_draft == False,  # noqa: E712
-                Review.rating.isnot(None),
-            )
-            .all()
+        # Ratings only — the full rows would carry every comment along for the ride.
+        ratings = list(
+            self.db.scalars(
+                select(Review.rating).where(
+                    Review.album_id == album_id,
+                    Review.is_draft == False,  # noqa: E712
+                    Review.rating.isnot(None),
+                )
+            ).all()
         )
 
         buckets = [
             HistogramBucket(
                 bucket_start=i,
                 bucket_end=i + 1,
-                count=sum(1 for r in reviews if i <= r.rating < (i + 1 if i < 9 else 11)),
+                count=sum(1 for r in ratings if i <= r < (i + 1 if i < 9 else 11)),
             )
             for i in range(10)
         ]
 
-        if not reviews:
+        if not ratings:
             return AlbumStatsResponse(
                 average_rating=None, rating_stddev=None, review_count=0, histogram=buckets
             )
 
-        ratings = [r.rating for r in reviews]
         avg = round(sum(ratings) / len(ratings), 2)
         # Population std dev — a spread/contentiousness measure (0.0 for a single rating).
         stddev = round(statistics.pstdev(ratings), 2)
@@ -419,7 +420,9 @@ class ReviewService:
         if just_published:
             self._notify_co_reviewers(review.album_id, user_id)
             ParticipationService(self.db).award_review_credit(user_id, review)
-        self._refresh_group_album_avgs(review.album_id)
+        # A draft staying a draft (every autosave) cannot move an average.
+        if not (was_draft and review.is_draft):
+            self._refresh_group_album_avgs(review.album_id)
 
         review.is_first_review = (
             just_published
@@ -445,6 +448,8 @@ class ReviewService:
                 detail="You can only delete your own reviews",
             )
         album_id = review.album_id
+        was_published = not review.is_draft
         self.db.delete(review)
         self.db.commit()
-        self._refresh_group_album_avgs(album_id)
+        if was_published:
+            self._refresh_group_album_avgs(album_id)
