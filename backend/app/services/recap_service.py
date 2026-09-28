@@ -2,8 +2,13 @@
 
 A recap is a frozen snapshot of one group's activity over a completed Mon–Sun
 week (in the group's timezone). It is generated once and stored as an immutable
-JSON blob so later views never change. See ``app/schemas/recap.py`` for the
-payload shape and the plan in ``plans/`` for the design rationale.
+JSON blob so later views never change.
+
+The favorite / least favorite section is the exception to the Mon–Sun window: it
+judges albums drawn over a window lagged ``_FAVORITES_LAG_DAYS`` earlier (Fri–Thu)
+so late-week picks get time to collect reviews before they're ranked. See
+``app/schemas/recap.py`` for the payload shape and the plan in ``plans/`` for the
+design rationale.
 """
 
 from datetime import date, timedelta
@@ -40,6 +45,12 @@ from app.utils.time_helpers import DEFAULT_TZ, completed_week_bounds, week_bound
 # "favorite/least favorite weighted by number of reviews" is consistent app-wide.
 _BAYESIAN_MIN_VOTES = 3
 _PRIOR_MEAN = 5.0  # neutral fallback when a group has no rating history yet
+
+# Favorites consider albums drawn in the 7 days ending this many days before the
+# recap week ends, so every candidate has had at least this long to be reviewed.
+# Weekend picks roll into the following week's recap rather than being judged
+# on a day or two of reviews.
+_FAVORITES_LAG_DAYS = 3
 
 
 class RecapService:
@@ -94,6 +105,8 @@ class RecapService:
         week_end = week_start + timedelta(days=7)
         start, end = week_bounds_for(week_start, tz_name)
         member_ids = [m.id for m in group.members]
+        fav_week_start = week_start - timedelta(days=_FAVORITES_LAG_DAYS)
+        fav_start, fav_end = week_bounds_for(fav_week_start, tz_name)
 
         data = RecapData(
             albums_added=self._albums_added(group_id, start, end),
@@ -101,8 +114,12 @@ class RecapService:
             favorite_album=None,
             least_favorite_album=None,
             guess_accuracy=self._guess_accuracy(group_id, start, end),
+            favorites_window_start=fav_week_start,
+            favorites_window_end=fav_week_start + timedelta(days=7),
         )
-        favorite, least_favorite = self._favorite_albums(group_id, member_ids, start, end)
+        favorite, least_favorite = self._favorite_albums(
+            group_id, member_ids, fav_start, fav_end, reviews_before=end
+        )
         data.favorite_album = favorite
         data.least_favorite_album = least_favorite
 
@@ -110,7 +127,7 @@ class RecapService:
             group_id=group_id,
             week_start=week_start,
             week_end=week_end,
-            data=data.model_dump(),
+            data=data.model_dump(mode="json"),
         )
         self.db.add(recap)
         self.db.commit()
@@ -157,9 +174,16 @@ class RecapService:
         return [LeaderboardEntry(username=u, count=n) for u, n in rows]
 
     def _favorite_albums(
-        self, group_id: int, member_ids: list[int], start, end
+        self, group_id: int, member_ids: list[int], drawn_start, drawn_end, reviews_before
     ) -> tuple[RecapAlbumCard | None, RecapAlbumCard | None]:
-        """Highest / lowest Bayesian-weighted albums among those drawn this week.
+        """Highest / lowest Bayesian-weighted albums among those drawn in
+        ``[drawn_start, drawn_end)`` (the lagged favorites window).
+
+        Scores (and the group prior) only count reviews created before
+        ``reviews_before`` (the recap week's end), so a backfill approximates what
+        the group knew at the time. This is best-effort: ``reviewed_at`` is the
+        review's creation time, so a draft created before the cutoff but published
+        after it still counts, and later rating edits are reflected.
 
         Only albums with at least one non-draft member review qualify. Least
         favorite is omitted unless at least two distinct albums qualify (so a
@@ -171,8 +195,8 @@ class RecapService:
                 self.db.query(GroupAlbum.album_id)
                 .filter(
                     GroupAlbum.group_id == group_id,
-                    GroupAlbum.selected_date >= start,
-                    GroupAlbum.selected_date < end,
+                    GroupAlbum.selected_date >= drawn_start,
+                    GroupAlbum.selected_date < drawn_end,
                 )
                 .distinct()
                 .all()
@@ -194,6 +218,7 @@ class RecapService:
                     Review.is_draft.is_(False),
                     Review.user_id.in_(member_ids),
                     Review.rating.isnot(None),
+                    Review.reviewed_at < reviews_before,
                 )
                 .group_by(Review.album_id)
                 .all()
@@ -211,6 +236,7 @@ class RecapService:
                 Review.is_draft.is_(False),
                 Review.user_id.in_(member_ids),
                 Review.rating.isnot(None),
+                Review.reviewed_at < reviews_before,
             )
             .scalar()
         )

@@ -66,7 +66,7 @@ export default function RecapPopup({ groupId }: { groupId: number }) {
         <Text size="sm">
           The weekly recap for <strong>{recap.group_name}</strong> (
           {formatWeekRange(recap.week_start, recap.week_end)}) is ready. See who added and
-          reviewed the most, the week's favorite album, and how the group did at guessing.
+          reviewed the most, the group's favorite recent pick, and how the group did at guessing.
         </Text>
         <Group justify="flex-end" gap="sm">
           <Button variant="subtle" color="gray" onClick={handleDismiss}>

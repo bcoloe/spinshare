@@ -34,6 +34,9 @@ export interface RecapData {
   favorite_album: RecapAlbumCard | null
   least_favorite_album: RecapAlbumCard | null
   guess_accuracy: GuessAccuracy
+  // Draw-date window (exclusive end) the favorites were picked from; absent on older recaps.
+  favorites_window_start?: string | null
+  favorites_window_end?: string | null
 }
 
 export interface RecapResponse {

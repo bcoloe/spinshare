@@ -47,6 +47,10 @@ class RecapData(BaseModel):
     favorite_album: RecapAlbumCard | None
     least_favorite_album: RecapAlbumCard | None
     guess_accuracy: GuessAccuracy
+    # Draw-date window (inclusive start, exclusive end, group tz) the favorites
+    # were chosen from. Lagged behind the recap week; absent on older recaps.
+    favorites_window_start: date | None = None
+    favorites_window_end: date | None = None
 
 
 class RecapResponse(BaseModel):
