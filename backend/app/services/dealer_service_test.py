@@ -54,6 +54,28 @@ def _set_rolls_per_day(db_session, group, n: int):
 # ==================== ROLL ====================
 
 
+
+class TestCanonicalGroupAlbumsDoNotLoadReviews:
+    """canonical_group_albums backs history, deals, and the public spin; it must stamp."""
+
+    def test_stamps_instead_of_loading_reviews(self, db_session, dealer_service, sample_group, sample_user, nominate_albums):
+        reviewed_ga, unreviewed_ga = nominate_albums(sample_group, 2, prefix="canon")
+        db_session.add(Review(album_id=reviewed_ga.album_id, user_id=sample_user.id, rating=5.0))
+        for ga in (reviewed_ga, unreviewed_ga):
+            ga.selected_date = datetime.now(timezone.utc)
+        db_session.commit()
+        db_session.expire_all()
+
+        canonical = dealer_service.canonical_group_albums(
+            sample_group.id, [reviewed_ga.album_id, unreviewed_ga.album_id]
+        )
+
+        assert canonical[reviewed_ga.album_id].status == "reviewed"
+        assert canonical[unreviewed_ga.album_id].status == "selected"
+        for ga in canonical.values():
+            assert "reviews" not in ga.albums.__dict__
+
+
 class TestDealerRoll:
     def test_roll_reveals_a_deal(self, dealer_service, dealer_group, sample_user, nominate_albums):
         nominated = nominate_albums(dealer_group, 3)

@@ -56,6 +56,9 @@ export function useTodaysAlbums(groupId: number) {
     queryKey: ['groups', groupId, 'albums', 'today'],
     queryFn: () => albumService.getTodaysAlbums(groupId),
     enabled: !!groupId,
+    // A tab left open overnight must pick up the new day's spin on return;
+    // nothing else refreshes it at rollover. Cheap read, so it opts back in.
+    refetchOnWindowFocus: true,
   })
 }
 
@@ -75,6 +78,8 @@ export function useTriggerDailySelection(groupId: number) {
     onSuccess: (albums) => {
       qc.setQueryData(['groups', groupId, 'albums', 'today'], albums)
       qc.invalidateQueries({ queryKey: ['groups', groupId, 'nominations', 'count'] })
+      // Newly drawn albums join the history, which otherwise stays cached for minutes.
+      qc.invalidateQueries({ queryKey: ['groups', groupId, 'albums', 'history'] })
     },
   })
 }
@@ -84,6 +89,8 @@ export function useTodaysDeals(groupId: number, enabled: boolean) {
     queryKey: ['groups', groupId, 'deals', 'today'],
     queryFn: () => albumService.getTodaysDeals(groupId),
     enabled: !!groupId && enabled,
+    // Same day-rollover concern as useTodaysAlbums.
+    refetchOnWindowFocus: true,
   })
 }
 

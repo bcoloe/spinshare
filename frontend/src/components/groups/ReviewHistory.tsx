@@ -374,7 +374,8 @@ function PeerReviewPanel({ ga, review, members, nominators, groupId, allowGuessi
   const [editRating, setEditRating] = useState<number>(review.rating ?? 0)
   const [editComment, setEditComment] = useState(review.comment ?? '')
   const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set())
-  const updateReview = useUpdateReview(ga.album_id)
+  // groupId makes the edit invalidate this group's history (its avg_rating column).
+  const updateReview = useUpdateReview(ga.album_id, groupId)
 
   useEffect(() => {
     if (startInEditMode) setEditMode(true)
