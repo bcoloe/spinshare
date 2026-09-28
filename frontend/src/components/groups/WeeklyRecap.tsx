@@ -35,7 +35,7 @@ function fmtDay(date: Date): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-// week_end is exclusive (next Monday), so the inclusive last day is one earlier.
+// Range ends are exclusive (e.g. week_end is next Monday), so the inclusive last day is one earlier.
 function formatWeekRange(weekStart: string, weekEnd: string): string {
   const start = parseDate(weekStart)
   const end = parseDate(weekEnd)
@@ -173,7 +173,7 @@ function RecapBody({ recap }: { recap: RecapResponse }) {
       </SimpleGrid>
       <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg">
         <AlbumHighlight
-          label="Favorite of the Week"
+          label="Favorite"
           icon={<IconTrophy size={14} />}
           color="yellow"
           album={data.favorite_album}
@@ -185,6 +185,11 @@ function RecapBody({ recap }: { recap: RecapResponse }) {
           album={data.least_favorite_album}
         />
       </SimpleGrid>
+      {data.favorites_window_start && data.favorites_window_end && (
+        <Text size="xs" c="dimmed" mt={-8}>
+          From albums drawn {formatWeekRange(data.favorites_window_start, data.favorites_window_end)}
+        </Text>
+      )}
       <GuessAccuracyPanel accuracy={data.guess_accuracy} />
     </Stack>
   )

@@ -14,6 +14,8 @@ WEEK_START = week_start_for(date(2026, 7, 27))
 IN_WEEK = datetime(2026, 7, 29, 16, 0, tzinfo=timezone.utc)      # Wed noon ET
 BEFORE_WEEK = datetime(2026, 7, 26, 16, 0, tzinfo=timezone.utc)  # Sun (prior week)
 AFTER_WEEK = datetime(2026, 8, 4, 16, 0, tzinfo=timezone.utc)    # Tue (next week)
+LATE_IN_WEEK = datetime(2026, 8, 1, 16, 0, tzinfo=timezone.utc)  # Sat (after favorites window)
+PRIOR_WEEKEND = datetime(2026, 7, 25, 16, 0, tzinfo=timezone.utc)  # Sat (prior week, in favorites window)
 
 
 @pytest.fixture
@@ -139,6 +141,42 @@ class TestGenerate:
         recap = recap_service.generate_for_group(scenario["group"].id, WEEK_START)
         assert recap.data["favorite_album"]["album_id"] == scenario["a1"].id
         assert recap.data["least_favorite_album"] is None
+
+    def test_favorites_window_recorded(self, recap_service, scenario):
+        recap = recap_service.generate_for_group(scenario["group"].id, WEEK_START)
+        # Lagged 3 days: Fri 7/24 (inclusive) → Fri 7/31 (exclusive).
+        assert recap.data["favorites_window_start"] == "2026-07-24"
+        assert recap.data["favorites_window_end"] == "2026-07-31"
+
+    def test_favorites_exclude_late_week_picks(self, recap_service, scenario, db_session):
+        # Drawn Saturday of the recap week → judged in next week's recap instead.
+        late = _album(db_session, "Late")
+        _ga(db_session, scenario["group"], late, scenario["bob"], IN_WEEK, selected_date=LATE_IN_WEEK)
+        _review(db_session, scenario["alice"], late, 10, LATE_IN_WEEK)
+        _review(db_session, scenario["bob"], late, 10, LATE_IN_WEEK)
+        _review(db_session, scenario["carol"], late, 10, LATE_IN_WEEK)
+        recap = recap_service.generate_for_group(scenario["group"].id, WEEK_START)
+        assert recap.data["favorite_album"]["album_id"] == scenario["a1"].id
+
+    def test_favorites_include_prior_weekend_picks(self, recap_service, scenario, db_session):
+        # Drawn Saturday of the previous week → falls in this recap's lagged window.
+        early = _album(db_session, "Early")
+        _ga(db_session, scenario["group"], early, scenario["bob"], BEFORE_WEEK, selected_date=PRIOR_WEEKEND)
+        _review(db_session, scenario["alice"], early, 10, IN_WEEK)
+        _review(db_session, scenario["bob"], early, 10, IN_WEEK)
+        _review(db_session, scenario["carol"], early, 10, IN_WEEK)
+        recap = recap_service.generate_for_group(scenario["group"].id, WEEK_START)
+        assert recap.data["favorite_album"]["album_id"] == early.id
+
+    def test_favorites_ignore_reviews_after_cutoff(self, recap_service, scenario, db_session):
+        # A review landing after the recap week ends must not affect the scores.
+        dave = _user(db_session, "dave")
+        scenario["group"].members.append(dave)
+        db_session.commit()
+        _review(db_session, dave, scenario["a1"], 1, AFTER_WEEK)
+        recap = recap_service.generate_for_group(scenario["group"].id, WEEK_START)
+        assert recap.data["favorite_album"]["review_count"] == 2
+        assert recap.data["favorite_album"]["avg_rating"] == 8.5
 
     def test_guess_accuracy(self, recap_service, scenario):
         recap = recap_service.generate_for_group(scenario["group"].id, WEEK_START)

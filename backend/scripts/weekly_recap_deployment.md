@@ -12,6 +12,11 @@ options are documented:
 group (in that group's timezone), so the recap is correct no matter when the job runs —
 the only difference between the two options is scheduling robustness.
 
+The favorite / least favorite albums are the exception to the Mon–Sun window: they're
+chosen from albums *drawn* in the Fri–Thu window three days earlier, and are scored
+using only reviews submitted before the recap week ended. That way weekend picks get
+time to collect reviews, and they're judged in the following week's recap instead.
+
 ## Prerequisites
 
 - The `spinshare` repo is checked out and the backend virtualenv is built at `backend/.venv`.
