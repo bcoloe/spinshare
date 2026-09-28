@@ -35,9 +35,14 @@ class GroupAlbum(Base):
     def status(self) -> str:
         if self.selected_date is None:
             return "pending"
-        if self.albums and self.albums.reviews:
-            return "reviewed"
-        return "selected"
+        # List endpoints stamp has_any_review in one batched query (see
+        # AlbumService.stamp_review_presence) so serializing a long history never
+        # loads the album's reviews. The relationship walk is the fallback for
+        # single rows that were not stamped.
+        has_review = getattr(self, "has_any_review", None)
+        if has_review is None:
+            has_review = bool(self.albums and self.albums.reviews)
+        return "reviewed" if has_review else "selected"
 
     @status.expression
     def status(cls):

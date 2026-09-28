@@ -12,13 +12,13 @@ _IGNORED_GENRES: frozenset[str] = frozenset({"music", "music videos", "musica"})
 # Sourced from the shared backfill helper so routers and the service agree on one value.
 from app.utils.wikipedia_backfill import WIKIPEDIA_TTL as _WIKIPEDIA_TTL
 
-from app.models import Album, Group, GroupAlbum, User
+from app.models import Album, Group, GroupAlbum, Review, User
 from app.models.genre import Genre
 from app.schemas.album import AlbumCreate, AlbumLinksUpdate, GroupAlbumStatus, GroupAlbumStatusUpdate
 from app.services import group_service as gs
 from app.utils.ytmusic_client import search_album_browse_id
 from fastapi import HTTPException, status
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -593,23 +593,40 @@ class AlbumService:
         except Exception:
             log.warning("Wikipedia backfill failed for album %d (%r by %r)", album_id, title, artist)
 
+    def stamp_review_presence(self, group_albums: list[GroupAlbum]) -> None:
+        """Set has_any_review on each row so GroupAlbum.status needs no review load.
+
+        One query for the whole list. Eager-loading Album.reviews instead would pull
+        every review (comments included) of every album just to test for existence,
+        which made long history lists by far the most expensive reads in the app.
+        """
+        if not group_albums:
+            return
+        album_ids = {ga.album_id for ga in group_albums}
+        reviewed = set(
+            self.db.scalars(
+                select(Review.album_id).where(Review.album_id.in_(album_ids)).distinct()
+            ).all()
+        )
+        for ga in group_albums:
+            ga.has_any_review = ga.album_id in reviewed
+
     def get_todays_albums(self, group_id: int) -> list[GroupAlbum]:
         """Return albums selected for today in this group."""
         today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         tomorrow_start = today_start + timedelta(days=1)
-        return (
+        gas = (
             self.db.query(GroupAlbum)
             .filter(
                 GroupAlbum.group_id == group_id,
                 GroupAlbum.selected_date >= today_start,
                 GroupAlbum.selected_date < tomorrow_start,
             )
-            .options(
-                selectinload(GroupAlbum.albums).selectinload(Album.genres),
-                selectinload(GroupAlbum.albums).selectinload(Album.reviews),
-            )
+            .options(selectinload(GroupAlbum.albums).selectinload(Album.genres))
             .all()
         )
+        self.stamp_review_presence(gas)
+        return gas
 
     def get_group_albums(
         self, group_id: int, status_filter: str | None = None
@@ -633,10 +650,7 @@ class AlbumService:
         q = (
             self.db.query(GroupAlbum, subq.c.nomination_count)
             .join(subq, GroupAlbum.id == subq.c.canonical_id)
-            .options(
-                selectinload(GroupAlbum.albums).selectinload(Album.genres),
-                selectinload(GroupAlbum.albums).selectinload(Album.reviews),
-            )
+            .options(selectinload(GroupAlbum.albums).selectinload(Album.genres))
         )
         if status_filter:
             q = q.filter(GroupAlbum.status == status_filter)
@@ -667,6 +681,7 @@ class AlbumService:
                 ga.album_id, [ga.added_by] if ga.added_by is not None else []
             )
             result.append(ga)
+        self.stamp_review_presence(result)
         return result
 
     def get_my_nominations(self, user_id: int) -> list[tuple]:
@@ -677,6 +692,7 @@ class AlbumService:
         all_nominations = (
             self.db.query(GroupAlbum)
             .filter(GroupAlbum.added_by == user_id)
+            .options(selectinload(GroupAlbum.albums).selectinload(Album.genres))
             .all()
         )
 

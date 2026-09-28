@@ -556,14 +556,11 @@ class GroupAlbumService:
         results = (
             self.db.query(GroupAlbum)
             .filter(GroupAlbum.id.in_(canonical_id_subq))
-            .options(
-                selectinload(GroupAlbum.albums).selectinload(Album.genres),
-                selectinload(GroupAlbum.albums).selectinload(Album.reviews),
-            )
+            .options(selectinload(GroupAlbum.albums).selectinload(Album.genres))
             .order_by(GroupAlbum.selected_date.desc(), GroupAlbum.id)
             .all()
         )
-
+        self._stamp_review_presence(results)
         return results
 
     def get_todays_albums(self, group_id: int, user: User | None) -> list[GroupAlbum]:
@@ -615,10 +612,7 @@ class GroupAlbumService:
                 GroupAlbum.group_id == group_id,
                 date_in_tz(GroupAlbum.selected_date, tz_name) == target_date,
             )
-            .options(
-                selectinload(GroupAlbum.albums).selectinload(Album.genres),
-                selectinload(GroupAlbum.albums).selectinload(Album.reviews),
-            )
+            .options(selectinload(GroupAlbum.albums).selectinload(Album.genres))
             .order_by(GroupAlbum.id)
             .all()
         )
@@ -630,6 +624,7 @@ class GroupAlbumService:
             if ga.album_id not in seen:
                 seen.add(ga.album_id)
                 canonical.append(ga)
+        self._stamp_review_presence(canonical)
         return canonical
 
     def get_group_activity_for_user(self, user: User) -> list["GroupActivityItem"]:
@@ -673,14 +668,10 @@ class GroupAlbumService:
                 continue
 
             todays = self.get_todays_albums(group.id, user)
-            unreviewed = sum(
-                1
-                for ga in todays
-                if not any(
-                    r.user_id == user.id and not r.is_draft
-                    for r in ga.albums.reviews
-                )
+            reviewed_ids = self._published_review_album_ids(
+                user.id, [ga.album_id for ga in todays]
             )
+            unreviewed = sum(1 for ga in todays if ga.album_id not in reviewed_ids)
             items.append(
                 GroupActivityItem(group_id=group.id, unreviewed_today=unreviewed)
             )
@@ -1011,6 +1002,25 @@ class GroupAlbumService:
         )
 
     # ==================== HELPERS ====================
+
+    def _stamp_review_presence(self, group_albums: list[GroupAlbum]) -> None:
+        from app.services.album_service import AlbumService
+
+        AlbumService(self.db).stamp_review_presence(group_albums)
+
+    def _published_review_album_ids(self, user_id: int, album_ids: list[int]) -> set[int]:
+        """The subset of album_ids the user has a published (non-draft) review for."""
+        if not album_ids:
+            return set()
+        return set(
+            self.db.scalars(
+                select(Review.album_id).where(
+                    Review.user_id == user_id,
+                    Review.album_id.in_(album_ids),
+                    Review.is_draft == False,  # noqa: E712
+                )
+            ).all()
+        )
 
     def _notify_pool_exhausted(
         self, group_id: int, group_name: str, selected: int, requested: int

@@ -24,6 +24,11 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 30_000,
+      // Returning to the tab would otherwise refetch every mounted query — on a
+      // group page that is the whole history, and every byte of it is billed
+      // database transfer. Queries whose freshness matters on return (the
+      // notification bell) opt back in individually.
+      refetchOnWindowFocus: false,
       // Retrying a 401 without credentials can never succeed — settle
       // immediately so callers (e.g. anonymous-viewing redirects) see the
       // error without waiting on a pointless retry/backoff cycle.

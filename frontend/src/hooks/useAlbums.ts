@@ -31,6 +31,10 @@ export function useGroupHistory(groupId: number, enabled = true) {
     queryKey: ['groups', groupId, 'albums', 'history'],
     queryFn: () => albumService.getGroupHistory(groupId),
     enabled: enabled && !!groupId,
+    // Your own reviews, rolls, and guesses invalidate this explicitly, so a long
+    // staleTime only delays other members' changes — and saves a full history
+    // reload every time the tab is revisited.
+    staleTime: 5 * 60_000,
   })
 }
 

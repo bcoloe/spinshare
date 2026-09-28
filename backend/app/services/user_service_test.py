@@ -11,6 +11,40 @@ from app.utils import security
 from fastapi import HTTPException, status
 
 
+class TestUserServiceStats:
+    """get_user_stats counts in SQL; the figures must match the old relationship lengths."""
+
+    def test_counts(self, db_session, sample_user_service, sample_user, sample_group, sample_album):
+        from app.models import Review
+
+        db_session.add_all([
+            GroupAlbum(group_id=sample_group.id, album_id=sample_album.id, added_by=sample_user.id),
+            # Drafts were counted by len(user.reviews), so they still are.
+            Review(album_id=sample_album.id, user_id=sample_user.id, is_draft=True),
+        ])
+        db_session.commit()
+
+        stats = sample_user_service.get_user_stats(sample_user.id)
+
+        assert stats["total_groups"] == 1
+        assert stats["created_groups"] == 1
+        assert stats["total_reviews"] == 1
+        assert stats["albums_added"] == 1
+        assert stats["has_spotify"] is False
+        assert stats["member_since"] == sample_user.created_at
+
+    def test_empty_user(self, sample_user_service, sample_user):
+        stats = sample_user_service.get_user_stats(sample_user.id)
+        assert stats["total_groups"] == 0
+        assert stats["total_reviews"] == 0
+        assert stats["albums_added"] == 0
+
+    def test_missing_user_raises_404(self, sample_user_service):
+        with pytest.raises(HTTPException) as exc_info:
+            sample_user_service.get_user_stats(999_999)
+        assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
+
+
 class TestUserServiceCreate:
     """Test creation endpoints for UserService."""
 

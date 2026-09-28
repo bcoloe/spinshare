@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 import pytest
 from app.models import GroupAlbum
@@ -7,6 +8,64 @@ from app.schemas.album import ReviewCreate, ReviewUpdate
 from app.schemas.notification import NotificationType
 from app.services.notification_service import NotificationService
 from fastapi import HTTPException, status
+
+
+class TestDraftSavesSkipAverageRefresh:
+    """Drafts never count toward group averages, so saving one must not recompute them."""
+
+    def test_creating_a_draft_skips_refresh(self, review_service, sample_album, sample_user):
+        with patch.object(review_service, "_refresh_group_album_avgs") as refresh:
+            review_service.create_review(
+                sample_album.id, sample_user.id, ReviewCreate(comment="hmm", is_draft=True)
+            )
+        refresh.assert_not_called()
+
+    def test_creating_a_published_review_refreshes(self, review_service, sample_album, sample_user):
+        with patch.object(review_service, "_refresh_group_album_avgs") as refresh:
+            review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=7.0))
+        refresh.assert_called_once_with(sample_album.id)
+
+    def test_updating_a_draft_that_stays_a_draft_skips_refresh(
+        self, review_service, sample_album, sample_user
+    ):
+        draft = review_service.create_review(
+            sample_album.id, sample_user.id, ReviewCreate(is_draft=True)
+        )
+        with patch.object(review_service, "_refresh_group_album_avgs") as refresh:
+            review_service.update_review(
+                draft.id, sample_user.id, ReviewUpdate(comment="more thoughts", is_draft=True)
+            )
+        refresh.assert_not_called()
+
+    def test_publishing_a_draft_refreshes(self, review_service, sample_album, sample_user):
+        draft = review_service.create_review(
+            sample_album.id, sample_user.id, ReviewCreate(is_draft=True)
+        )
+        with patch.object(review_service, "_refresh_group_album_avgs") as refresh:
+            review_service.update_review(
+                draft.id, sample_user.id, ReviewUpdate(rating=8.0, is_draft=False)
+            )
+        refresh.assert_called_once_with(sample_album.id)
+
+    def test_unpublishing_refreshes(self, review_service, sample_album, sample_user):
+        review = review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=8.0))
+        with patch.object(review_service, "_refresh_group_album_avgs") as refresh:
+            review_service.update_review(review.id, sample_user.id, ReviewUpdate(is_draft=True))
+        refresh.assert_called_once_with(sample_album.id)
+
+    def test_deleting_a_draft_skips_refresh(self, review_service, sample_album, sample_user):
+        draft = review_service.create_review(
+            sample_album.id, sample_user.id, ReviewCreate(is_draft=True)
+        )
+        with patch.object(review_service, "_refresh_group_album_avgs") as refresh:
+            review_service.delete_review(draft.id, sample_user.id)
+        refresh.assert_not_called()
+
+    def test_deleting_a_published_review_refreshes(self, review_service, sample_album, sample_user):
+        review = review_service.create_review(sample_album.id, sample_user.id, ReviewCreate(rating=8.0))
+        with patch.object(review_service, "_refresh_group_album_avgs") as refresh:
+            review_service.delete_review(review.id, sample_user.id)
+        refresh.assert_called_once_with(sample_album.id)
 
 
 class TestReviewServiceCreate:

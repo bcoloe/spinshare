@@ -22,7 +22,7 @@ from app.schemas.user import (
 )
 from app.utils import security
 from fastapi import HTTPException, status
-from sqlalchemy import delete as sa_delete, exists, select
+from sqlalchemy import delete as sa_delete, exists, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -823,14 +823,24 @@ class UserService:
     # ==================== STATS ====================
 
     def get_user_stats(self, user_id: int) -> dict:
-        """Get user statistics"""
+        """Get user statistics.
+
+        Counted in SQL rather than by loading the relationships: this backs every
+        page's shell, and len(user.reviews) shipped every review comment the user
+        ever wrote just to count them.
+        """
         user = self.get_user_by_id(user_id)
 
+        def count(stmt) -> int:
+            return self.db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+
         return {
-            "total_groups": len(user.groups),
-            "created_groups": len(user.created_groups),
-            "total_reviews": len(user.reviews),
-            "albums_added": len(user.added_albums),
-            "has_spotify": user.spotify_connection is not None,
+            "total_groups": count(select(group_members.c.group_id).where(group_members.c.user_id == user_id)),
+            "created_groups": count(select(Group.id).where(Group.created_by == user_id)),
+            "total_reviews": count(select(Review.id).where(Review.user_id == user_id)),
+            "albums_added": count(select(GroupAlbum.id).where(GroupAlbum.added_by == user_id)),
+            "has_spotify": self.db.scalar(
+                select(exists().where(SpotifyConnection.user_id == user_id))
+            ),
             "member_since": user.created_at,
         }
