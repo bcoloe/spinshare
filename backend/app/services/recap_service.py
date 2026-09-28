@@ -6,8 +6,9 @@ JSON blob so later views never change.
 
 The favorite / least favorite section is the exception to the Mon–Sun window: it
 judges albums drawn over a window lagged ``_FAVORITES_LAG_DAYS`` earlier (Fri–Thu)
-so late-week picks get time to collect reviews before they're ranked. See ``app/schemas/recap.py`` for the
-payload shape and the plan in ``plans/`` for the design rationale.
+so late-week picks get time to collect reviews before they're ranked. See
+``app/schemas/recap.py`` for the payload shape and the plan in ``plans/`` for the
+design rationale.
 """
 
 from datetime import date, timedelta
@@ -178,9 +179,13 @@ class RecapService:
         """Highest / lowest Bayesian-weighted albums among those drawn in
         ``[drawn_start, drawn_end)`` (the lagged favorites window).
 
-        Scores only count reviews submitted before ``reviews_before`` (the recap
-        week's end) so backfills and regenerations reproduce the same snapshot
-        regardless of when they run. Only albums with at least one non-draft member review qualify. Least
+        Scores (and the group prior) only count reviews created before
+        ``reviews_before`` (the recap week's end), so a backfill approximates what
+        the group knew at the time. This is best-effort: ``reviewed_at`` is the
+        review's creation time, so a draft created before the cutoff but published
+        after it still counts, and later rating edits are reflected.
+
+        Only albums with at least one non-draft member review qualify. Least
         favorite is omitted unless at least two distinct albums qualify (so a
         lone reviewed album isn't shown as both best and worst).
         """
@@ -231,6 +236,7 @@ class RecapService:
                 Review.is_draft.is_(False),
                 Review.user_id.in_(member_ids),
                 Review.rating.isnot(None),
+                Review.reviewed_at < reviews_before,
             )
             .scalar()
         )

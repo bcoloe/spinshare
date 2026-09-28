@@ -173,10 +173,16 @@ class TestGenerate:
         dave = _user(db_session, "dave")
         scenario["group"].members.append(dave)
         db_session.commit()
+        baseline = recap_service.generate_for_group(scenario["group"].id, WEEK_START).data["favorite_album"]
         _review(db_session, dave, scenario["a1"], 1, AFTER_WEEK)
-        recap = recap_service.generate_for_group(scenario["group"].id, WEEK_START)
-        assert recap.data["favorite_album"]["review_count"] == 2
-        assert recap.data["favorite_album"]["avg_rating"] == 8.5
+        # Also a late review on a non-candidate album, which would shift the group prior.
+        a3 = db_session.query(Album).filter(Album.title == "A3").one()
+        _review(db_session, dave, a3, 1, AFTER_WEEK)
+        recap = recap_service.generate_for_group(scenario["group"].id, WEEK_START, force=True)
+        fav = recap.data["favorite_album"]
+        assert fav["review_count"] == 2
+        assert fav["avg_rating"] == 8.5
+        assert fav["weighted_score"] == baseline["weighted_score"]
 
     def test_guess_accuracy(self, recap_service, scenario):
         recap = recap_service.generate_for_group(scenario["group"].id, WEEK_START)
