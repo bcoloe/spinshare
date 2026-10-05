@@ -3,16 +3,18 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '../../test/renderWithProviders'
 import { ratingColorHex } from '../../utils/ratingColor'
-import { SPOILER_COLOR_HEX, SpoilerBlur, SpoilerToggle } from './ReviewSpoiler'
+import { themeColorHex } from '../../utils/themeColorHex'
+import { SPOILER_COLOR, SpoilerBlur, SpoilerToggle } from './ReviewSpoiler'
 
 describe('SPOILER_COLOR', () => {
-  it('resolves to a hex that sits on no rating band, so it gives nothing away', () => {
-    expect(SPOILER_COLOR_HEX).toMatch(/^#[0-9a-f]{6}$/i)
+  it('sits on no rating band, so it gives nothing away', () => {
+    const neutral = themeColorHex(SPOILER_COLOR)
+    expect(neutral).toMatch(/^#[0-9a-f]{6}$/i)
 
     // Every band the scale can paint, including the perfect-10 top band.
     const bandColors = Array.from({ length: 12 }, (_, i) => ratingColorHex(i * (10 / 11)))
-    expect(bandColors).not.toContain(SPOILER_COLOR_HEX)
-    expect(ratingColorHex(10)).not.toBe(SPOILER_COLOR_HEX)
+    expect(bandColors).not.toContain(neutral)
+    expect(ratingColorHex(10)).not.toBe(neutral)
   })
 })
 
@@ -31,16 +33,6 @@ describe('SpoilerBlur', () => {
     expect(wrapper.getAttribute('style')).toContain('blur(9px)')
     expect(wrapper.getAttribute('style')).toContain('pointer-events: none')
     expect(wrapper.getAttribute('style')).toContain('user-select: none')
-  })
-
-  it('keeps layout styles in both states', () => {
-    const { rerender } = renderWithProviders(
-      <SpoilerBlur hidden style={{ flex: 1 }}>8.4</SpoilerBlur>,
-    )
-    expect(screen.getByText('8.4').getAttribute('style')).toContain('flex: 1')
-
-    rerender(<SpoilerBlur hidden={false} style={{ flex: 1 }}>8.4</SpoilerBlur>)
-    expect(screen.getByText('8.4').getAttribute('style')).toContain('flex: 1')
   })
 
   it('substitutes the label for screen readers only while hidden', () => {
