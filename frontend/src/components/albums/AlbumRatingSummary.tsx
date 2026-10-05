@@ -10,7 +10,13 @@ import {
   YAxis,
 } from 'recharts'
 import { ratingColor, ratingColorHex } from '../../utils/ratingColor'
-import { SPOILER_COLOR, SPOILER_COLOR_HEX, SpoilerBlur, SpoilerToggle } from './ReviewSpoiler'
+import {
+  SPOILER_COLOR,
+  SPOILER_COLOR_HEX,
+  SPOILER_HINT,
+  SpoilerBlur,
+  SpoilerToggle,
+} from './ReviewSpoiler'
 import type { AlbumStatsResponse } from '../../types/album'
 
 interface Props {
@@ -44,9 +50,7 @@ export default function AlbumRatingSummary({ stats, loading, hidden, onToggleHid
           {onToggleHidden && (
             <Group justify="flex-end" align="center" wrap="nowrap" gap="xs">
               {hidden && (
-                <Text size="xs" c="dimmed" style={{ flex: 1 }}>
-                  Hidden until you post your review.
-                </Text>
+                <Text size="xs" c="dimmed" style={{ flex: 1 }}>{SPOILER_HINT}</Text>
               )}
               <SpoilerToggle hidden={hidden} onToggle={onToggleHidden} subject="global score" />
             </Group>

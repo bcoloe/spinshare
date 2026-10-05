@@ -1,4 +1,4 @@
-import { DEFAULT_THEME, parseThemeColor } from '@mantine/core'
+import { themeColorHex } from './themeColorHex'
 
 /**
  * Shared rating-color utilities used throughout the app.
@@ -72,16 +72,9 @@ export function ratingColor(rating: number | null | undefined): string {
   return (RATING_BANDS.find((band) => rating < band.max) ?? TOP_BAND).color
 }
 
-/**
- * Band color as a hex value.
- *
- * Mantine tokens are resolved through Mantine's own palette rather than
- * transcribed, so the tokens and their hex equivalents cannot drift apart.
- * DEFAULT_THEME is the right source because the app theme (see main.tsx)
- * customizes no palette colors.
- */
+/** Band color as a hex value, for SVG fills and other non-Mantine consumers. */
 export function ratingColorHex(rating: number | null | undefined): string {
-  return parseThemeColor({ color: ratingColor(rating), theme: DEFAULT_THEME }).value
+  return themeColorHex(ratingColor(rating))
 }
 
 /** Translucent band color, for use as a row or card background. */

@@ -15,7 +15,7 @@ import {
   IconSelector,
 } from '@tabler/icons-react'
 import { ratingColor } from '../../utils/ratingColor'
-import { SPOILER_COLOR, SpoilerBlur, SpoilerToggle } from './ReviewSpoiler'
+import { SPOILER_COLOR, SPOILER_HINT, SpoilerBlur, SpoilerToggle } from './ReviewSpoiler'
 import type { AlbumReviewItem } from '../../types/album'
 
 type SortField = 'username' | 'date' | 'rating'
@@ -168,9 +168,13 @@ export default function AlbumReviewsTable({ reviews, loading, hidden, onToggleHi
     [reviews, effectiveField, sortDir],
   )
 
+  // Compared against the field in effect, not the one in state: while hidden
+  // those differ, and a Date header already showing asc has to flip to desc on
+  // a click rather than re-set the pair it is already displaying.
   const toggleSort = (field: SortField) => {
-    if (sortField === field) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
-    else { setSortField(field); setSortDir('asc') }
+    if (effectiveField === field) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    else setSortDir('asc')
+    setSortField(field)
   }
 
   return (
@@ -185,9 +189,7 @@ export default function AlbumReviewsTable({ reviews, loading, hidden, onToggleHi
         </Text>
         {onToggleHidden && (
           <Group gap="xs" align="center" wrap="nowrap">
-            {hidden && (
-              <Text size="xs" c="dimmed">Hidden until you post your review.</Text>
-            )}
+            {hidden && <Text size="xs" c="dimmed">{SPOILER_HINT}</Text>}
             <SpoilerToggle hidden={hidden} onToggle={onToggleHidden} subject="reviews" />
           </Group>
         )}

@@ -131,6 +131,23 @@ describe('AlbumReviewsTable', () => {
     expect(screen.getAllByRole('row')[2]).toHaveTextContent('alex')
   })
 
+  it('still flips the date order on the first click after the guard goes back up', async () => {
+    const { rerender } = renderWithProviders(
+      <AlbumReviewsTable reviews={reviews} loading={false} hidden={false} onToggleHidden={() => {}} />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: /^reviewer/i }))
+
+    rerender(
+      <AlbumReviewsTable reviews={reviews} loading={false} hidden onToggleHidden={() => {}} />,
+    )
+    // Reviewer sort was withdrawn, so Date is in effect and already ascending.
+    expect(screen.getAllByRole('row')[1]).toHaveTextContent('kate')
+
+    // Clicking the header it is showing has to reverse it, not re-set ascending.
+    await userEvent.click(screen.getByRole('button', { name: /^date/i }))
+    expect(screen.getAllByRole('row')[1]).toHaveTextContent('alex')
+  })
+
   it('sorts by reviewer on demand', async () => {
     renderWithProviders(<AlbumReviewsTable reviews={reviews} loading={false} hidden={false} />)
     await userEvent.click(screen.getByRole('button', { name: /^reviewer/i }))

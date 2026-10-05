@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react'
-import { Box, Button, DEFAULT_THEME, parseThemeColor, Tooltip, VisuallyHidden } from '@mantine/core'
+import { Box, Button, Tooltip, VisuallyHidden } from '@mantine/core'
 import { IconEye, IconEyeOff } from '@tabler/icons-react'
+import { themeColorHex } from '../../utils/themeColorHex'
 
 /**
  * Spoiler guard for other people's opinions of an album.
@@ -33,14 +34,18 @@ const BLURRED: CSSProperties = {
  * is no band left to read — and take their color back when the guard lifts.
  *
  * Callers rendering into SVG, where Mantine tokens mean nothing, want the _HEX
- * form. It is resolved through Mantine's own palette rather than transcribed,
- * so the two cannot drift apart.
+ * form.
  */
 export const SPOILER_COLOR = 'gray.5'
-export const SPOILER_COLOR_HEX = parseThemeColor({
-  color: SPOILER_COLOR,
-  theme: DEFAULT_THEME,
-}).value
+export const SPOILER_COLOR_HEX = themeColorHex(SPOILER_COLOR)
+
+/**
+ * The line each guarded section shows beside its toggle.
+ *
+ * Shared so the two cannot be reworded apart — this module owns the rest of the
+ * guard's wording, including the toggle's own labels and tooltip.
+ */
+export const SPOILER_HINT = 'Hidden until you post your review.'
 
 interface SpoilerBlurProps {
   /** Whether to obscure the content. */

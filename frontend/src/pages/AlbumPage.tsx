@@ -338,7 +338,7 @@ function AlbumTracklist({
 export default function AlbumPage() {
   const { albumId: albumIdStr } = useParams<{ albumId: string }>()
   const albumId = Number(albumIdStr)
-  const { user } = useAuth()
+  const { user, isInitializing } = useAuth()
   // Keyed by album so walking to the next album re-arms both guards without an
   // effect — this component is reused across /albums/:albumId, not remounted.
   const [scoreRevealedFor, setScoreRevealedFor] = useState<number | null>(null)
@@ -372,9 +372,18 @@ export default function AlbumPage() {
    * loaded, because guessing either way shows the wrong thing for a moment: a
    * blur that lifts for someone who already reviewed, or a score that flashes
    * at someone who has not.
+   *
+   * That wait has to cover the auth bootstrap too. This route sits outside
+   * ProtectedRoute so guests can read it, which means it renders while the
+   * silent token refresh and /me are still in flight — and during that window
+   * `user` is null, so the myReview query is disabled rather than slow and
+   * reports isLoading: false. Taken at face value a signed-in viewer who has
+   * not reviewed would get the real score and every review in the clear until
+   * /me landed. GroupPage:68 folds isInitializing back in for the same reason.
    */
   const hasPublishedReview = !!myReview && !myReview.is_draft
-  const spoilerApplies = !!user && !hasPublishedReview
+  const viewerLoading = isInitializing || myReviewLoading
+  const spoilerApplies = (isInitializing || !!user) && !hasPublishedReview
 
   /**
    * The two guards are armed separately, and each only when its own section has
@@ -629,7 +638,7 @@ export default function AlbumPage() {
         {/* ── GLOBAL RATING + HISTOGRAM ── */}
         <AlbumRatingSummary
           stats={stats}
-          loading={statsLoading || myReviewLoading}
+          loading={statsLoading || viewerLoading}
           hidden={scoreHidden}
           onToggleHidden={toggleScore}
         />
@@ -648,7 +657,7 @@ export default function AlbumPage() {
         {/* ── REVIEWS TABLE ── */}
         <AlbumReviewsTable
           reviews={reviews}
-          loading={reviewsLoading || myReviewLoading}
+          loading={reviewsLoading || viewerLoading}
           hidden={reviewsHidden}
           onToggleHidden={toggleReviews}
         />
