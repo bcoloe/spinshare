@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
-import { ratingColor, ratingColorHex } from '../utils/ratingColor'
+import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import {
   ActionIcon,
@@ -12,11 +11,9 @@ import {
   ScrollArea,
   Skeleton,
   Stack,
-  Table,
   Text,
   Title,
   Tooltip,
-  UnstyledButton,
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
@@ -25,27 +22,15 @@ import {
   IconBrandSpotify,
   IconBrandWikipedia,
   IconBrandYoutube,
-  IconChevronDown,
-  IconChevronRight,
-  IconChevronUp,
   IconExternalLink,
   IconHeart,
   IconHeartFilled,
   IconMusic,
   IconPlaylistAdd,
-  IconSelector,
 } from '@tabler/icons-react'
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  ResponsiveContainer,
-  Tooltip as RechartsTooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
 import AppShell from '../components/layout/AppShell'
+import AlbumRatingSummary from '../components/albums/AlbumRatingSummary'
+import AlbumReviewsTable from '../components/albums/AlbumReviewsTable'
 import LinkRepairControl from '../components/albums/LinkRepairControl'
 import NominationBadge from '../components/albums/NominationBadge'
 import PlaylistPickerModal, { type PickablePlaylist } from '../components/spin/PlaylistPickerModal'
@@ -69,12 +54,6 @@ import {
   addSongsToAppleMusicPlaylist,
 } from '../services/appleMusicApiClient'
 import type { UnifiedTrack } from '../context/PlayerContext'
-import type { AlbumReviewItem } from '../types/album'
-
-// ==================== TYPES ====================
-
-type SortField = 'username' | 'date' | 'rating'
-type SortDir = 'asc' | 'desc'
 
 // ==================== HELPERS ====================
 
@@ -83,33 +62,6 @@ function formatTrackDuration(ms: number): string {
   const min = Math.floor(totalSec / 60)
   const sec = totalSec % 60
   return `${min}:${sec.toString().padStart(2, '0')}`
-}
-
-
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  })
-}
-
-function sortReviews(items: AlbumReviewItem[], field: SortField, dir: SortDir): AlbumReviewItem[] {
-  return [...items].sort((a, b) => {
-    let av: string | number = ''
-    let bv: string | number = ''
-    switch (field) {
-      case 'username': av = a.username;   bv = b.username;   break
-      case 'date':     av = a.reviewed_at; bv = b.reviewed_at; break
-      case 'rating':   av = a.rating ?? 0; bv = b.rating ?? 0; break
-    }
-    if (typeof av === 'number' && typeof bv === 'number') {
-      return dir === 'asc' ? av - bv : bv - av
-    }
-    return dir === 'asc'
-      ? String(av).localeCompare(String(bv))
-      : String(bv).localeCompare(String(av))
-  })
 }
 
 // ==================== ALBUM TRACKLIST ====================
@@ -381,90 +333,16 @@ function AlbumTracklist({
   )
 }
 
-// ==================== SORT BUTTON ====================
-
-interface SortButtonProps {
-  field: SortField
-  label: string
-  active: SortField
-  dir: SortDir
-  onClick: (f: SortField) => void
-}
-
-function SortButton({ field, label, active, dir, onClick }: SortButtonProps) {
-  const Icon = active !== field ? IconSelector : dir === 'asc' ? IconChevronUp : IconChevronDown
-  return (
-    <UnstyledButton
-      onClick={() => onClick(field)}
-      style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}
-      c="dimmed"
-    >
-      {label}
-      <Icon size={13} />
-    </UnstyledButton>
-  )
-}
-
-// ==================== REVIEW ROW ====================
-
-interface ReviewRowProps {
-  item: AlbumReviewItem
-  isExpanded: boolean
-  onToggle: () => void
-}
-
-function ReviewRow({ item, isExpanded, onToggle }: ReviewRowProps) {
-  return (
-    <>
-      <Table.Tr style={{ cursor: 'pointer' }} onClick={onToggle}>
-        <Table.Td>
-          <Text size="sm" fw={500}>{item.username}</Text>
-        </Table.Td>
-        <Table.Td>
-          <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-            {formatDate(item.reviewed_at)}
-          </Text>
-        </Table.Td>
-        <Table.Td>
-          <Text size="sm" fw={700} c={ratingColor(item.rating)}>
-            {item.rating ?? '—'}
-          </Text>
-        </Table.Td>
-        <Table.Td>
-          {isExpanded ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
-        </Table.Td>
-      </Table.Tr>
-
-      {isExpanded && (
-        <Table.Tr>
-          <Table.Td
-            colSpan={4}
-            style={{ background: 'var(--mantine-color-dark-7)', padding: '12px 20px' }}
-          >
-            <Text
-              size="sm"
-              c={item.comment ? undefined : 'dimmed'}
-              fs={item.comment ? 'italic' : undefined}
-              style={{ whiteSpace: 'pre-wrap' }}
-            >
-              {item.comment ? `"${item.comment}"` : 'No notes left.'}
-            </Text>
-          </Table.Td>
-        </Table.Tr>
-      )}
-    </>
-  )
-}
-
 // ==================== MAIN PAGE ====================
 
 export default function AlbumPage() {
   const { albumId: albumIdStr } = useParams<{ albumId: string }>()
   const albumId = Number(albumIdStr)
   const { user } = useAuth()
-  const [sortField, setSortField] = useState<SortField>('date')
-  const [sortDir, setSortDir] = useState<SortDir>('desc')
-  const [expandedId, setExpandedId] = useState<number | null>(null)
+  // Keyed by album so walking to the next album re-arms both guards without an
+  // effect — this component is reused across /albums/:albumId, not remounted.
+  const [scoreRevealedFor, setScoreRevealedFor] = useState<number | null>(null)
+  const [reviewsRevealedFor, setReviewsRevealedFor] = useState<number | null>(null)
 
   const { data: album, isLoading: albumLoading } = useAlbumDetails(albumId)
   const { data: reviews = [], isLoading: reviewsLoading } = useAlbumReviews(albumId)
@@ -482,15 +360,40 @@ export default function AlbumPage() {
     playInAppleMusic,
   } = usePlayer()
 
-  const sortedReviews = useMemo(
-    () => sortReviews(reviews, sortField, sortDir),
-    [reviews, sortField, sortDir],
-  )
+  /**
+   * Other people's opinions stay behind a blur until this viewer has published
+   * their own review, so the group's verdict cannot anchor theirs.
+   *
+   * A draft does not count — it is invisible to everyone else, so its author
+   * has not yet put anything on the line. Signed-out visitors have no review
+   * to anchor and see the page as they always have.
+   *
+   * Both sections stay on their skeletons until the viewer's own review has
+   * loaded, because guessing either way shows the wrong thing for a moment: a
+   * blur that lifts for someone who already reviewed, or a score that flashes
+   * at someone who has not.
+   */
+  const hasPublishedReview = !!myReview && !myReview.is_draft
+  const spoilerApplies = !!user && !hasPublishedReview
 
-  const toggleSort = (field: SortField) => {
-    if (sortField === field) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
-    else { setSortField(field); setSortDir('asc') }
-  }
+  /**
+   * The two guards are armed separately, and each only when its own section has
+   * something to give away: an album carrying a single unrated review has rows
+   * worth sealing but no aggregate, and the score card would otherwise offer to
+   * reveal a dash.
+   */
+  const scoreGuarded = spoilerApplies && (stats?.review_count ?? 0) > 0
+  const reviewsGuarded = spoilerApplies && reviews.length > 0
+
+  const scoreHidden = scoreGuarded && scoreRevealedFor !== albumId
+  const reviewsHidden = reviewsGuarded && reviewsRevealedFor !== albumId
+
+  const toggleScore = scoreGuarded
+    ? () => setScoreRevealedFor((prev) => (prev === albumId ? null : albumId))
+    : undefined
+  const toggleReviews = reviewsGuarded
+    ? () => setReviewsRevealedFor((prev) => (prev === albumId ? null : albumId))
+    : undefined
 
   const releaseYear = album?.release_date ? album.release_date.slice(0, 4) : null
 
@@ -724,83 +627,12 @@ export default function AlbumPage() {
         })() : null}
 
         {/* ── GLOBAL RATING + HISTOGRAM ── */}
-        <Paper withBorder p="md" radius="md">
-          {statsLoading ? (
-            <Skeleton h={140} />
-          ) : (
-            <Stack gap="sm">
-              <Group gap="xl" align="flex-end">
-                <Stack gap={2}>
-                  <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: 1 }}>
-                    Global Rating
-                  </Text>
-                  <Text
-                    size="xl"
-                    fw={700}
-                    style={{ fontSize: 40, lineHeight: 1 }}
-                    c={ratingColor(stats?.average_rating)}
-                  >
-                    {stats?.average_rating !== null && stats?.average_rating !== undefined
-                      ? stats.average_rating.toFixed(1)
-                      : '—'}
-                  </Text>
-                  {stats?.rating_stddev != null && (stats?.review_count ?? 0) >= 2 && (
-                    <Text size="xs" c="dimmed">
-                      ± {stats.rating_stddev.toFixed(1)} (1σ)
-                    </Text>
-                  )}
-                  <Text size="xs" c="dimmed">
-                    {stats?.review_count ?? 0} review{stats?.review_count !== 1 ? 's' : ''}
-                  </Text>
-                </Stack>
-
-                <Box style={{ flex: 1, minWidth: 0 }}>
-                  <ResponsiveContainer width="100%" height={100}>
-                    <BarChart data={stats?.histogram ?? []} barCategoryGap="10%" margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" vertical={false} />
-                      <XAxis
-                        dataKey="bucket_start"
-                        tick={{ fontSize: 10, fill: 'var(--mantine-color-dimmed)' }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <YAxis
-                        allowDecimals={false}
-                        tick={{ fontSize: 10, fill: 'var(--mantine-color-dimmed)' }}
-                        axisLine={false}
-                        tickLine={false}
-                        width={20}
-                      />
-                      <RechartsTooltip
-                        formatter={(value, _, props) => [
-                          `${value} review${value !== 1 ? 's' : ''}`,
-                          `${props.payload.bucket_start}–${props.payload.bucket_end}`,
-                        ]}
-                        contentStyle={{
-                          background: 'var(--mantine-color-dark-7)',
-                          border: '1px solid var(--mantine-color-dark-4)',
-                          borderRadius: 4,
-                          fontSize: 12,
-                        }}
-                        labelStyle={{ display: 'none' }}
-                        itemStyle={{ color: '#c1c2c5' }}
-                        cursor={{ fill: 'var(--mantine-color-dark-5)' }}
-                      />
-                      <Bar dataKey="count" radius={[3, 3, 0, 0]}>
-                        {(stats?.histogram ?? []).map((bucket) => (
-                          <Cell
-                            key={bucket.bucket_start}
-                            fill={ratingColorHex(bucket.bucket_start)}
-                          />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </Box>
-              </Group>
-            </Stack>
-          )}
-        </Paper>
+        <AlbumRatingSummary
+          stats={stats}
+          loading={statsLoading || myReviewLoading}
+          hidden={scoreHidden}
+          onToggleHidden={toggleScore}
+        />
 
         {/* ── YOUR REVIEW ── */}
         <Paper withBorder p="md" radius="md">
@@ -814,56 +646,12 @@ export default function AlbumPage() {
         </Paper>
 
         {/* ── REVIEWS TABLE ── */}
-        <Stack gap="sm">
-          <Text fw={600} size="sm">
-            {reviewsLoading ? (
-              <Skeleton h={16} w={80} display="inline-block" />
-            ) : (
-              `${reviews.length} review${reviews.length !== 1 ? 's' : ''}`
-            )}
-          </Text>
-
-          {reviewsLoading ? (
-            <Stack gap="xs">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} h={48} radius="sm" />
-              ))}
-            </Stack>
-          ) : !reviews.length ? (
-            <Text c="dimmed" size="sm">No reviews yet.</Text>
-          ) : (
-            <ScrollArea>
-              <Table highlightOnHover verticalSpacing="sm">
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>
-                      <SortButton field="username" label="Reviewer" active={sortField} dir={sortDir} onClick={toggleSort} />
-                    </Table.Th>
-                    <Table.Th>
-                      <SortButton field="date" label="Date" active={sortField} dir={sortDir} onClick={toggleSort} />
-                    </Table.Th>
-                    <Table.Th>
-                      <SortButton field="rating" label="Rating" active={sortField} dir={sortDir} onClick={toggleSort} />
-                    </Table.Th>
-                    <Table.Th w={28} />
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {sortedReviews.map((item) => (
-                    <ReviewRow
-                      key={item.id}
-                      item={item}
-                      isExpanded={expandedId === item.id}
-                      onToggle={() =>
-                        setExpandedId((prev) => (prev === item.id ? null : item.id))
-                      }
-                    />
-                  ))}
-                </Table.Tbody>
-              </Table>
-            </ScrollArea>
-          )}
-        </Stack>
+        <AlbumReviewsTable
+          reviews={reviews}
+          loading={reviewsLoading || myReviewLoading}
+          hidden={reviewsHidden}
+          onToggleHidden={toggleReviews}
+        />
 
       </Stack>
     </AppShell>
