@@ -49,6 +49,32 @@ describe('AlbumRatingSummary', () => {
     expect(screen.getByText('Global rating hidden')).toBeInTheDocument()
   })
 
+  it('takes the histogram out of the page rather than blurring it', () => {
+    const { container, rerender } = renderWithProviders(
+      <AlbumRatingSummary stats={stats} loading={false} hidden onToggleHidden={() => {}} />,
+    )
+    // A blurred chart still shows where the bars stand and how tall they are,
+    // so nothing of it is rendered at all.
+    expect(container.querySelector('.recharts-responsive-container')).toBeNull()
+    expect(screen.getByText('Rating distribution hidden')).toBeInTheDocument()
+
+    rerender(<AlbumRatingSummary stats={stats} loading={false} hidden={false} />)
+    expect(container.querySelector('.recharts-responsive-container')).not.toBeNull()
+    expect(screen.queryByText('Rating distribution hidden')).not.toBeInTheDocument()
+  })
+
+  it('stands the placeholder at the chart height, so revealing does not reflow the card', () => {
+    const { container, rerender } = renderWithProviders(
+      <AlbumRatingSummary stats={stats} loading={false} hidden onToggleHidden={() => {}} />,
+    )
+    const placeholder = screen.getByText('Rating distribution hidden').closest('div')?.parentElement
+    expect(placeholder?.getAttribute('style')).toContain('height: 100px')
+
+    rerender(<AlbumRatingSummary stats={stats} loading={false} hidden={false} />)
+    const chart = container.querySelector('.recharts-responsive-container') as HTMLElement
+    expect(chart.getAttribute('style')).toContain('height: 100px')
+  })
+
   it('leaves the review count readable while hidden, so the page still says how many', () => {
     renderWithProviders(
       <AlbumRatingSummary stats={stats} loading={false} hidden onToggleHidden={() => {}} />,

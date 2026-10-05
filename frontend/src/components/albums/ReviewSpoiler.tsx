@@ -1,7 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { Box, Button, Tooltip, VisuallyHidden } from '@mantine/core'
 import { IconEye, IconEyeOff } from '@tabler/icons-react'
-import { themeColorHex } from '../../utils/themeColorHex'
 
 /**
  * Spoiler guard for other people's opinions of an album.
@@ -33,11 +32,11 @@ const BLURRED: CSSProperties = {
  * Guarded values drop to a flat neutral — deliberately off the ramp, so there
  * is no band left to read — and take their color back when the guard lifts.
  *
- * Callers rendering into SVG, where Mantine tokens mean nothing, want the _HEX
- * form.
+ * Only values whose meaning lives in the glyph are treated this way. A chart,
+ * whose meaning is its shape, is not rescued by recoloring and comes out of the
+ * page instead (see AlbumRatingSummary).
  */
 export const SPOILER_COLOR = 'gray.5'
-export const SPOILER_COLOR_HEX = themeColorHex(SPOILER_COLOR)
 
 /**
  * The line each guarded section shows beside its toggle.
