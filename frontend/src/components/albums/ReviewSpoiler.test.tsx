@@ -35,16 +35,6 @@ describe('SpoilerBlur', () => {
     expect(wrapper.getAttribute('style')).toContain('user-select: none')
   })
 
-  it('keeps layout styles in both states', () => {
-    const { rerender } = renderWithProviders(
-      <SpoilerBlur hidden style={{ flex: 1 }}>8.4</SpoilerBlur>,
-    )
-    expect(screen.getByText('8.4').getAttribute('style')).toContain('flex: 1')
-
-    rerender(<SpoilerBlur hidden={false} style={{ flex: 1 }}>8.4</SpoilerBlur>)
-    expect(screen.getByText('8.4').getAttribute('style')).toContain('flex: 1')
-  })
-
   it('substitutes the label for screen readers only while hidden', () => {
     const { rerender } = renderWithProviders(
       <SpoilerBlur hidden label="Rating hidden">8.4</SpoilerBlur>,

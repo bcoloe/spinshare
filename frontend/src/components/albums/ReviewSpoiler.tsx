@@ -5,11 +5,19 @@ import { IconEye, IconEyeOff } from '@tabler/icons-react'
 /**
  * Spoiler guard for other people's opinions of an album.
  *
- * A viewer who has not published their own review sees the global score and
- * histogram behind one blur, and every reviewer's name, number and notes behind
- * another, so neither the collective verdict nor whose verdict it is can anchor
- * their own. Guarded ratings also give up their band color — see
- * {@link SPOILER_COLOR}. The two lift independently: the aggregate is a far smaller spoiler
+ * A viewer who has not published their own review gets the global score blurred
+ * and its histogram withheld outright, and every reviewer's name, number and
+ * notes blurred behind a second guard, so neither the collective verdict nor
+ * whose verdict it is can anchor their own.
+ *
+ * What a guard does to a value depends on where that value keeps its meaning. A
+ * numeral keeps it in the glyph, so a blur destroys it — though the blur alone
+ * is not enough, since color would still carry the band (see
+ * {@link SPOILER_COLOR}). A chart keeps it in the shape, which no blur or
+ * recolor touches, so the histogram is not rendered at all; AlbumRatingSummary
+ * stands a placeholder in its place.
+ *
+ * The two guards lift independently: the aggregate is a far smaller spoiler
  * than reading what someone wrote, and plenty of people will want one without
  * the other.
  *
@@ -56,8 +64,6 @@ interface SpoilerBlurProps {
   strength?: number
   /** Announced in place of the content while it is hidden. */
   label?: string
-  /** Layout styles for the wrapper, which is rendered in both states. */
-  style?: CSSProperties
   children: ReactNode
 }
 
@@ -66,13 +72,13 @@ interface SpoilerBlurProps {
  * instant. The wrapper exists in both states, so lifting the guard does not
  * reflow the page around it.
  */
-export function SpoilerBlur({ hidden, strength = 6, label, style, children }: SpoilerBlurProps) {
+export function SpoilerBlur({ hidden, strength = 6, label, children }: SpoilerBlurProps) {
   return (
     <>
       {hidden && label && <VisuallyHidden>{label}</VisuallyHidden>}
       <Box
         aria-hidden={hidden || undefined}
-        style={hidden ? { ...style, ...BLURRED, filter: `blur(${strength}px)` } : style}
+        style={hidden ? { ...BLURRED, filter: `blur(${strength}px)` } : undefined}
       >
         {children}
       </Box>
