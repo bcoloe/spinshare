@@ -412,3 +412,131 @@ class TestPasswordResetConfirm:
         )
         assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
         mock_user_service.confirm_password_reset.assert_not_called()
+
+
+# ==================== USER DIRECTORY (auth + field exposure) ====================
+
+
+def _make_directory_user(
+    id=7,
+    username="listed_user",
+    email="listed@test.com",
+    first_name="Ada",
+    last_name="Lovelace",
+    name_is_public=False,
+):
+    """A stand-in for a User ORM row returned by the (mocked) user service."""
+    user = make_mock_user(id=id, email=email, username=username)
+    user.first_name = first_name
+    user.last_name = last_name
+    user.name_is_public = name_is_public
+    user.created_at = _NOW
+    return user
+
+
+class TestGetUserById:
+    def test_requires_auth(self, unauthed_client):
+        resp = unauthed_client.get("/users/7")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_response_omits_sensitive_fields(self, client, mock_user_service):
+        mock_user_service.get_user_by_id.return_value = _make_directory_user()
+
+        resp = client.get("/users/7")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["id"] == 7
+        assert body["username"] == "listed_user"
+        assert "email" not in body
+        assert "is_admin" not in body
+
+    def test_hides_names_when_not_public(self, client, mock_user_service):
+        mock_user_service.get_user_by_id.return_value = _make_directory_user()
+
+        body = client.get("/users/7").json()
+
+        assert body["first_name"] is None
+        assert body["last_name"] is None
+
+    def test_shows_names_when_public(self, client, mock_user_service):
+        mock_user_service.get_user_by_id.return_value = _make_directory_user(name_is_public=True)
+
+        body = client.get("/users/7").json()
+
+        assert body["first_name"] == "Ada"
+        assert body["last_name"] == "Lovelace"
+
+    def test_404_when_missing(self, client, mock_user_service):
+        mock_user_service.get_user_by_id.side_effect = HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+        resp = client.get("/users/404")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestListUsers:
+    def test_requires_auth(self, unauthed_client):
+        resp = unauthed_client.get("/users/")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_response_omits_sensitive_fields(self, client, mock_user_service):
+        mock_user_service.get_all_users.return_value = [_make_directory_user()]
+
+        resp = client.get("/users/")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body) == 1
+        assert "email" not in body[0]
+        assert "is_admin" not in body[0]
+
+    @pytest.mark.parametrize("params", [{"limit": 1000000}, {"limit": -1}, {"limit": 0}, {"skip": -1}])
+    def test_rejects_out_of_range_pagination(self, client, mock_user_service, params):
+        resp = client.get("/users/", params=params)
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        mock_user_service.get_all_users.assert_not_called()
+
+    def test_accepts_bounded_pagination(self, client, mock_user_service):
+        mock_user_service.get_all_users.return_value = []
+
+        resp = client.get("/users/", params={"skip": 10, "limit": 100})
+
+        assert resp.status_code == 200
+        mock_user_service.get_all_users.assert_called_once_with(skip=10, limit=100)
+
+
+class TestSearchUsers:
+    def test_requires_auth(self, unauthed_client):
+        resp = unauthed_client.get("/users/search/ada")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_response_omits_sensitive_fields(self, client, mock_user_service):
+        mock_user_service.search_users.return_value = [_make_directory_user()]
+
+        resp = client.get("/users/search/listed")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body[0]["username"] == "listed_user"
+        assert "email" not in body[0]
+        assert "is_admin" not in body[0]
+
+    def test_rejects_short_query(self, client, mock_user_service):
+        resp = client.get("/users/search/a")
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        mock_user_service.search_users.assert_not_called()
+
+    @pytest.mark.parametrize("limit", [0, -1, 1000000])
+    def test_rejects_out_of_range_limit(self, client, mock_user_service, limit):
+        resp = client.get("/users/search/ada", params={"limit": limit})
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        mock_user_service.search_users.assert_not_called()
+
+    def test_accepts_bounded_limit(self, client, mock_user_service):
+        mock_user_service.search_users.return_value = []
+
+        resp = client.get("/users/search/ada", params={"limit": 50})
+
+        assert resp.status_code == 200
+        mock_user_service.search_users.assert_called_once_with("ada", limit=50)

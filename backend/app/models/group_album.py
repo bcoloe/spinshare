@@ -27,6 +27,9 @@ class GroupAlbum(Base):
     added_by_user = relationship("User", foreign_keys=[added_by], back_populates="added_albums")
     guesses = relationship("NominationGuess", back_populates="group_album", cascade="all, delete-orphan")
 
+    # unique_user_album_per_group is group_id-leading, so it indexes group_id and
+    # nothing else on its own; album_id, added_by and the selected_date IS NULL
+    # nomination-pool scan each need their own index (declared on the columns).
     __table_args__ = (
         UniqueConstraint("group_id", "album_id", "added_by", name="unique_user_album_per_group"),
     )
@@ -46,10 +49,27 @@ class GroupAlbum(Base):
 
     @status.expression
     def status(cls):
-        from app.models.review import Review  # local import avoids circular dependency
-        has_review = exists().where(Review.album_id == cls.album_id)
         return case(
             (cls.selected_date.is_(None), "pending"),
-            (has_review, "reviewed"),
+            (has_reviews_expression(cls), "reviewed"),
             else_="selected",
         )
+
+
+def has_reviews_expression(entity=None):
+    """Scalar EXISTS: does this group album's album have any review at all?
+
+    The single source of truth for the review check behind ``GroupAlbum.status`` —
+    used by the SQL-side hybrid expression and by the batched presence stamp in
+    ``AlbumService.stamp_review_presence``.
+
+    ``review_count`` on this table is deliberately NOT used here: it counts only
+    published, rated reviews by *current members of the group*, is left at 0 for
+    rows created before it existed (its migration adds the column with a 0 default
+    and no backfill) and for rows created after a review already existed, and is
+    only recomputed when a review is written. It answers a different question.
+    """
+    from app.models.review import Review  # local import avoids circular dependency
+
+    target = entity if entity is not None else GroupAlbum
+    return exists().where(Review.album_id == target.album_id)

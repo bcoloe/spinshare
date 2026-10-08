@@ -30,11 +30,10 @@ from app.services import group_service as gs
 from app.services.notification_service import NotificationService
 from app.services.participation_service import ParticipationService
 from app.utils.time_helpers import (
-    DEFAULT_TZ,
     date_in_tz,
     group_today,
+    group_tz,
     most_recent_scheduled_date,
-    utc_today_range,
 )
 
 _CHAOS_PROBABILITY = 0.10
@@ -78,7 +77,7 @@ class GroupAlbumService:
         if settings is not None and settings.dealer_mode:
             return []
 
-        tz_name = (settings.timezone if settings else None) or DEFAULT_TZ
+        tz_name = group_tz(settings)
 
         today = group_today(tz_name)
 
@@ -407,7 +406,7 @@ class GroupAlbumService:
                 detail="dealer_mode_enabled",
             )
 
-        tz_name = (settings.timezone if settings else None) or DEFAULT_TZ
+        tz_name = group_tz(settings)
         today = group_today(tz_name)
         existing = (
             self.db.query(GroupAlbum)
@@ -527,7 +526,7 @@ class GroupAlbumService:
         if settings is None or not settings.catch_up_enabled or settings.dealer_mode:
             return []
 
-        tz_name = (settings.timezone if settings else None) or DEFAULT_TZ
+        tz_name = group_tz(settings)
         today = group_today(tz_name)
 
         # Subquery: album_ids the user has submitted (non-draft) reviews for
@@ -589,7 +588,7 @@ class GroupAlbumService:
             group_service.require_public_or_member(group, None)
 
         settings = self.db.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
-        tz_name = (settings.timezone if settings else None) or DEFAULT_TZ
+        tz_name = group_tz(settings)
         today = group_today(tz_name)
 
         selection_days = list(settings.selection_days) if settings and settings.selection_days else list(range(7))
@@ -653,7 +652,7 @@ class GroupAlbumService:
                 continue
 
             if settings is not None and settings.dealer_mode:
-                tz_name = settings.timezone or DEFAULT_TZ
+                tz_name = group_tz(settings)
                 rolls_used = dealer_service._rolls_used_today(
                     group.id, user.id, tz_name, group_today(tz_name)
                 )
@@ -680,12 +679,34 @@ class GroupAlbumService:
 
     # ==================== GUESSING ====================
 
+    def _require_guessing_enabled(self, group_id: int) -> None:
+        """Reject guess interactions when the group has switched guessing off.
+
+        ``allow_guessing`` is what gates the whole nominator-reveal game, and the
+        guess endpoints hand back ``nominator_user_ids``/``nominator_usernames`` —
+        so a group that turned it off must not be reachable by a direct API call
+        just because the client hides the button.
+
+        A group with no settings row is treated as enabled, matching the column
+        default (and the client's ``allow_guessing ?? true``).
+
+        Raises:
+            HTTPException 409: If the group has allow_guessing set to False.
+        """
+        settings = self.db.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
+        if settings is not None and not settings.allow_guessing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="guessing_disabled",
+            )
+
     def check_guess(
         self, group_id: int, group_album_id: int, user: User, data: NominationGuessCreate
     ) -> CheckGuessResponse:
         """Submit a nomination guess and receive instant feedback.
 
         Rules:
+        - The group must have guessing enabled (allow_guessing).
         - Album must have been selected (selected_date IS NOT NULL) or dealt to the user.
         - User must be a group member.
         - User cannot guess themselves (for non-chaos guesses).
@@ -696,10 +717,13 @@ class GroupAlbumService:
 
         Raises:
             HTTPException 403: If user is not a member or guesses themselves.
-            HTTPException 409: If album has not been selected or guess already submitted.
+            HTTPException 409: If guessing is disabled for the group
+                ("guessing_disabled"), the album has not been selected, or a
+                guess was already submitted.
         """
         group_service = gs.GroupService(self.db)
         group_service.require_membership(user.id, group_id)
+        self._require_guessing_enabled(group_id)
 
         group_album = self._get_group_album_or_404(group_id, group_album_id)
         if group_album.selected_date is None and not self._user_has_revealed_deal(
@@ -874,9 +898,11 @@ class GroupAlbumService:
         Raises:
             HTTPException 403: If user is not a group member.
             HTTPException 404: If the group album is not found.
+            HTTPException 409: If guessing is disabled for the group ("guessing_disabled").
         """
         group_service = gs.GroupService(self.db)
         group_service.require_membership(user.id, group_id)
+        self._require_guessing_enabled(group_id)
 
         group = self.db.query(Group).filter(Group.id == group_id).first()
         group_album = self._get_group_album_or_404(group_id, group_album_id)
@@ -989,14 +1015,16 @@ class GroupAlbumService:
         group_service = gs.GroupService(self.db)
         group_service.require_membership(user.id, group_id)
 
-        today_start, tomorrow_start = utc_today_range()
+        # Same day boundary the limit is enforced on (AlbumService.nominate_album):
+        # midnight in the group's timezone, so the displayed and enforced counts agree.
+        settings = self.db.query(GroupSettings).filter(GroupSettings.group_id == group_id).first()
+        tz_name = group_tz(settings)
         return (
             self.db.query(GroupAlbum)
             .filter(
                 GroupAlbum.group_id == group_id,
                 GroupAlbum.added_by == user.id,
-                GroupAlbum.added_at >= today_start,
-                GroupAlbum.added_at < tomorrow_start,
+                date_in_tz(GroupAlbum.added_at, tz_name) == group_today(tz_name),
             )
             .count()
         )

@@ -1,7 +1,7 @@
 """Explore service: platform-wide album/group/user browsing and site statistics."""
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.models.album import Album
 from app.models.group import Group, group_members
@@ -186,9 +186,24 @@ class ExploreService:
             human — is_global=False
         include_private: when True (admin-only), private groups are included.
         """
+        # A count subquery rather than selectinload(Group.members): the page only
+        # needs member_count, and loading the relationship pulled every User row
+        # of every group on the page to produce one integer each.
+        member_count_subq = (
+            self.db.query(
+                group_members.c.group_id,
+                func.count(group_members.c.user_id).label("member_count"),
+            )
+            .group_by(group_members.c.group_id)
+            .subquery()
+        )
+
         db_q = (
-            self.db.query(Group)
-            .options(selectinload(Group.members))
+            self.db.query(
+                Group,
+                func.coalesce(member_count_subq.c.member_count, 0).label("member_count"),
+            )
+            .outerjoin(member_count_subq, Group.id == member_count_subq.c.group_id)
             .order_by(func.lower(Group.name))
         )
 
@@ -206,7 +221,7 @@ class ExploreService:
         rows = db_q.offset(offset).limit(limit + 1).all()
 
         has_more = len(rows) > limit
-        page_groups = rows[:limit]
+        page_rows = rows[:limit]
 
         items = [
             ExploreGroupItem(
@@ -214,10 +229,10 @@ class ExploreService:
                 name=g.name,
                 is_public=g.is_public,
                 is_global=g.is_global,
-                member_count=len(g.members),
+                member_count=int(member_count),
                 created_at=g.created_at,
             )
-            for g in page_groups
+            for g, member_count in page_rows
         ]
 
         return ExploreGroupsPage(

@@ -102,23 +102,31 @@ async def chat_socket(websocket: WebSocket, ticket: str = ""):
         websocket=websocket, user_id=user_id, username=username, group_ids=group_ids
     )
 
-    snapshot = await manager.connect(connection)
-    await websocket.send_json(
-        {
-            "type": "presence.snapshot",
-            "user_id": user_id,
-            "groups": {str(gid): members for gid, members in snapshot.items()},
-        }
-    )
-
+    # Registration and the snapshot send both live inside the try so that the
+    # finally owns the connection from the moment it can enter the registry.
+    # `manager.connect` adds it to `_rooms` before it returns, and the snapshot
+    # write that follows fails whenever the peer drops in the window between the
+    # accept and the first frame — routine on mobile. Outside the try that left
+    # the Connection in `_rooms` with no disconnect to ever remove it: the user
+    # showing online forever, every later broadcast writing to a dead socket, and
+    # `_rooms` growing until the process restarts.
     try:
+        snapshot = await manager.connect(connection)
+        await websocket.send_json(
+            {
+                "type": "presence.snapshot",
+                "user_id": user_id,
+                "groups": {str(gid): members for gid, members in snapshot.items()},
+            }
+        )
+
         while True:
             # Anything the client sends is discarded. We read only so that a
             # disconnect raises promptly instead of the socket lingering.
             await websocket.receive_text()
     except WebSocketDisconnect:
         pass
-    except Exception:  # pragma: no cover - defensive
+    except Exception:
         logger.exception("Chat socket for user %s failed", user_id)
     finally:
         await manager.disconnect(connection)

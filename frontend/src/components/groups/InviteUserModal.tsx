@@ -25,7 +25,8 @@ import {
   useSendInvitation,
 } from '../../hooks/useGroups'
 import { ApiError } from '../../services/apiClient'
-import type { UserResponse } from '../../types/auth'
+import type { PublicUserResponse } from '../../types/auth'
+import type { InvitationCreate } from '../../types/group'
 
 interface Props {
   groupId: number
@@ -59,14 +60,15 @@ export default function InviteUserModal({ groupId, opened, onClose }: Props) {
     ? `${window.location.origin}/join/${inviteLink.token}`
     : null
 
-  const handleInviteUser = async (u: UserResponse) => {
-    await handleSendInvite(u.email)
+  // Search results are invited by username: the search API never returns emails.
+  const handleInviteUser = async (u: PublicUserResponse) => {
+    await handleSendInvite({ username: u.username }, u.username)
   }
 
-  const handleSendInvite = async (email: string) => {
+  const handleSendInvite = async (invitee: InvitationCreate, label: string) => {
     try {
-      await sendInvitation.mutateAsync(email)
-      notifications.show({ color: 'green', message: `Invitation sent to ${email}` })
+      await sendInvitation.mutateAsync(invitee)
+      notifications.show({ color: 'green', message: `Invitation sent to ${label}` })
       setQuery('')
       onClose()
     } catch (err) {
@@ -203,7 +205,7 @@ export default function InviteUserModal({ groupId, opened, onClose }: Props) {
               <Button
                 variant="light"
                 loading={sendInvitation.isPending}
-                onClick={() => handleSendInvite(debounced)}
+                onClick={() => handleSendInvite({ email: debounced }, debounced)}
               >
                 Send invitation to {debounced}
               </Button>

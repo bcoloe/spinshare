@@ -1,7 +1,7 @@
 """Album and group album service."""
 
 import logging
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 log = logging.getLogger(__name__)
 
@@ -12,13 +12,15 @@ _IGNORED_GENRES: frozenset[str] = frozenset({"music", "music videos", "musica"})
 # Sourced from the shared backfill helper so routers and the service agree on one value.
 from app.utils.wikipedia_backfill import WIKIPEDIA_TTL as _WIKIPEDIA_TTL
 
-from app.models import Album, Group, GroupAlbum, Review, User
+from app.models import Album, GroupAlbum, Review, User
 from app.models.genre import Genre
 from app.schemas.album import AlbumCreate, AlbumLinksUpdate, GroupAlbumStatus, GroupAlbumStatusUpdate
 from app.services import group_service as gs
+from app.utils.time_helpers import date_in_tz, group_today, group_tz
 from app.utils.ytmusic_client import search_album_browse_id
 from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -142,18 +144,49 @@ class AlbumService:
         return album
 
     def _get_or_create_genres(self, names: list[str]) -> list[Genre]:
-        genres = []
-        for name in names:
-            normalized = name.lower()
-            if normalized in _IGNORED_GENRES:
-                continue
-            genre = self.db.query(Genre).filter(Genre.name == normalized).first()
-            if not genre:
-                genre = Genre(name=normalized)
-                self.db.add(genre)
-                self.db.flush()
-            genres.append(genre)
-        return genres
+        """Resolve genre names to rows, creating any that do not exist yet.
+
+        Written as an insert-ignore rather than the obvious check-then-insert.
+        ``genres.name`` is unique, and this runs inside ``_persist_album`` *before*
+        its IntegrityError handler, so two users nominating different albums that
+        share a brand-new genre used to race: both saw the name missing, both
+        inserted, and the loser's flush raised IntegrityError straight out through
+        the router as a 500 on an ordinary nomination. ``on_conflict_do_nothing``
+        makes the loser a no-op instead, and the re-select then picks up whichever
+        row won.
+
+        Three round trips regardless of genre count, rather than one per name.
+        """
+        # Preserve first-seen order while dropping duplicates, so a payload listing
+        # the same genre twice does not attach it twice.
+        normalized = list(
+            dict.fromkeys(
+                name.lower() for name in names if name.lower() not in _IGNORED_GENRES
+            )
+        )
+        if not normalized:
+            return []
+
+        existing = {
+            genre.name: genre
+            for genre in self.db.query(Genre).filter(Genre.name.in_(normalized)).all()
+        }
+        missing = [name for name in normalized if name not in existing]
+
+        if missing:
+            self.db.execute(
+                pg_insert(Genre)
+                .values([{"name": name} for name in missing])
+                .on_conflict_do_nothing(index_elements=["name"])
+            )
+            self.db.flush()
+            # Re-select rather than trusting the insert: a concurrent transaction
+            # may have created some of these, in which case our insert skipped them
+            # and their rows are not in our identity map yet.
+            for genre in self.db.query(Genre).filter(Genre.name.in_(missing)).all():
+                existing[genre.name] = genre
+
+        return [existing[name] for name in normalized if name in existing]
 
     def backfill_genres(self, album_id: int, title: str, artist: str) -> None:
         """Attempt to resolve and store genres for an album using Apple Music.
@@ -246,13 +279,15 @@ class AlbumService:
         )
 
         if settings.daily_nomination_limit is not None:
-            today = date.today()
+            # The nomination day rolls over at midnight in the group's timezone, the same
+            # boundary the draw uses — and the same one get_today_nomination_count displays.
+            tz_name = group_tz(settings)
             today_count = (
                 self.db.query(GroupAlbum)
                 .filter(
                     GroupAlbum.group_id == group_id,
                     GroupAlbum.added_by == user.id,
-                    func.date(GroupAlbum.added_at) == today,
+                    date_in_tz(GroupAlbum.added_at, tz_name) == group_today(tz_name),
                 )
                 .count()
             )

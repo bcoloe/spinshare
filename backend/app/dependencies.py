@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import User
+from app.models.group import GroupRole
 from app.services.admin_service import AdminService
 from app.services.album_service import AlbumService
 from app.services.artist_service import ArtistService
@@ -247,3 +248,87 @@ def get_current_admin_user(current_user: User = Depends(get_current_user)) -> Us
             detail="Admin privileges required",
         )
     return current_user
+
+
+# ==================== GROUP AUTHORIZATION ====================
+#
+# Route-level gates for the /groups/{group_id}/... families (including the ones
+# mounted under other prefixes, e.g. /stats/groups/{group_id}/...). They read
+# ``group_id`` straight off the path, so a route only has to declare the gate:
+#
+#     @router.get("/{group_id}/albums", dependencies=[Depends(require_group_role())])
+#
+# Injecting ``current_user`` on its own only forces a login — it says nothing
+# about whether that user belongs to the group being addressed. These close the
+# gap in one place so a new group route cannot forget it.
+
+
+def require_group_role(min_role: GroupRole = GroupRole.Member):
+    """Require the caller to hold at least ``min_role`` in the path's group.
+
+    Returns a dependency that resolves ``group_id`` from the path and delegates
+    to ``GroupService.require_permission``. Use for anything member-only: a
+    caller's own guesses, their participation standing, group-private workflow.
+
+    Raises (from the returned dependency):
+        HTTPException 401: No/invalid credentials.
+        HTTPException 403: Caller lacks the required role in the group.
+    """
+
+    def _dep(
+        group_id: int,
+        current_user: User = Depends(get_current_user),
+        group_service: GroupService = Depends(get_group_service),
+    ) -> User:
+        group_service.require_permission(current_user.id, group_id, min_role)
+        return current_user
+
+    return _dep
+
+
+def require_group_read_access(*, allow_anonymous: bool = False):
+    """Require the path's group to be readable by the caller.
+
+    Mirrors ``GroupService.require_public_or_member``: members and site admins
+    always pass, and so does any authenticated caller when the group is public.
+    Use for group content that public groups are meant to expose, rather than
+    the hard membership gate of :func:`require_group_role`.
+
+    ``allow_anonymous=True`` additionally lets a caller with no token through for
+    the global group and bot groups — the only public-facing ones — matching the
+    landing-page browsing flows. It is off by default so gating an endpoint never
+    silently widens it from "logged in" to "anyone".
+
+    Raises (from the returned dependency):
+        HTTPException 401: No/invalid credentials (or anonymous on a group that
+            is neither global nor a bot group).
+        HTTPException 403: Authenticated non-member of a private group.
+        HTTPException 404: No such group.
+    """
+
+    def _check(
+        group_id: int, current_user: User | None, group_service: GroupService
+    ) -> User | None:
+        group = group_service.get_group_by_id(group_id)
+        group_service.require_public_or_member(group, current_user)
+        return current_user
+
+    if allow_anonymous:
+
+        def _dep_optional_auth(
+            group_id: int,
+            current_user: User | None = Depends(get_current_user_optional),
+            group_service: GroupService = Depends(get_group_service),
+        ) -> User | None:
+            return _check(group_id, current_user, group_service)
+
+        return _dep_optional_auth
+
+    def _dep(
+        group_id: int,
+        current_user: User = Depends(get_current_user),
+        group_service: GroupService = Depends(get_group_service),
+    ) -> User:
+        return _check(group_id, current_user, group_service)
+
+    return _dep
