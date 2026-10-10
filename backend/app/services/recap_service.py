@@ -62,16 +62,22 @@ class RecapService:
     def generate_due(self, group_id: int) -> GroupRecap | None:
         """Generate the recap for the most recently completed week if it's missing.
 
-        Idempotent and safe to run repeatedly (e.g. hourly cron). Returns the
-        recap (existing or newly created) or ``None`` for groups that never get a
-        recap (global, bot, or dealer-mode groups).
+        Idempotent and safe to run repeatedly. Returns the recap (existing or newly
+        created), or ``None`` for groups that never get a recap (global, bot, or
+        dealer-mode groups) and for groups created after that week ended.
         """
         group = self.db.query(Group).filter(Group.id == group_id).first()
-        if group is None or not self._recap_eligible(group):
+        if group is None or not self.recap_eligible(group):
             return None
 
         tz_name = (group.settings.timezone if group.settings else None) or DEFAULT_TZ
         week_start, _ = completed_week_bounds(tz_name)
+        # A group created after that week ended has nothing to summarize. The
+        # scheduler catches up on any weekday, so without this a group created
+        # mid-week would get an empty recap for the week before it existed.
+        _, week_end = week_bounds_for(week_start, tz_name)
+        if group.created_at is not None and group.created_at >= week_end:
+            return None
 
         existing = self._get_recap_row(group_id, week_start)
         if existing is not None:
@@ -88,7 +94,7 @@ class RecapService:
         group = self.db.query(Group).filter(Group.id == group_id).first()
         if group is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
-        if not self._recap_eligible(group):
+        if not self.recap_eligible(group):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Weekly recaps are not generated for global, bot, or dealer-mode groups",
@@ -461,7 +467,7 @@ class RecapService:
         gs.GroupService(self.db).require_membership(user.id, group_id)
 
     @staticmethod
-    def _recap_eligible(group: Group) -> bool:
+    def recap_eligible(group: Group) -> bool:
         """Weekly recaps are only produced for regular member groups.
 
         Global groups, bot-sourced groups, and dealer-mode groups don't have the

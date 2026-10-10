@@ -27,6 +27,7 @@ from app.routers.public import router as public_router
 from app.routers.recaps import router as recaps_router
 from app.routers.stats import router as stats_router
 from app.routers.ws import router as ws_router
+from app.scheduler import scheduler
 
 settings = get_settings()
 
@@ -97,7 +98,14 @@ async def lifespan(app: FastAPI):
     # handlers are sync `def` (threadpool-executed) and need it to schedule chat
     # fanout back onto the loop that owns the sockets.
     connection_manager.bind_loop()
+    # Read at startup, not import, so tests and profiling can switch it off via
+    # the environment. The scheduler shares the single-worker assumption above.
+    run_scheduler = get_settings().SCHEDULER_ENABLED
+    if run_scheduler:
+        scheduler.start()
     yield
+    if run_scheduler:
+        await scheduler.stop()
 
 
 app = FastAPI(title="SpinShare API", lifespan=lifespan)

@@ -12,6 +12,9 @@ from app.database import Base
 
 # Set testing environment variable.
 os.environ["TESTING"] = "1"
+# Every `with TestClient(app)` runs the lifespan; the job scheduler must not start
+# there and draw albums against the test database on its own clock.
+os.environ["SCHEDULER_ENABLED"] = "false"
 
 
 @pytest.fixture(scope="session")
