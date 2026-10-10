@@ -1,17 +1,17 @@
-"""Daily album selector cron job.
+"""Run the daily album selection by hand.
 
-Selects N random unselected albums per group and marks them as today's spins by
-setting selected_date = now(). The selector is idempotent — each group is
-selected at most once per its local calendar day. Running hourly ensures that
-midnight is caught for every group timezone and every configured selection day.
+The API process schedules this itself (``app/scheduler.py``), drawing each group's
+albums once its local clock reaches ``DAILY_SELECTION_HOUR``. This script is for
+manual and operational runs: re-drawing after an outage, targeting one group, or
+forcing a different count. Selection is idempotent per group-local day, so running
+it alongside the scheduler is harmless.
 
-Usage:
-    python scripts/daily_album_selector.py            # 1 album per group (default)
-    python scripts/daily_album_selector.py --n 3      # 3 albums per group
-    python scripts/daily_album_selector.py --group 42 # single group only
+Usage (from backend/):
+    .venv/bin/python scripts/daily_album_selector.py            # every group, configured count
+    .venv/bin/python scripts/daily_album_selector.py --n 3      # 3 albums per group
+    .venv/bin/python scripts/daily_album_selector.py --group 42 # single group only
 
-Cron example (hourly, idempotent):
-    0 * * * * cd /path/to/spinshare/backend && .venv/bin/python scripts/daily_album_selector.py
+Exits non-zero if any group was rejected or failed, so a partial run never looks clean.
 """
 
 import argparse
@@ -21,59 +21,29 @@ import sys
 # Ensure the app package is importable when run from the backend/ directory.
 sys.path.insert(0, ".")
 
-from sqlalchemy.orm import Session
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
 from app.config import get_settings
-from app.database import Base
-from app.models import Group, GroupAlbum, GroupSettings  # noqa: F401 — ensure all models are registered
-from app.services.group_album_service import GroupAlbumService
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import NullPool
+from app.models import Group
+from app.services.scheduled_jobs import run_daily_selection
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
 
 def run(n: int | None, group_id: int | None, db: Session) -> None:
-    svc = GroupAlbumService(db)
-
-    groups = db.query(Group).all() if group_id is None else [_get_group(db, group_id)]
-
-    failed = 0
-    for group in groups:
-        # --n flag overrides per-group setting; otherwise use the group's configured count.
-        group_n = n if n is not None else (
-            group.settings.daily_album_count if group.settings else 1
-        )
-        try:
-            selected = svc.select_daily_albums(group.id, n=group_n)
-            titles = [ga.albums.title for ga in selected]
-            log.info("Group %d (%s): today's albums: %s", group.id, group.name, titles)
-        except Exception as exc:
-            # The rollback is what keeps one bad group from taking the rest of the
-            # run with it. Every group shares this Session, so a DB-level failure
-            # leaves it in pending-rollback; without this, each later group dies on
-            # its first query with PendingRollbackError and is logged as another
-            # benign "skipped", so a run that silently spun nothing still reads as
-            # a success. Rolling back returns the Session to a usable state.
-            failed += 1
-            db.rollback()
-            log.exception("Group %d (%s): skipped — %s", group.id, group.name, exc)
-
-    if failed:
-        # Loud, and non-zero on the way out: a partial run must not look clean to
-        # whatever is scheduling this.
-        log.error("Daily selection finished with %d of %d group(s) skipped", failed, len(groups))
-        sys.exit(1)
-
-
-def _get_group(db: Session, group_id: int) -> Group:
-    group = db.query(Group).filter(Group.id == group_id).first()
-    if not group:
+    if group_id is not None and db.get(Group, group_id) is None:
         log.error("Group %d not found", group_id)
         sys.exit(1)
-    return group
+
+    report = run_daily_selection(db, None if group_id is None else [group_id], n=n)
+
+    skipped = len(report.rejected) + len(report.failed)
+    if skipped:
+        log.error("Daily selection finished with %d of %d group(s) skipped", skipped, report.attempted)
+        sys.exit(1)
 
 
 def main() -> None:
@@ -82,11 +52,8 @@ def main() -> None:
     parser.add_argument("--group", type=int, default=None, help="Limit to a specific group ID")
     args = parser.parse_args()
 
-    settings = get_settings()
-    engine = create_engine(settings.DATABASE_URL, poolclass=NullPool)
-    SessionLocal = sessionmaker(bind=engine)
-    db = SessionLocal()
-
+    engine = create_engine(get_settings().DATABASE_URL, poolclass=NullPool)
+    db = sessionmaker(bind=engine)()
     try:
         run(n=args.n, group_id=args.group, db=db)
     finally:

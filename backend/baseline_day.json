@@ -1,0 +1,34 @@
+{
+  "day": "2026-10-05",
+  "params": {
+    "users": 8,
+    "sessions_per_user": 3,
+    "autosave_saves": 4,
+    "seed": 7,
+    "requests": 329
+  },
+  "user_traffic": {
+    "touches": 329,
+    "connections": 341,
+    "wakes": 20,
+    "awake_minutes": 131.8
+  },
+  "scheduler": {
+    "touches": 2,
+    "connections": 2,
+    "wakes": 2,
+    "awake_minutes": 10.0
+  },
+  "legacy_cron": {
+    "touches": 2,
+    "connections": 2,
+    "wakes": 2,
+    "awake_minutes": 10.0
+  },
+  "total": {
+    "touches": 331,
+    "connections": 343,
+    "wakes": 22,
+    "awake_minutes": 141.8
+  }
+}

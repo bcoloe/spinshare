@@ -67,7 +67,7 @@ class RecapService:
         recap (global, bot, or dealer-mode groups).
         """
         group = self.db.query(Group).filter(Group.id == group_id).first()
-        if group is None or not self._recap_eligible(group):
+        if group is None or not self.recap_eligible(group):
             return None
 
         tz_name = (group.settings.timezone if group.settings else None) or DEFAULT_TZ
@@ -88,7 +88,7 @@ class RecapService:
         group = self.db.query(Group).filter(Group.id == group_id).first()
         if group is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
-        if not self._recap_eligible(group):
+        if not self.recap_eligible(group):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Weekly recaps are not generated for global, bot, or dealer-mode groups",
@@ -461,7 +461,7 @@ class RecapService:
         gs.GroupService(self.db).require_membership(user.id, group_id)
 
     @staticmethod
-    def _recap_eligible(group: Group) -> bool:
+    def recap_eligible(group: Group) -> bool:
         """Weekly recaps are only produced for regular member groups.
 
         Global groups, bot-sourced groups, and dealer-mode groups don't have the

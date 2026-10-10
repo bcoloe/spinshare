@@ -57,6 +57,24 @@ To authenticate as a different user in a test, call `_auth_headers_for(user)` fr
 
 Do **not** call the `/users/login` HTTP endpoint in test fixtures — generate tokens directly.
 
+## Measuring Database Cost
+
+Neon bills compute-awake time, so database touches are a cost. `scripts/profile_db.py` measures them against a local seeded database. Committed baselines: `baseline.json` (per scenario: cold, warm, peer) and `baseline_day.json` (simulated day: wakes and awake minutes).
+
+```bash
+.venv/bin/python scripts/seed_profile_data.py --reset
+.venv/bin/python scripts/profile_db.py --compare baseline.json
+.venv/bin/python scripts/profile_db.py --day --compare baseline_day.json
+```
+
+- **Any PR touching `app/services/` or `app/routers/`** includes both `--compare` outputs in its description.
+- When a PR intentionally moves the numbers, regenerate the baselines with `--json` in the same PR.
+- **New GET endpoints** must be added to a scenario in `profile_db.py`, or to `UNPROFILED_GETS` with a reason. `scripts/profile_db_test.py` fails otherwise.
+
+## Scheduled Jobs
+
+Daily selection and the weekly recap run in the API process (`app/scheduler.py`); see `scripts/scheduled_jobs.md`. The scheduler only knows about writes made in-process, so make writes through the app, not out-of-band SQL.
+
 ## Service Layer Patterns
 
 Services are the primary business logic layer. Follow these conventions:

@@ -88,7 +88,7 @@ spinshare/
 │   └── alembic.ini
 │
 ├── scripts/                   # Utility scripts
-│   └── daily_album_selector.py  # Cron job for daily selection
+│   └── daily_album_selector.py  # Manual daily selection (scheduled in-process; see backend/scripts/scheduled_jobs.md)
 │
 ├── .env.example               # Template for environment variables
 ├── .gitignore
