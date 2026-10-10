@@ -30,7 +30,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from itertools import chain
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import event
 from sqlalchemy.orm import Session, selectinload
@@ -38,7 +38,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.models import BotSource, Group, GroupSettings
 from app.services.recap_service import RecapService
 from app.services.scheduled_jobs import JobReport, run_daily_selection, run_weekly_recaps
-from app.utils.time_helpers import group_tz, week_start_for
+from app.utils.time_helpers import DEFAULT_TZ, group_tz, week_start_for
 
 log = logging.getLogger(__name__)
 
@@ -61,9 +61,17 @@ class GroupSchedule:
     @classmethod
     def from_group(cls, group: Group) -> "GroupSchedule":
         settings = group.settings
+        tz_name = group_tz(settings)
+        try:
+            ZoneInfo(tz_name)
+        except (ZoneInfoNotFoundError, ValueError):
+            # One bad value must not raise on every tick and stall every group.
+            # The group's own job will still fail on it and retry hourly.
+            log.warning("Group %d has invalid timezone %r; scheduling it on %s", group.id, tz_name, DEFAULT_TZ)
+            tz_name = DEFAULT_TZ
         return cls(
             group_id=group.id,
-            timezone=group_tz(settings),
+            timezone=tz_name,
             selection_days=frozenset(settings.selection_days) if settings is not None else None,
             selects=not (settings is not None and settings.dealer_mode),
             recaps=RecapService.recap_eligible(group),
@@ -204,6 +212,13 @@ class JobScheduler:
                     self._retry_at.pop((job, group_id), None)
                 for group_id in report.failed:
                     self._retry_at[(job, group_id)] = now + self.retry_after
+                # A due group the runner never reported on no longer exists (deleted
+                # by something this process didn't see). Left alone it would stay
+                # due and open a session every tick; reloading drops it from the map.
+                missing = days.keys() - set(report.done) - report.rejected.keys() - report.failed.keys()
+                if missing:
+                    log.warning("Scheduler: %s group(s) %s vanished; reloading schedules", job, sorted(missing))
+                    self._generation += 1
 
     # ---------- running ----------
 
@@ -343,14 +358,26 @@ def _note_schedule_writes(session: Session, _flush_context) -> None:
         session.info[_PENDING_KEY] = True
 
 
+# Both hooks also fire when a SAVEPOINT is released or rolled back. Only the
+# outermost transaction decides whether the writes are durable, so nested events
+# are ignored: a released savepoint is not yet committed, and a rolled-back one may
+# share the session with schedule writes the outer transaction still intends to
+# commit. (A savepoint whose own writes are rolled back leaves the flag set; that
+# costs at most one unnecessary reload.)
+
+
 @event.listens_for(Session, "after_commit")
 def _publish_schedule_writes(session: Session) -> None:
+    if session.in_nested_transaction():
+        return
     if session.info.pop(_PENDING_KEY, False):
         scheduler.mark_stale()
 
 
 @event.listens_for(Session, "after_rollback")
 def _discard_schedule_writes(session: Session) -> None:
+    if session.in_nested_transaction():
+        return
     session.info.pop(_PENDING_KEY, None)
 
 

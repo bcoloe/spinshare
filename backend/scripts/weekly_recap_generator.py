@@ -4,7 +4,7 @@ The API process schedules this itself (``app/scheduler.py``), generating each
 group's recap once its local Monday reaches ``WEEKLY_RECAP_HOUR``. This script is
 for manual and operational runs: backfilling a past week or regenerating one.
 Without ``--force`` it is idempotent (one recap per group per week, enforced by a
-unique constraint).
+unique constraint). Exits non-zero if any group was rejected or failed.
 
 Usage (from backend/):
     .venv/bin/python scripts/weekly_recap_generator.py                       # all due groups
@@ -39,7 +39,12 @@ def run(group_id: int | None, week_start: date | None, force: bool, db: Session)
     if group_id is not None and db.get(Group, group_id) is None:
         log.error("Group %d not found", group_id)
         sys.exit(1)
-    run_weekly_recaps(db, None if group_id is None else [group_id], week_start=week_start, force=force)
+    report = run_weekly_recaps(db, None if group_id is None else [group_id], week_start=week_start, force=force)
+
+    skipped = len(report.rejected) + len(report.failed)
+    if skipped:
+        log.error("Weekly recap finished with %d of %d group(s) skipped", skipped, report.attempted)
+        sys.exit(1)
 
 
 def main() -> None:

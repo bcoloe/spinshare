@@ -140,6 +140,70 @@ class TestOutcomes:
         assert sched.due(now + sched.retry_after).selection == {1: MONDAY}
 
 
+def group_status(sched: JobScheduler, group_id: int = 1) -> dict:
+    return next(g for g in sched.status()["groups"] if g["group_id"] == group_id)
+
+
+class TestNextDue:
+    """``next_*_at`` is what an operator checks after deploying, so it must be right."""
+
+    def test_next_selection_is_now_while_due(self):
+        now = at(MONDAY, 5)
+        assert group_status(make_scheduler(schedule(), now=now))["next_selection_at"] == now
+
+    def test_next_selection_is_tomorrow_once_drawn_today(self):
+        now = at(MONDAY, 5)
+        sched = make_scheduler(schedule(), now=now)
+        sched.record(sched.due(now), report(done=[1]), JobReport(), now)
+        assert group_status(sched)["next_selection_at"] == at(MONDAY + timedelta(days=1), 1)
+
+    def test_next_selection_is_later_today_before_the_hour(self):
+        now = at(MONDAY, 0, 30)
+        assert group_status(make_scheduler(schedule(), now=now))["next_selection_at"] == at(MONDAY, 1)
+
+    def test_next_selection_skips_unscheduled_weekdays(self):
+        now = at(MONDAY, 5)
+        sched = make_scheduler(schedule(days=frozenset({0, 3})), now=now)  # Mon, Thu
+        sched.record(sched.due(now), report(done=[1]), JobReport(), now)
+        assert group_status(sched)["next_selection_at"] == at(MONDAY + timedelta(days=3), 1)
+
+    def test_dealer_group_has_no_next_selection(self):
+        assert group_status(make_scheduler(schedule(selects=False), now=at(MONDAY, 5)))["next_selection_at"] is None
+
+    def test_next_recap_is_this_monday_before_the_hour(self):
+        now = at(MONDAY, 2)
+        assert group_status(make_scheduler(schedule(), now=now))["next_recap_at"] == at(MONDAY, 4)
+
+    def test_next_recap_is_now_while_due(self):
+        now = at(MONDAY, 4)
+        assert group_status(make_scheduler(schedule(), now=now))["next_recap_at"] == now
+
+    def test_next_recap_is_next_monday_once_done(self):
+        now = at(MONDAY, 4)
+        sched = make_scheduler(schedule(), now=now)
+        sched.record(sched.due(now), JobReport(), report(done=[1]), now)
+        assert group_status(sched)["next_recap_at"] == at(MONDAY + timedelta(days=7), 4)
+
+    def test_ineligible_group_has_no_next_recap(self):
+        assert group_status(make_scheduler(schedule(recaps=False), now=at(MONDAY, 5)))["next_recap_at"] is None
+
+
+class TestScheduleHygiene:
+    def test_vanished_group_forces_a_reload(self):
+        """A due group the runner never reports on must not stay due forever."""
+        now = at(MONDAY, 5)
+        sched = make_scheduler(schedule(1), schedule(2), now=now)
+        sched.record(sched.due(now), report(done=[1]), report(done=[1]), now)  # 2 vanished
+        assert sched._needs_reload()
+
+    def test_invalid_timezone_falls_back_instead_of_breaking_every_tick(self):
+        group = MagicMock(id=9, is_global=False, bot_sources=[])
+        group.settings.timezone = "Mars/Olympus_Mons"
+        group.settings.dealer_mode = False
+        group.settings.selection_days = [0]
+        assert GroupSchedule.from_group(group).timezone == "America/New_York"
+
+
 @pytest.fixture
 def stub_jobs(monkeypatch):
     """Replace the job runners with ones that report every requested group done."""
@@ -239,6 +303,26 @@ class TestStaleOnCommit:
         db_session.rollback()
         db_session.commit()
         assert scheduler_module.scheduler._generation == before
+
+
+    def test_released_savepoint_waits_for_the_outer_commit(self, db_session, sample_group):
+        settings = db_session.query(GroupSettings).filter_by(group_id=sample_group.id).one()
+        before = scheduler_module.scheduler._generation
+        with db_session.begin_nested():
+            settings.timezone = "Asia/Tokyo"
+        assert scheduler_module.scheduler._generation == before
+        db_session.commit()
+        assert scheduler_module.scheduler._generation > before
+
+    def test_rolled_back_savepoint_keeps_the_outer_write(self, db_session, sample_group):
+        settings = db_session.query(GroupSettings).filter_by(group_id=sample_group.id).one()
+        settings.timezone = "Asia/Tokyo"
+        db_session.flush()
+        before = scheduler_module.scheduler._generation
+        savepoint = db_session.begin_nested()
+        savepoint.rollback()
+        db_session.commit()
+        assert scheduler_module.scheduler._generation > before
 
 
 class TestAgainstDatabase:

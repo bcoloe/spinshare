@@ -1,9 +1,9 @@
 """Tests for the shared daily-selection / weekly-recap runners."""
 
 import pytest
+from sqlalchemy import text
 
 from app.models import GroupAlbum, GroupSettings
-from app.services import scheduled_jobs
 from app.services.group_album_service import GroupAlbumService
 from app.services.scheduled_jobs import run_daily_selection, run_weekly_recaps
 
@@ -56,8 +56,9 @@ class TestRunDailySelection:
 
         def flaky(self, gid, n=1, **kw):
             if gid == first.id:
-                self.db.execute(scheduled_jobs.Group.__table__.select().where(1 == 0))
-                raise RuntimeError("deadlock detected")
+                # A real database error, so the shared Session is left needing a
+                # rollback — exactly the state that used to poison later groups.
+                self.db.execute(text("SELECT 1/0"))
             return original(self, gid, n=n, **kw)
 
         monkeypatch.setattr(GroupAlbumService, "select_daily_albums", flaky)
