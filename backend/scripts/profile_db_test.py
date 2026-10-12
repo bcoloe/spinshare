@@ -45,6 +45,22 @@ class TestRouteCoverage:
         assert profile_db.profiled_get_shapes() <= _get_route_shapes()
 
 
+class TestCachedRoutes:
+    """The response cache only covers routes whose cost the benchmarks measure."""
+
+    def test_every_cached_route_exists(self):
+        from app.response_cache import CACHED_GETS
+
+        routes = {r.path for r in app.routes if isinstance(r, APIRoute) and "GET" in r.methods}
+        assert CACHED_GETS <= routes, sorted(CACHED_GETS - routes)
+
+    def test_every_cached_route_is_profiled(self):
+        from app.response_cache import CACHED_GETS
+
+        unprofiled = {profile_db.route_shape(p) for p in CACHED_GETS} - profile_db.profiled_get_shapes()
+        assert not unprofiled, f"Cached but not measured: {sorted(unprofiled)}"
+
+
 class TestRouteShape:
     def test_blanks_placeholders_and_drops_query(self):
         assert profile_db.route_shape("/groups/{g}/albums/{group_album_id}?x={u}") == "/groups/{}/albums/{}"

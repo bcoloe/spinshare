@@ -1,17 +1,17 @@
 {
-  "day": "2026-10-05",
+  "day": "2026-10-12",
   "params": {
     "users": 8,
     "sessions_per_user": 3,
     "autosave_saves": 4,
     "seed": 7,
-    "requests": 329
+    "requests": 353
   },
   "user_traffic": {
-    "touches": 329,
-    "connections": 341,
+    "touches": 353,
+    "connections": 365,
     "wakes": 20,
-    "awake_minutes": 131.8
+    "awake_minutes": 132.1
   },
   "scheduler": {
     "touches": 2,
@@ -26,9 +26,15 @@
     "awake_minutes": 10.0
   },
   "total": {
-    "touches": 331,
-    "connections": 343,
+    "touches": 355,
+    "connections": 367,
     "wakes": 22,
-    "awake_minutes": 141.8
+    "awake_minutes": 142.1
+  },
+  "cache": {
+    "enabled": false,
+    "hits": 0,
+    "misses": 0,
+    "stale": 0
   }
 }

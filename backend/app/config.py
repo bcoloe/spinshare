@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     SCHEDULER_ENABLED: bool = True
     DAILY_SELECTION_HOUR: int = Field(1, ge=0, le=23)
     WEEKLY_RECAP_HOUR: int = Field(4, ge=0, le=23)
+    # ── Response cache (app/response_cache.py) ───────────────────────────────
+    # Serves repeat page loads from memory so they don't wake the database.
+    RESPONSE_CACHE_ENABLED: bool = True
+    RESPONSE_CACHE_MAX_MB: int = Field(64, ge=1)
 
     model_config = SettingsConfigDict(env_file=".env", extra="allow")
 
