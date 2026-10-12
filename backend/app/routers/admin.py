@@ -12,7 +12,7 @@ from app.dependencies import (
     get_link_report_service,
 )
 from app.models import User
-from app.schemas.admin import AdminMetricsResponse
+from app.schemas.admin import AdminMetricsResponse, SchedulerStatusResponse
 from app.schemas.link_report import (
     AdminLinkReportItem,
     LinkReportCountResponse,
@@ -20,6 +20,7 @@ from app.schemas.link_report import (
     LinkReportResponse,
     LinkReportStatus,
 )
+from app.scheduler import scheduler
 from app.services.admin_service import AdminService
 from app.services.link_report_service import LinkReportService
 
@@ -84,3 +85,13 @@ def get_admin_metrics(
     from GET /explore/stats instead — this covers only what that endpoint lacks.
     """
     return svc.get_admin_metrics(days)
+
+
+@router.get("/scheduler", response_model=SchedulerStatusResponse)
+def get_scheduler_status(_admin: User = Depends(get_current_admin_user)):
+    """The daily-selection / weekly-recap scheduler's state. Requires admin privileges.
+
+    Served from process memory — reading it never touches the database beyond the
+    admin check.
+    """
+    return scheduler.status()

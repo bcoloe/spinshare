@@ -81,7 +81,8 @@ def scenario(db_session):
     """
     db = db_session
     alice, bob, carol = _user(db, "alice"), _user(db, "bob"), _user(db, "carol")
-    group = Group(name="Recap Group", is_public=True, created_by=alice.id)
+    # The group predates every timestamp below, as a real group with that history would.
+    group = Group(name="Recap Group", is_public=True, created_by=alice.id, created_at=BEFORE_WEEK - timedelta(days=30))
     db.add(group)
     db.commit()
     db.refresh(group)
@@ -256,6 +257,20 @@ class TestGenerateDue:
         with pytest.raises(HTTPException) as exc:
             recap_service.generate_for_group(scenario["group"].id, WEEK_START)
         assert exc.value.status_code == 400
+
+    def test_skips_group_created_after_the_week_ended(self, recap_service, scenario, db_session):
+        """Nothing to summarize for a week the group didn't exist through."""
+        _, week_end = completed_week_bounds("America/New_York")
+        scenario["group"].created_at = datetime.combine(week_end, datetime.min.time(), tzinfo=timezone.utc) + timedelta(days=1)
+        db_session.commit()
+        assert recap_service.generate_due(scenario["group"].id) is None
+        assert db_session.query(GroupRecap).filter(GroupRecap.group_id == scenario["group"].id).count() == 0
+
+    def test_group_created_during_the_week_still_gets_it(self, recap_service, scenario, db_session):
+        week_start, _ = completed_week_bounds("America/New_York")
+        scenario["group"].created_at = datetime.combine(week_start, datetime.min.time(), tzinfo=timezone.utc) + timedelta(days=2)
+        db_session.commit()
+        assert recap_service.generate_due(scenario["group"].id) is not None
 
     def test_second_call_is_noop(self, recap_service, scenario, db_session):
         r1 = recap_service.generate_due(scenario["group"].id)

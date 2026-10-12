@@ -1,5 +1,6 @@
 # backend/app/config.py
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,6 +37,14 @@ class Settings(BaseSettings):
     # GITHUB_REPO is the target repository in "owner/repo" format.
     GITHUB_TOKEN: str = ""
     GITHUB_REPO: str = ""  # e.g. "myorg/spinshare"
+    # ── Scheduled jobs (app/scheduler.py) ────────────────────────────────────
+    # The API process runs the daily album selection and the weekly recap itself.
+    # Hours are in each group's own timezone: a group's daily spin is drawn once
+    # its local clock reaches DAILY_SELECTION_HOUR, and its recap once its local
+    # Monday reaches WEEKLY_RECAP_HOUR. Defaults match the crontab they replace.
+    SCHEDULER_ENABLED: bool = True
+    DAILY_SELECTION_HOUR: int = Field(1, ge=0, le=23)
+    WEEKLY_RECAP_HOUR: int = Field(4, ge=0, le=23)
 
     model_config = SettingsConfigDict(env_file=".env", extra="allow")
 

@@ -328,3 +328,24 @@ class TestAdminMetrics:
     def test_metrics_unauthenticated(self, unauthed_client):
         resp = unauthed_client.get("/admin/metrics")
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+class TestSchedulerStatus:
+    def test_admin_sees_scheduler_state(self, admin_client):
+        resp = admin_client.get("/admin/scheduler")
+
+        assert resp.status_code == status.HTTP_200_OK
+        body = resp.json()
+        assert body["selection_hour"] == 1 and body["recap_hour"] == 4
+        assert {"running", "groups", "recent_runs", "last_error"} <= body.keys()
+
+    def test_requires_admin(self):
+        app.dependency_overrides[get_current_user] = lambda: make_mock_user(is_admin=False)
+        with TestClient(app) as c:
+            resp = c.get("/admin/scheduler")
+        app.dependency_overrides.clear()
+
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_unauthenticated(self, unauthed_client):
+        assert unauthed_client.get("/admin/scheduler").status_code == status.HTTP_401_UNAUTHORIZED

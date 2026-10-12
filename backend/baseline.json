@@ -1,0 +1,794 @@
+{
+  "group_page": {
+    "endpoints": {
+      "GET /notifications": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 2.0,
+        "rows": 1.0,
+        "db_bytes": 3041.0,
+        "response_bytes": 2.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9041.0
+      },
+      "GET /invitations/pending": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 2.0,
+        "rows": 1.0,
+        "db_bytes": 3057.0,
+        "response_bytes": 2.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9057.0
+      },
+      "GET /users/me/stats": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 3.0,
+        "rows": 3.0,
+        "db_bytes": 3557.0,
+        "response_bytes": 285.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9557.0
+      },
+      "GET /groups/search?username={u}": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 6.0,
+        "rows": 17.0,
+        "db_bytes": 5275.0,
+        "response_bytes": 2148.0,
+        "errors": 0.0,
+        "neon_est_bytes": 11275.0
+      },
+      "GET /groups/{g}": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 6.0,
+        "rows": 14.0,
+        "db_bytes": 6622.0,
+        "response_bytes": 539.0,
+        "errors": 0.0,
+        "neon_est_bytes": 12622.0
+      },
+      "GET /groups/{g}/members": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 4.0,
+        "rows": 13.0,
+        "db_bytes": 4508.0,
+        "response_bytes": 1649.0,
+        "errors": 0.0,
+        "neon_est_bytes": 10508.0
+      },
+      "GET /groups/{g}/nominations/count": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 8.0,
+        "rows": 8.0,
+        "db_bytes": 5592.0,
+        "response_bytes": 36.0,
+        "errors": 0.0,
+        "neon_est_bytes": 11592.0
+      },
+      "GET /groups/{g}/albums/today": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 5.0,
+        "rows": 4.0,
+        "db_bytes": 4465.0,
+        "response_bytes": 2.0,
+        "errors": 0.0,
+        "neon_est_bytes": 10465.0
+      }
+    },
+    "total": {
+      "requests": 8.0,
+      "connections": 8.0,
+      "statements": 36.0,
+      "rows": 61.0,
+      "db_bytes": 36117.0,
+      "response_bytes": 4663.0,
+      "errors": 0.0,
+      "neon_est_bytes": 84117.0
+    }
+  },
+  "group_page (warm)": {
+    "endpoints": {
+      "GET /notifications": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 2.0,
+        "rows": 1.0,
+        "db_bytes": 3049.0,
+        "response_bytes": 2.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9049.0
+      },
+      "GET /invitations/pending": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 2.0,
+        "rows": 1.0,
+        "db_bytes": 3065.0,
+        "response_bytes": 2.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9065.0
+      },
+      "GET /users/me/stats": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 3.0,
+        "rows": 3.0,
+        "db_bytes": 3573.0,
+        "response_bytes": 285.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9573.0
+      },
+      "GET /groups/search?username={u}": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 6.0,
+        "rows": 17.0,
+        "db_bytes": 5275.0,
+        "response_bytes": 2148.0,
+        "errors": 0.0,
+        "neon_est_bytes": 11275.0
+      },
+      "GET /groups/{g}": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 6.0,
+        "rows": 14.0,
+        "db_bytes": 6606.0,
+        "response_bytes": 539.0,
+        "errors": 0.0,
+        "neon_est_bytes": 12606.0
+      },
+      "GET /groups/{g}/members": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 4.0,
+        "rows": 13.0,
+        "db_bytes": 4516.0,
+        "response_bytes": 1649.0,
+        "errors": 0.0,
+        "neon_est_bytes": 10516.0
+      },
+      "GET /groups/{g}/nominations/count": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 8.0,
+        "rows": 8.0,
+        "db_bytes": 5600.0,
+        "response_bytes": 36.0,
+        "errors": 0.0,
+        "neon_est_bytes": 11600.0
+      },
+      "GET /groups/{g}/albums/today": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 5.0,
+        "rows": 4.0,
+        "db_bytes": 4465.0,
+        "response_bytes": 2.0,
+        "errors": 0.0,
+        "neon_est_bytes": 10465.0
+      }
+    },
+    "total": {
+      "requests": 8.0,
+      "connections": 8.0,
+      "statements": 36.0,
+      "rows": 61.0,
+      "db_bytes": 36149.0,
+      "response_bytes": 4663.0,
+      "errors": 0.0,
+      "neon_est_bytes": 84149.0
+    }
+  },
+  "group_page (peer)": {
+    "endpoints": {
+      "GET /notifications": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 2.0,
+        "rows": 1.0,
+        "db_bytes": 3049.0,
+        "response_bytes": 2.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9049.0
+      },
+      "GET /invitations/pending": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 2.0,
+        "rows": 1.0,
+        "db_bytes": 3057.0,
+        "response_bytes": 2.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9057.0
+      },
+      "GET /users/me/stats": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 3.0,
+        "rows": 3.0,
+        "db_bytes": 3565.0,
+        "response_bytes": 285.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9565.0
+      },
+      "GET /groups/search?username={u}": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 6.0,
+        "rows": 17.0,
+        "db_bytes": 5279.0,
+        "response_bytes": 2152.0,
+        "errors": 0.0,
+        "neon_est_bytes": 11279.0
+      },
+      "GET /groups/{g}": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 6.0,
+        "rows": 14.0,
+        "db_bytes": 6607.0,
+        "response_bytes": 540.0,
+        "errors": 0.0,
+        "neon_est_bytes": 12607.0
+      },
+      "GET /groups/{g}/members": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 4.0,
+        "rows": 13.0,
+        "db_bytes": 4517.0,
+        "response_bytes": 1649.0,
+        "errors": 0.0,
+        "neon_est_bytes": 10517.0
+      },
+      "GET /groups/{g}/nominations/count": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 8.0,
+        "rows": 8.0,
+        "db_bytes": 5594.0,
+        "response_bytes": 36.0,
+        "errors": 0.0,
+        "neon_est_bytes": 11594.0
+      },
+      "GET /groups/{g}/albums/today": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 5.0,
+        "rows": 4.0,
+        "db_bytes": 4466.0,
+        "response_bytes": 2.0,
+        "errors": 0.0,
+        "neon_est_bytes": 10466.0
+      }
+    },
+    "total": {
+      "requests": 8.0,
+      "connections": 8.0,
+      "statements": 36.0,
+      "rows": 61.0,
+      "db_bytes": 36134.0,
+      "response_bytes": 4668.0,
+      "errors": 0.0,
+      "neon_est_bytes": 84134.0
+    }
+  },
+  "history_tab": {
+    "endpoints": {
+      "GET /groups/{g}/albums/history": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 10.0,
+        "rows": 768.0,
+        "db_bytes": 65225.0,
+        "response_bytes": 95395.0,
+        "errors": 0.0,
+        "neon_est_bytes": 71225.0
+      },
+      "GET /groups/{g}/reviews/me": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 5.0,
+        "rows": 274.0,
+        "db_bytes": 77092.3,
+        "response_bytes": 82883.0,
+        "errors": 0.0,
+        "neon_est_bytes": 83092.3
+      },
+      "GET /groups/{g}/guesses/me": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 4.0,
+        "rows": 239.0,
+        "db_bytes": 28205.0,
+        "response_bytes": 2.0,
+        "errors": 0.0,
+        "neon_est_bytes": 34205.0
+      }
+    },
+    "total": {
+      "requests": 3.0,
+      "connections": 3.0,
+      "statements": 19.0,
+      "rows": 1281.0,
+      "db_bytes": 170522.3,
+      "response_bytes": 178280.0,
+      "errors": 0.0,
+      "neon_est_bytes": 188522.3
+    }
+  },
+  "history_tab (warm)": {
+    "endpoints": {
+      "GET /groups/{g}/albums/history": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 10.0,
+        "rows": 768.0,
+        "db_bytes": 65225.0,
+        "response_bytes": 95395.0,
+        "errors": 0.0,
+        "neon_est_bytes": 71225.0
+      },
+      "GET /groups/{g}/reviews/me": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 5.0,
+        "rows": 274.0,
+        "db_bytes": 77100.3,
+        "response_bytes": 82883.0,
+        "errors": 0.0,
+        "neon_est_bytes": 83100.3
+      },
+      "GET /groups/{g}/guesses/me": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 4.0,
+        "rows": 239.0,
+        "db_bytes": 28221.0,
+        "response_bytes": 2.0,
+        "errors": 0.0,
+        "neon_est_bytes": 34221.0
+      }
+    },
+    "total": {
+      "requests": 3.0,
+      "connections": 3.0,
+      "statements": 19.0,
+      "rows": 1281.0,
+      "db_bytes": 170546.3,
+      "response_bytes": 178280.0,
+      "errors": 0.0,
+      "neon_est_bytes": 188546.3
+    }
+  },
+  "history_tab (peer)": {
+    "endpoints": {
+      "GET /groups/{g}/albums/history": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 10.0,
+        "rows": 768.0,
+        "db_bytes": 65218.0,
+        "response_bytes": 95395.0,
+        "errors": 0.0,
+        "neon_est_bytes": 71218.0
+      },
+      "GET /groups/{g}/reviews/me": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 5.0,
+        "rows": 270.0,
+        "db_bytes": 71298.0,
+        "response_bytes": 76712.0,
+        "errors": 0.0,
+        "neon_est_bytes": 77298.0
+      },
+      "GET /groups/{g}/guesses/me": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 4.0,
+        "rows": 239.0,
+        "db_bytes": 28222.0,
+        "response_bytes": 2.0,
+        "errors": 0.0,
+        "neon_est_bytes": 34222.0
+      }
+    },
+    "total": {
+      "requests": 3.0,
+      "connections": 3.0,
+      "statements": 19.0,
+      "rows": 1277.0,
+      "db_bytes": 164738.0,
+      "response_bytes": 172109.0,
+      "errors": 0.0,
+      "neon_est_bytes": 182738.0
+    }
+  },
+  "album_page": {
+    "endpoints": {
+      "GET /notifications": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 2.0,
+        "rows": 1.0,
+        "db_bytes": 3041.0,
+        "response_bytes": 2.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9041.0
+      },
+      "GET /invitations/pending": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 2.0,
+        "rows": 1.0,
+        "db_bytes": 3065.0,
+        "response_bytes": 2.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9065.0
+      },
+      "GET /users/me/stats": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 3.0,
+        "rows": 3.0,
+        "db_bytes": 3573.0,
+        "response_bytes": 285.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9573.0
+      },
+      "GET /groups/search?username={u}": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 6.0,
+        "rows": 17.0,
+        "db_bytes": 5283.0,
+        "response_bytes": 2148.0,
+        "errors": 0.0,
+        "neon_est_bytes": 11283.0
+      },
+      "GET /albums/{a}": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 3.0,
+        "rows": 2.0,
+        "db_bytes": 3644.0,
+        "response_bytes": 349.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9644.0
+      },
+      "GET /albums/{a}/stats": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 4.0,
+        "rows": 15.0,
+        "db_bytes": 3857.0,
+        "response_bytes": 538.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9857.0
+      },
+      "GET /albums/{a}/reviews": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 3.0,
+        "rows": 14.0,
+        "db_bytes": 9643.0,
+        "response_bytes": 6759.0,
+        "errors": 0.0,
+        "neon_est_bytes": 15643.0
+      },
+      "GET /albums/{a}/reviews/me": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 3.0,
+        "rows": 3.0,
+        "db_bytes": 4748.0,
+        "response_bytes": 997.0,
+        "errors": 0.0,
+        "neon_est_bytes": 10748.0
+      }
+    },
+    "total": {
+      "requests": 8.0,
+      "connections": 8.0,
+      "statements": 26.0,
+      "rows": 56.0,
+      "db_bytes": 36854.0,
+      "response_bytes": 11080.0,
+      "errors": 0.0,
+      "neon_est_bytes": 84854.0
+    }
+  },
+  "album_page (warm)": {
+    "endpoints": {
+      "GET /notifications": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 2.0,
+        "rows": 1.0,
+        "db_bytes": 3057.0,
+        "response_bytes": 2.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9057.0
+      },
+      "GET /invitations/pending": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 2.0,
+        "rows": 1.0,
+        "db_bytes": 3081.0,
+        "response_bytes": 2.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9081.0
+      },
+      "GET /users/me/stats": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 3.0,
+        "rows": 3.0,
+        "db_bytes": 3581.0,
+        "response_bytes": 285.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9581.0
+      },
+      "GET /groups/search?username={u}": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 6.0,
+        "rows": 17.0,
+        "db_bytes": 5283.0,
+        "response_bytes": 2148.0,
+        "errors": 0.0,
+        "neon_est_bytes": 11283.0
+      },
+      "GET /albums/{a}": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 3.0,
+        "rows": 2.0,
+        "db_bytes": 3628.0,
+        "response_bytes": 349.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9628.0
+      },
+      "GET /albums/{a}/stats": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 4.0,
+        "rows": 15.0,
+        "db_bytes": 3857.0,
+        "response_bytes": 538.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9857.0
+      },
+      "GET /albums/{a}/reviews": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 3.0,
+        "rows": 14.0,
+        "db_bytes": 9643.0,
+        "response_bytes": 6759.0,
+        "errors": 0.0,
+        "neon_est_bytes": 15643.0
+      },
+      "GET /albums/{a}/reviews/me": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 3.0,
+        "rows": 3.0,
+        "db_bytes": 4748.0,
+        "response_bytes": 997.0,
+        "errors": 0.0,
+        "neon_est_bytes": 10748.0
+      }
+    },
+    "total": {
+      "requests": 8.0,
+      "connections": 8.0,
+      "statements": 26.0,
+      "rows": 56.0,
+      "db_bytes": 36878.0,
+      "response_bytes": 11080.0,
+      "errors": 0.0,
+      "neon_est_bytes": 84878.0
+    }
+  },
+  "album_page (peer)": {
+    "endpoints": {
+      "GET /notifications": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 2.0,
+        "rows": 1.0,
+        "db_bytes": 3041.0,
+        "response_bytes": 2.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9041.0
+      },
+      "GET /invitations/pending": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 2.0,
+        "rows": 1.0,
+        "db_bytes": 3065.0,
+        "response_bytes": 2.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9065.0
+      },
+      "GET /users/me/stats": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 3.0,
+        "rows": 3.0,
+        "db_bytes": 3565.0,
+        "response_bytes": 285.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9565.0
+      },
+      "GET /groups/search?username={u}": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 6.0,
+        "rows": 17.0,
+        "db_bytes": 5287.0,
+        "response_bytes": 2152.0,
+        "errors": 0.0,
+        "neon_est_bytes": 11287.0
+      },
+      "GET /albums/{a}": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 3.0,
+        "rows": 2.0,
+        "db_bytes": 3628.0,
+        "response_bytes": 349.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9628.0
+      },
+      "GET /albums/{a}/stats": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 4.0,
+        "rows": 15.0,
+        "db_bytes": 3849.0,
+        "response_bytes": 538.0,
+        "errors": 0.0,
+        "neon_est_bytes": 9849.0
+      },
+      "GET /albums/{a}/reviews": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 3.0,
+        "rows": 14.0,
+        "db_bytes": 9635.0,
+        "response_bytes": 6759.0,
+        "errors": 0.0,
+        "neon_est_bytes": 15635.0
+      },
+      "GET /albums/{a}/reviews/me": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 3.0,
+        "rows": 3.0,
+        "db_bytes": 4272.0,
+        "response_bytes": 505.0,
+        "errors": 0.0,
+        "neon_est_bytes": 10272.0
+      }
+    },
+    "total": {
+      "requests": 8.0,
+      "connections": 8.0,
+      "statements": 26.0,
+      "rows": 56.0,
+      "db_bytes": 36342.0,
+      "response_bytes": 10592.0,
+      "errors": 0.0,
+      "neon_est_bytes": 84342.0
+    }
+  },
+  "nominations_tab": {
+    "endpoints": {
+      "GET /users/me/nominations": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 4.0,
+        "rows": 144.0,
+        "db_bytes": 27542.0,
+        "response_bytes": 27352.0,
+        "errors": 0.0,
+        "neon_est_bytes": 33542.0
+      }
+    },
+    "total": {
+      "requests": 1.0,
+      "connections": 1.0,
+      "statements": 4.0,
+      "rows": 144.0,
+      "db_bytes": 27542.0,
+      "response_bytes": 27352.0,
+      "errors": 0.0,
+      "neon_est_bytes": 33542.0
+    }
+  },
+  "nominations_tab (warm)": {
+    "endpoints": {
+      "GET /users/me/nominations": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 4.0,
+        "rows": 144.0,
+        "db_bytes": 27542.0,
+        "response_bytes": 27352.0,
+        "errors": 0.0,
+        "neon_est_bytes": 33542.0
+      }
+    },
+    "total": {
+      "requests": 1.0,
+      "connections": 1.0,
+      "statements": 4.0,
+      "rows": 144.0,
+      "db_bytes": 27542.0,
+      "response_bytes": 27352.0,
+      "errors": 0.0,
+      "neon_est_bytes": 33542.0
+    }
+  },
+  "nominations_tab (peer)": {
+    "endpoints": {
+      "GET /users/me/nominations": {
+        "requests": 1.0,
+        "connections": 1.0,
+        "statements": 4.0,
+        "rows": 143.0,
+        "db_bytes": 27190.0,
+        "response_bytes": 26984.0,
+        "errors": 0.0,
+        "neon_est_bytes": 33190.0
+      }
+    },
+    "total": {
+      "requests": 1.0,
+      "connections": 1.0,
+      "statements": 4.0,
+      "rows": 143.0,
+      "db_bytes": 27190.0,
+      "response_bytes": 26984.0,
+      "errors": 0.0,
+      "neon_est_bytes": 33190.0
+    }
+  },
+  "draft_autosave": {
+    "endpoints": {
+      "PATCH /albums/{d}/reviews/{r}?group_id={g}": {
+        "requests": 1.0,
+        "connections": 2.0,
+        "statements": 4.3,
+        "rows": 4.0,
+        "db_bytes": 6601.3,
+        "response_bytes": 230.0,
+        "errors": 0.0,
+        "neon_est_bytes": 18601.3
+      }
+    },
+    "total": {
+      "requests": 1.0,
+      "connections": 2.0,
+      "statements": 4.3,
+      "rows": 4.0,
+      "db_bytes": 6601.3,
+      "response_bytes": 230.0,
+      "errors": 0.0,
+      "neon_est_bytes": 18601.3
+    }
+  }
+}
