@@ -12,7 +12,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import event, text
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.pool import NullPool, QueuePool
 
 from app import response_cache
 from app.database import get_db
@@ -62,7 +63,8 @@ class TestVersionsFollowRootTransactions:
         with engine.connect() as conn:
             conn.execute(text("DELETE FROM notifications WHERE id = -1"))
             conn.commit()
-        assert versions.snapshot().get("notifications", 0) == before + 1
+        # Once as the commit starts, once more after it has landed.
+        assert versions.snapshot().get("notifications", 0) == before + 2
 
     def test_root_rollback_discards(self, engine):
         before = versions.snapshot().get("notifications", 0)
@@ -72,6 +74,48 @@ class TestVersionsFollowRootTransactions:
             conn.execute(text("SELECT 1"))
             conn.commit()  # a later, read-only commit must not publish the discarded write
         assert versions.snapshot().get("notifications", 0) == before
+
+
+class TestCommitWindow:
+    """SQLAlchemy fires the commit event before the DBAPI commit lands.
+
+    A reader that snapshots versions in that gap reads the old row under the new
+    versions. Whatever it caches must still be invalid once the commit is done.
+    """
+
+    @pytest.mark.parametrize("poolclass", [QueuePool, NullPool])
+    def test_reader_inside_the_commit_window_cannot_cache_stale_data(self, test_settings, cache_on, poolclass):
+        eng = create_engine(test_settings.DATABASE_URL, poolclass=poolclass)
+        uid = 990_000 + (1 if poolclass is QueuePool else 2)
+
+        def read_name():
+            with eng.connect() as r:
+                return r.execute(text("SELECT username FROM users WHERE id = :id"), {"id": uid}).scalar()
+
+        try:
+            with eng.begin() as c:
+                c.execute(text("INSERT INTO users (id, email, username, password_hash) "
+                               "VALUES (:id, :e, 'before', 'x')"), {"id": uid, "e": f"race{uid}@test.com"})
+            seen = {}
+
+            def reader_in_window(conn):
+                # Registered after the cache's own listener, so the early bump has run.
+                if conn.info.pop("probe", False):
+                    seen["value"] = response_cache.memoize(("race", uid), read_name)
+
+            event.listen(eng, "commit", reader_in_window)
+            with eng.connect() as w:
+                w.info["probe"] = True
+                w.execute(text("UPDATE users SET username = 'after' WHERE id = :id"), {"id": uid})
+                w.commit()
+            event.remove(eng, "commit", reader_in_window)
+
+            assert seen["value"] == "before"  # the race really happened
+            assert response_cache.memoize(("race", uid), read_name) == "after"
+        finally:
+            with eng.begin() as c:
+                c.execute(text("DELETE FROM users WHERE id = :id"), {"id": uid})
+            eng.dispose()
 
 
 class TestVersionsFollowCommits:
@@ -142,6 +186,24 @@ class TestStore:
     def test_oversized_entry_is_skipped(self, store):
         store.store("big", 1, {}, size=5000)
         assert store.lookup("big") is None
+
+
+class TestClearAndNesting:
+    def test_clear_invalidates_a_computation_already_in_flight(self, cache_on):
+        with response_cache._observe() as observed:
+            pass  # read the database before an outside write ...
+        cache_on.clear()  # ... the operator clears after it ...
+        cache_on.store("k", "stale", observed.deps(), size=10)  # ... then the request finishes
+        assert cache_on.lookup("k") is None
+
+    def test_nested_memoize_passes_its_reads_up(self, cache_on, db_session):
+        def inner():
+            return db_session.execute(text("SELECT count(*) FROM notifications")).scalar()
+
+        response_cache.memoize(("inner",), inner)  # cached on its own first
+        with response_cache._observe() as outer:
+            response_cache.memoize(("inner",), inner)  # a hit: no SQL runs here
+        assert "notifications" in outer.reads
 
 
 class TestValidUntil:
@@ -248,6 +310,11 @@ class TestServing:
 
         assert resp.status_code == 401
         assert cache_on.stats.bypassed == 1
+
+    def test_query_string_counts_toward_the_memory_bound(self, api, world, cache_on):
+        junk = "x" * 20_000
+        api.get(f"/notifications?pad={junk}", headers=_auth_headers_for(world["alice"]))
+        assert cache_on.status()["bytes"] > 20_000
 
     def test_uncached_route_is_left_alone(self, api, world):
         resp = api.get("/users/me", headers=_auth_headers_for(world["alice"]))

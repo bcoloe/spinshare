@@ -23,9 +23,9 @@ How it stays correct without per-endpoint bookkeeping:
 * **Entries are per viewer.** The key includes the caller's user id, so one person's
   view of a page — membership checks, hidden reviews — is never served to another.
 
-Because versions are captured before the computation and bumped after the writer
-commits, a reader racing a writer can only ever produce an entry that is already
-invalid, never a stale one that looks valid.
+Because versions are captured before the computation and bumped again after the
+writer's commit has returned, a reader racing a writer can only ever produce an
+entry that is already invalid, never a stale one that looks valid.
 
 What it cannot see: writes from another process (a CLI script, psql). After one of
 those, clear the cache (``POST /admin/cache/clear``) or restart the API. The app
@@ -46,6 +46,7 @@ from zoneinfo import ZoneInfo
 from cachetools import LRUCache
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
+from sqlalchemy.pool import Pool
 from starlette.routing import Match
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -63,7 +64,7 @@ def _utcnow() -> datetime:
 
 # The GET routes served from the cache, by route template. A route belongs here only
 # if its response is a function of the database, the caller, the request and the
-# clock — nothing external such as a third-party API — and any dependence on the
+# clock — no content from a third-party API — and any dependence on the
 # clock finer than the calendar day is declared with ``valid_until``. Every route
 # listed must also be profiled in scripts/profile_db.py (enforced by
 # scripts/profile_db_test.py).
@@ -95,6 +96,11 @@ CACHED_GETS: frozenset[str] = frozenset({
 # ==================== TABLE VERSIONS ====================
 
 
+# A pseudo-table every entry depends on; bumping it invalidates everything,
+# including computations still in flight when the cache is cleared.
+EPOCH = "*"
+
+
 class TableVersions:
     """A counter per table, bumped each time a write to it commits."""
 
@@ -106,6 +112,9 @@ class TableVersions:
         with self._lock:
             for table in tables:
                 self._versions[table] = self._versions.get(table, 0) + 1
+
+    def bump_all(self) -> None:
+        self.bump([EPOCH])
 
     def snapshot(self) -> dict[str, int]:
         with self._lock:
@@ -126,6 +135,7 @@ _current: contextvars.ContextVar["_Observation | None"] = contextvars.ContextVar
 )
 
 _PENDING_WRITES = "response_cache_pending_writes"
+_COMMITTED_WRITES = "response_cache_committed_writes"
 _WRITE_TARGET = re.compile(r'\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?(\w+)"?', re.IGNORECASE)
 
 
@@ -167,8 +177,32 @@ def _observe_statement(conn, cursor, statement, parameters, context, executemany
 
 @event.listens_for(Engine, "commit")
 def _publish_writes(conn):
+    # SQLAlchemy fires this *before* the DBAPI commit runs. Bumping now stops
+    # readers that start afterwards from trusting entries computed before; but a
+    # reader that snapshots in the gap until the commit lands still reads the old
+    # rows under the new versions. So the same tables are bumped again once the
+    # commit is known to be done — see _publish_committed_writes.
     if pending := conn.info.pop(_PENDING_WRITES, None):
         versions.bump(pending)
+        conn.info.setdefault(_COMMITTED_WRITES, set()).update(pending)
+
+
+def _publish_committed(info: dict) -> None:
+    if committed := info.pop(_COMMITTED_WRITES, None):
+        versions.bump(committed)
+
+
+@event.listens_for(Engine, "begin")
+def _publish_committed_writes(conn):
+    # A new transaction on this connection means the previous commit returned.
+    _publish_committed(conn.info)
+
+
+@event.listens_for(Pool, "checkin")
+def _publish_committed_writes_on_checkin(dbapi_connection, connection_record):
+    # Returned to the pool (closed, under NullPool): any commit on it has returned.
+    if connection_record is not None:
+        _publish_committed(connection_record.info)
 
 
 @event.listens_for(Engine, "release_savepoint")
@@ -219,6 +253,7 @@ class Entry:
     deps: dict[str, int]
     expires_at: datetime
     size: int
+    valid_until: datetime | None = None
 
 
 @dataclass
@@ -267,7 +302,7 @@ class ResponseCache:
             if valid_until <= now:
                 return
             expires_at = min(expires_at, valid_until)
-        entry = Entry(value=value, deps=deps, expires_at=expires_at, size=size)
+        entry = Entry(value=value, deps=deps, expires_at=expires_at, size=size, valid_until=valid_until)
         with self._lock:
             try:
                 self._store[key] = entry
@@ -276,6 +311,9 @@ class ResponseCache:
                 pass
 
     def clear(self) -> None:
+        # Bump the epoch too: a request that read the database before an outside
+        # write but finishes after this clear must not put its answer back.
+        versions.bump_all()
         with self._lock:
             self._store.clear()
 
@@ -313,7 +351,7 @@ class _Observation:
     valid_until: datetime | None = None
 
     def deps(self) -> dict[str, int]:
-        return {t: self.before.get(t, 0) for t in self.reads}
+        return {t: self.before.get(t, 0) for t in self.reads | {EPOCH}}
 
 
 class _observe:
@@ -348,11 +386,21 @@ def memoize(key: Hashable, compute: Callable[[], Any], *, size: int = 256) -> An
     """
     if not cache.enabled:
         return compute()
+    outer = _current.get()
     if (entry := cache.lookup(key)) is not None:
+        if outer is not None:
+            # Whatever caches the caller's result depends on what this value read.
+            outer.reads.update(entry.deps)
+            if entry.valid_until is not None:
+                valid_until(entry.valid_until)
         return entry.value
     with _observe() as observed:
         value = compute()
     cache.store(key, value, observed.deps(), size=size, valid_until=observed.valid_until)
+    if outer is not None:
+        outer.reads.update(observed.reads)
+        if observed.valid_until is not None:
+            valid_until(observed.valid_until)
     return value
 
 
@@ -435,8 +483,10 @@ class ResponseCacheMiddleware:
 
         if status == 200:
             body = b"".join(chunks)
+            # Count the key as well as the body: the query string is caller-chosen.
+            size = len(body) + len(scope["path"]) + len(scope["query_string"]) + 512
             cache.store(key, CachedResponse(body, content_type), observed.deps(),
-                        size=len(body) + 512, valid_until=observed.valid_until)
+                        size=size, valid_until=observed.valid_until)
 
 
 async def _send_cached(send: Send, response: CachedResponse) -> None:
