@@ -84,7 +84,10 @@ class TestCommitWindow:
     """
 
     @pytest.mark.parametrize("poolclass", [QueuePool, NullPool])
-    def test_reader_inside_the_commit_window_cannot_cache_stale_data(self, test_settings, cache_on, poolclass):
+    def test_reader_inside_the_commit_window_cannot_cache_stale_data(
+        self, engine, test_settings, cache_on, poolclass
+    ):
+        # `engine` is requested for its side effect: it creates the tables.
         eng = create_engine(test_settings.DATABASE_URL, poolclass=poolclass)
         uid = 990_000 + (1 if poolclass is QueuePool else 2)
 
