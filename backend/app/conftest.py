@@ -15,6 +15,10 @@ os.environ["TESTING"] = "1"
 # Every `with TestClient(app)` runs the lifespan; the job scheduler must not start
 # there and draw albums against the test database on its own clock.
 os.environ["SCHEDULER_ENABLED"] = "false"
+# Router tests reuse paths and viewer ids across tests with different mocked data;
+# a shared response cache would serve one test's answer to the next. Tests that
+# exercise the cache turn it on explicitly (see app/response_cache_test.py).
+os.environ["RESPONSE_CACHE_ENABLED"] = "false"
 
 
 @pytest.fixture(scope="session")

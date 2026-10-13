@@ -49,8 +49,18 @@ timezones now roll over on their own clock.
 
 ## Running a job by hand
 
-The CLI scripts call the same code (`app/services/scheduled_jobs.py`). Running one
-alongside the scheduler is harmless.
+The CLI scripts call the same code (`app/services/scheduled_jobs.py`). The jobs
+are idempotent, so a manual run never draws twice.
+
+**After any manual run that writes, clear the API's response cache.** The scripts
+run as a separate process, so the cache (`app/response_cache.py`) can't see their
+writes. For example, a "today" page cached before a manual draw would keep showing
+the old answer.
+
+```bash
+curl -X POST https://<host>/api/admin/cache/clear -H "Authorization: Bearer <admin token>"
+# or: sudo systemctl restart spinshare-api
+```
 
 ```bash
 cd /opt/spinshare/backend
@@ -70,7 +80,10 @@ cd /opt/spinshare/backend
 2. Check `GET /admin/scheduler`: `running` is true, `schedule_loaded` is true, and
    each group has a sensible `next_selection_at`.
 3. Remove the two spinshare entries from the `spinshare` user's crontab (`crontab -e`).
-   Running both for a while does no harm, because the jobs are idempotent.
+   **This is required once the response cache is deployed.** A cron draw is a write
+   from another process, which the cache can't see. If cron draws first, the
+   scheduler finds nothing to do and writes nothing, so pages cached before the
+   draw keep showing the old answer for the rest of the day.
 
 ## Scaling note
 

@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
+from app import response_cache
 from app.models import (
     Album,
     AlbumDeal,
@@ -814,19 +815,26 @@ class UserService:
         # The user is loaded rather than reconstructed from the refresh token's
         # own claims, because the new access token has to carry current group
         # membership. This is the only point in a long session where that claim
-        # gets corrected, which is what bounds its staleness to 15 minutes. One
-        # read per refresh is affordable; the read per socket reconnect that
-        # this replaces was not.
-        try:
-            user = self.get_user_by_id(int(user_id))
-        except (HTTPException, ValueError):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
-            ) from None
+        # gets corrected, which is what bounds its staleness to 15 minutes.
+        #
+        # Every session after a gap starts here (an expired access token is
+        # refused without a query, then refreshed), so the claims are memoized:
+        # a returning user whose row and memberships haven't changed starts their
+        # session without waking the database. Any write to those tables
+        # invalidates the entry, so the claims are never staler than uncached.
+        def load_claims() -> tuple[dict, dict]:
+            try:
+                user = self.get_user_by_id(int(user_id))
+            except (HTTPException, ValueError):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+                ) from None
+            return self._access_token_data(user), self._refresh_token_data(user)
 
+        access_claims, refresh_claims = response_cache.memoize(("refresh_claims", user_id), load_claims)
         return RefreshResponse(
-            access_token=security.create_access_token(data=self._access_token_data(user)),
-            refresh_token=security.create_refresh_token(data=self._refresh_token_data(user)),
+            access_token=security.create_access_token(data=dict(access_claims)),
+            refresh_token=security.create_refresh_token(data=dict(refresh_claims)),
             token_type="bearer",
         )
 

@@ -231,6 +231,7 @@ UNPROFILED_GETS: dict[str, str] = {
     "/admin/link-reports/count": _ADMIN,
     "/admin/metrics": _ADMIN,
     "/admin/scheduler": _ADMIN,
+    "/admin/cache": _ADMIN,
     "/users/": _ADMIN,
     "/users/spotify/callback": _EXTERNAL,
     "/users/spotify/connect-url": _EXTERNAL,
@@ -371,6 +372,7 @@ class Identity:
     user_id: int
     username: str
     headers: dict
+    refresh_token: str
 
 
 class Harness:
@@ -392,7 +394,8 @@ class Harness:
 
     def placeholders(self, who: Identity) -> dict:
         f = self.fixtures
-        return {"g": f["g"], "a": f["a"], "d": f["d"], "r": f.get("r"), "u": who.username}
+        return {"g": f["g"], "a": f["a"], "d": f["d"], "r": f.get("r"), "u": who.username,
+                "rt": who.refresh_token}
 
     def request(self, who: Identity, method: str, path: str, body=None):
         """Issue one request; return (Tally of its DB cost, response)."""
@@ -440,7 +443,7 @@ def harness(url: str):
     from app.database import SessionLocal, engine
     from app.main import app
     from app.models import Review
-    from app.utils.security import create_access_token
+    from app.utils.security import create_access_token, create_refresh_token
 
     counter = StatementCounter()
     counter.attach(engine)
@@ -448,7 +451,11 @@ def harness(url: str):
     db = SessionLocal()
     fixtures = _pick_fixtures(db)
     members = [
-        Identity(m.id, m.username, {"Authorization": f"Bearer {create_access_token({'sub': str(m.id)})}"})
+        Identity(
+            m.id, m.username,
+            {"Authorization": f"Bearer {create_access_token({'sub': str(m.id)})}"},
+            create_refresh_token({"sub": str(m.id), "email": m.email}),
+        )
         for m in fixtures["members"]
     ]
     db.close()
@@ -486,9 +493,13 @@ def run_scenarios(h: Harness, repeat: int, tls_overhead: int) -> dict:
         for step in steps:
             results[key].setdefault(f"{step[0]} {step[1]}", Tally()).add(h.step(who, step, key))
 
+    from app.response_cache import cache
+
     for _ in range(repeat):
         for name, steps in READ_SCENARIOS.items():
             for pass_ in PASSES:
+                if pass_ == "cold":
+                    cache.clear()  # cold means nothing cached, whatever ran before
                 measure(_pass_key(name, pass_), h.peer if pass_ == "peer" else h.main, steps)
         for name, steps in WRITE_SCENARIOS.items():
             measure(name, h.main, steps)
@@ -517,6 +528,8 @@ SERVER_TZ = "America/New_York"
 AUTOSUSPEND = timedelta(minutes=5)
 # Seconds between requests inside a scenario, and between scenarios in a session.
 STEP_GAP, SCENARIO_GAP = 1, 20
+# Every simulated session begins with a token refresh (see build_sessions).
+SESSION_START = ("POST", "/users/refresh?refresh_token={rt}")
 # Autosave fires 3 s after typing stops; a burst is that many saves in one sitting.
 AUTOSAVE_GAP = 30
 
@@ -606,6 +619,10 @@ def build_sessions(h: Harness, day: date, users: int, sessions_per_user: int,
         for _ in range(sessions_per_user):
             hour = rng.choices(range(24), weights=weights)[0]
             t = datetime.combine(day, dtime(hour), tz) + timedelta(seconds=rng.randrange(3600))
+            # A session after a gap starts with an expired access token: the first
+            # call is refused without a query, then the client refreshes.
+            events.append((t, who, SESSION_START))
+            t += timedelta(seconds=STEP_GAP)
             flow = ["group_page"]
             flow += [name for name, p in (("history_tab", 0.5), ("album_page", 0.4), ("nominations_tab", 0.2))
                      if rng.random() < p]
@@ -631,16 +648,27 @@ def simulate_day(h: Harness, *, day: date, users: int, sessions_per_user: int, w
     does between them (caching, for instance) shows up in the connections each one
     opens. Only requests that open a connection count as touches.
 
-    Caveat: the replay runs in seconds, not a day, so anything that expires on a
-    wall-clock timer in the server will look fresher here than it would live.
+    The response cache runs on the replay's clock, so its day-boundary and max-age
+    expiry happen in simulated time. Caveat: the scheduler's draws are counted as
+    database touches but not executed, so the cache entries they would invalidate
+    survive here; only sessions between midnight and the draw hour are affected.
     """
+    from app.response_cache import cache
+
     events = build_sessions(h, day, users, sessions_per_user, weights, autosave_saves, random.Random(seed))
+    # The process has been up since before the day began; whatever it cached
+    # yesterday expired at midnight. The cache's clock follows the replay so its
+    # day-boundary expiry happens at the simulated midnight, not the real one.
+    cache.clear()
+    real_clock = cache.clock
     user_touches, connections = [], 0
     for t, who, step in events:
+        cache.clock = lambda t=t: t
         tally = h.step(who, step, "day")
         if tally.connections:
             user_touches.append(t)
             connections += tally.connections
+    cache.clock = real_clock
     sched = scheduler_touches(h, day)
     return {
         "day": day.isoformat(),
@@ -650,6 +678,7 @@ def simulate_day(h: Harness, *, day: date, users: int, sessions_per_user: int, w
         "scheduler": summarize_touches(sched),
         "legacy_cron": summarize_touches(legacy_cron_touches(day)),
         "total": summarize_touches(user_touches + sched, connections + len(sched)),
+        "cache": {k: v for k, v in cache.status().items() if k in ("enabled", "hits", "misses", "stale")},
     }
 
 
@@ -669,6 +698,11 @@ def print_day(report: dict, baseline: dict | None) -> None:
             line += f"   {delta:+.0%} awake vs baseline"
         print(line)
     print("(legacy_cron is the replaced crontab, for comparison; it is not part of total)")
+    c = report.get("cache")
+    if c and c["enabled"]:
+        lookups = c["hits"] + c["misses"]
+        print(f"response cache: {c['hits']} hits / {lookups} lookups ({c['hits'] / max(lookups, 1):.0%}), "
+              f"{c['stale']} invalidated")
 
 
 # ==================== OUTPUT ====================

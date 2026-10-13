@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session, selectinload
 
+from app import response_cache
 from app.config import get_settings
 from app.models import User
 from app.models.group import GroupRole
@@ -225,7 +226,7 @@ class InvitationService:
     def get_user_pending_invitations(self, user: User) -> list[GroupInvitation]:
         """Return all pending, non-expired invitations addressed to this user."""
         now = datetime.now(timezone.utc)
-        return list(
+        invitations = list(
             self.db.scalars(
                 select(GroupInvitation)
                 .where(
@@ -237,6 +238,10 @@ class InvitationService:
                 .order_by(GroupInvitation.created_at.desc())
             ).all()
         )
+        # The list changes when the first of these expires, with no write to say so.
+        if invitations:
+            response_cache.valid_until(min(inv.expires_at for inv in invitations))
+        return invitations
 
     # ==================== DELETE ====================
 

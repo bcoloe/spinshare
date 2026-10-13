@@ -11,6 +11,7 @@ from sqlalchemy.exc import OperationalError
 
 from app.config import get_settings
 from app.realtime.connection_manager import manager as connection_manager
+from app.response_cache import ResponseCacheMiddleware, set_timezone_provider
 from app.routers import groups, users
 from app.routers.admin import router as admin_router
 from app.routers.albums import albums_router, group_albums_router
@@ -28,6 +29,7 @@ from app.routers.recaps import router as recaps_router
 from app.routers.stats import router as stats_router
 from app.routers.ws import router as ws_router
 from app.scheduler import scheduler
+from app.utils.time_helpers import DEFAULT_TZ
 
 settings = get_settings()
 
@@ -101,6 +103,8 @@ async def lifespan(app: FastAPI):
     # Read at startup, not import, so tests and profiling can switch it off via
     # the environment. The scheduler shares the single-worker assumption above.
     run_scheduler = get_settings().SCHEDULER_ENABLED
+    # Cached responses expire at the next local midnight of every zone in use.
+    set_timezone_provider(lambda: scheduler.timezones() | {DEFAULT_TZ})
     if run_scheduler:
         scheduler.start()
     yield
@@ -119,6 +123,8 @@ async def db_operational_error_handler(request: Request, exc: OperationalError):
     )
 
 
+# Added before CORS so CORS wraps it: cached responses still get CORS headers.
+app.add_middleware(ResponseCacheMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.FRONTEND_URL],

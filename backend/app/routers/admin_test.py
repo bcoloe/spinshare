@@ -349,3 +349,29 @@ class TestSchedulerStatus:
 
     def test_unauthenticated(self, unauthed_client):
         assert unauthed_client.get("/admin/scheduler").status_code == status.HTTP_401_UNAUTHORIZED
+
+
+class TestResponseCacheAdmin:
+    @pytest.fixture
+    def cache(self):
+        from app.response_cache import cache
+
+        cache.clear()
+        yield cache
+        cache.clear()
+
+    def test_status_and_clear(self, admin_client, cache):
+        cache.store("k", "v", {}, size=10)
+        assert admin_client.get("/admin/cache").json()["entries"] == 1
+        assert admin_client.post("/admin/cache/clear").json()["entries"] == 0
+
+    def test_requires_admin(self):
+        app.dependency_overrides[get_current_user] = lambda: make_mock_user(is_admin=False)
+        with TestClient(app) as c:
+            statuses = (c.get("/admin/cache").status_code, c.post("/admin/cache/clear").status_code)
+        app.dependency_overrides.clear()
+        assert statuses == (status.HTTP_403_FORBIDDEN, status.HTTP_403_FORBIDDEN)
+
+    def test_unauthenticated(self, unauthed_client):
+        assert unauthed_client.get("/admin/cache").status_code == status.HTTP_401_UNAUTHORIZED
+        assert unauthed_client.post("/admin/cache/clear").status_code == status.HTTP_401_UNAUTHORIZED

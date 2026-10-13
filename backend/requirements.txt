@@ -15,6 +15,8 @@ passlib ~= 1.7.4
 bcrypt ~= 4.3.0
 beautifulsoup4 ~= 4.13.0
 ytmusicapi ~= 1.10.0
+# Bounded LRU behind the in-process response cache (app/response_cache.py).
+cachetools ~= 7.2
 
 
 PyJWT ~= 2.9.0

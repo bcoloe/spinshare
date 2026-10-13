@@ -155,6 +155,11 @@ class JobScheduler:
             self._schedules = installed
             self._loaded_generation = self._generation if generation is None else generation
 
+    def timezones(self) -> set[str]:
+        """The timezones groups currently use (empty until the map first loads)."""
+        with self._lock:
+            return {s.timezone for s in (self._schedules or {}).values()}
+
     # ---------- due-ness (pure, no database) ----------
 
     def _selection_due(self, s: GroupSchedule, now: datetime) -> date | None:

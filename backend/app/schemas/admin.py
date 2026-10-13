@@ -66,3 +66,17 @@ class SchedulerStatusResponse(BaseModel):
     schedule_loaded: bool
     recent_runs: list[SchedulerRun]
     groups: list[ScheduledGroup]
+
+
+class CacheStatusResponse(BaseModel):
+    """The in-process response cache (see app/response_cache.py). Counters reset at startup."""
+
+    enabled: bool
+    entries: int
+    bytes: int
+    max_bytes: int
+    hits: int
+    misses: int
+    stale: int
+    bypassed: int
+    stored: int

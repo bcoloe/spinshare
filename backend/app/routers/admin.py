@@ -12,7 +12,7 @@ from app.dependencies import (
     get_link_report_service,
 )
 from app.models import User
-from app.schemas.admin import AdminMetricsResponse, SchedulerStatusResponse
+from app.schemas.admin import AdminMetricsResponse, CacheStatusResponse, SchedulerStatusResponse
 from app.schemas.link_report import (
     AdminLinkReportItem,
     LinkReportCountResponse,
@@ -20,6 +20,7 @@ from app.schemas.link_report import (
     LinkReportResponse,
     LinkReportStatus,
 )
+from app import response_cache
 from app.scheduler import scheduler
 from app.services.admin_service import AdminService
 from app.services.link_report_service import LinkReportService
@@ -95,3 +96,20 @@ def get_scheduler_status(_admin: User = Depends(get_current_admin_user)):
     admin check.
     """
     return scheduler.status()
+
+
+@router.get("/cache", response_model=CacheStatusResponse)
+def get_cache_status(_admin: User = Depends(get_current_admin_user)):
+    """Response-cache size and hit counters since startup. Requires admin privileges."""
+    return response_cache.cache.status()
+
+
+@router.post("/cache/clear", response_model=CacheStatusResponse)
+def clear_cache(_admin: User = Depends(get_current_admin_user)):
+    """Drop every cached response. Requires admin privileges.
+
+    Needed after writing to the database from outside the API process (a CLI
+    script, psql): the cache only sees writes made in-process.
+    """
+    response_cache.cache.clear()
+    return response_cache.cache.status()
