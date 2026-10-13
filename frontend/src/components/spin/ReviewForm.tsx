@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Button, Group, Slider, Stack, Text, Textarea } from '@mantine/core'
 import { ratingColor } from '../../utils/ratingColor'
 import { notifications } from '@mantine/notifications'
 import { useSubmitReview, useUpdateReview } from '../../hooks/useDailySpin'
+import { useDraftAutosave, type DraftContent } from '../../hooks/useDraftAutosave'
 import { ApiError } from '../../services/apiClient'
 import type { ReviewResponse } from '../../types/album'
 
@@ -20,9 +21,6 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
   const [comment, setComment] = useState(existingReview?.comment ?? '')
   const submitReview = useSubmitReview(albumId)
   const updateReview = useUpdateReview(albumId)
-  const [autosavedAt, setAutosavedAt] = useState<Date | null>(null)
-  const isDirtyRef = useRef(false)
-  const autosaveCallbackRef = useRef<() => Promise<void>>(() => Promise.resolve())
 
   useEffect(() => {
     if (existingReview) {
@@ -31,28 +29,20 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
     }
   }, [existingReview?.id])
 
-  autosaveCallbackRef.current = async () => {
-    if (isPublished || submitReview.isPending || updateReview.isPending) return
-    try {
-      if (existingReview) {
-        await updateReview.mutateAsync({
-          reviewId: existingReview.id,
-          data: { rating: rating ?? undefined, comment: comment || undefined, is_draft: true },
-        })
-      } else {
-        await submitReview.mutateAsync({ rating: rating ?? undefined, comment: comment || undefined, is_draft: true })
-      }
-      setAutosavedAt(new Date())
-    } catch {
-      // autosave silently fails
-    }
-  }
-
-  useEffect(() => {
-    if (!isDirtyRef.current) return
-    const timer = setTimeout(() => { autosaveCallbackRef.current() }, 3000)
-    return () => clearTimeout(timer)
-  }, [rating, comment])
+  const restoreDraft = useCallback((draft: DraftContent) => {
+    setRating(draft.rating)
+    setComment(draft.comment)
+  }, [])
+  // The parent renders this form only once the caller's review has loaded.
+  const autosave = useDraftAutosave({
+    albumId,
+    existingReview,
+    ready: true,
+    content: { rating, comment },
+    onRestore: restoreDraft,
+    submitReview,
+    updateReview,
+  })
 
   if (isPublished && !editing) {
     return (
@@ -83,19 +73,12 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
   }
 
   const handleSaveDraft = async () => {
-    try {
-      if (existingReview) {
-        await updateReview.mutateAsync({
-          reviewId: existingReview.id,
-          data: { rating: rating ?? undefined, comment: comment || undefined, is_draft: true },
-        })
-      } else {
-        await submitReview.mutateAsync({ rating: rating ?? undefined, comment: comment || undefined, is_draft: true })
-      }
+    autosave.markDirty() // an explicit save always goes to the server
+    const result = await autosave.flush()
+    if (result === 'failed') {
+      notifications.show({ color: 'red', message: 'Could not save draft' })
+    } else if (result === 'saved') {
       notifications.show({ color: 'teal', message: 'Draft saved' })
-    } catch (err) {
-      const message = err instanceof ApiError ? err.message : 'Could not save draft'
-      notifications.show({ color: 'red', message })
     }
   }
 
@@ -113,6 +96,7 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
       } else {
         await submitReview.mutateAsync({ rating, comment: comment || undefined })
       }
+      autosave.clearLocal()
       if (editing) setEditing(false)
       notifications.show({ color: 'green', message: existingReview ? 'Review updated' : 'Review submitted' })
     } catch (err) {
@@ -125,7 +109,7 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
   const title = isDraft ? 'Your draft review' : isPublished ? 'Edit your review' : 'Your review'
 
   return (
-    <Stack gap="md">
+    <Stack gap="md" onBlur={autosave.onBlur}>
       <Text size="sm" fw={600}>{title}</Text>
       <div>
         <Group justify="space-between" mb={4}>
@@ -140,7 +124,7 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
           step={0.1}
           color={ratingColor(rating)}
           value={rating ?? 0}
-          onChange={(v) => { isDirtyRef.current = true; setRating(v) }}
+          onChange={(v) => { autosave.markDirty(); setRating(v) }}
           marks={[0, 2, 4, 6, 8, 10].map((v) => ({ value: v, label: String(v) }))}
           mb="lg"
         />
@@ -149,7 +133,7 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
         label="Comment (optional)"
         placeholder="What did you think?"
         value={comment}
-        onChange={(e) => { isDirtyRef.current = true; setComment(e.currentTarget.value) }}
+        onChange={(e) => { autosave.markDirty(); setComment(e.currentTarget.value) }}
         maxLength={5000}
         autosize
         minRows={2}
@@ -170,9 +154,9 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
             </Button>
           )}
         </Group>
-        {!isPublished && autosavedAt && (
+        {!isPublished && autosave.savedAt && (
           <Text size="xs" c="dimmed">
-            Autosaved {autosavedAt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+            Autosaved {autosave.savedAt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
           </Text>
         )}
       </Group>

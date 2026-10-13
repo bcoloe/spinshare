@@ -196,8 +196,9 @@ READ_SCENARIOS: dict[str, list] = {
 
 # Writes. Measured cold only: repeating a write measures the same thing again.
 WRITE_SCENARIOS: dict[str, list] = {
-    # One draft autosave (fires 3 s after typing stops) plus any refetches that
-    # useUpdateReview.onSuccess triggers. Drafts now only patch the author's own
+    # One draft save reaching the server, plus any refetches that
+    # useUpdateReview.onSuccess triggers. (How often that happens is the day
+    # simulation's concern: see --autosave-saves.) Drafts now only patch the author's own
     # cache, so there are none; before that change this scenario also refetched
     # album reviews, album stats, group reviews/me, and the full history.
     # Keep in sync with frontend/src/hooks/useDailySpin.ts.
@@ -530,8 +531,13 @@ AUTOSUSPEND = timedelta(minutes=5)
 STEP_GAP, SCENARIO_GAP = 1, 20
 # Every simulated session begins with a token refresh (see build_sessions).
 SESSION_START = ("POST", "/users/refresh?refresh_token={rt}")
-# Autosave fires 3 s after typing stops; a burst is that many saves in one sitting.
-AUTOSAVE_GAP = 30
+# Server draft saves per drafting session, and the spacing between them. The
+# frontend keeps drafts on the device while typing and sends them to the server
+# at most once a minute and when the writer leaves the form (useDraftAutosave.ts):
+# a couple of minutes of drafting is about two server saves, a minute apart. The
+# frontend before that saved 3 s after every pause in typing; the committed
+# baseline models it conservatively as --autosave-saves 4 --autosave-gap 30.
+DEFAULT_AUTOSAVE_SAVES, DEFAULT_AUTOSAVE_GAP = 2, 60
 
 
 def awake_intervals(touches: list[datetime], window: timedelta = AUTOSUSPEND) -> list[tuple[datetime, datetime]]:
@@ -610,7 +616,8 @@ def _settings():
 
 
 def build_sessions(h: Harness, day: date, users: int, sessions_per_user: int,
-                   weights, autosave_saves: int, rng: random.Random) -> list[tuple[datetime, Identity, tuple]]:
+                   weights, autosave_saves: int, rng: random.Random,
+                   autosave_gap: int = DEFAULT_AUTOSAVE_GAP) -> list[tuple[datetime, Identity, tuple]]:
     """A day of page loads as (virtual time, who, step) in time order."""
     tz = ZoneInfo(SERVER_TZ)
     people = [h.main] + [m for m in h.members if m is not h.main][: max(users - 1, 0)]
@@ -633,15 +640,19 @@ def build_sessions(h: Harness, day: date, users: int, sessions_per_user: int,
                 t += timedelta(seconds=SCENARIO_GAP)
             # Only the main member has a draft to autosave.
             if who is h.main:
+                method, template, body = WRITE_SCENARIOS["draft_autosave"][0]
                 for _ in range(autosave_saves):
-                    events.append((t, who, WRITE_SCENARIOS["draft_autosave"][0]))
-                    t += timedelta(seconds=AUTOSAVE_GAP)
+                    # Each save carries new text, as real ones do. Identical bodies
+                    # would let the ORM skip the UPDATE, hiding the write.
+                    body = {**body, "comment": f"still thinking ({len(events)})"}
+                    events.append((t, who, (method, template, body)))
+                    t += timedelta(seconds=autosave_gap)
     events.sort(key=lambda e: e[0])
     return events
 
 
 def simulate_day(h: Harness, *, day: date, users: int, sessions_per_user: int, weights,
-                 autosave_saves: int, seed: int) -> dict:
+                 autosave_saves: int, seed: int, autosave_gap: int = DEFAULT_AUTOSAVE_GAP) -> dict:
     """Replay a synthetic day and estimate how long it keeps Neon compute awake.
 
     Requests are issued for real, in virtual-time order, so whatever the server
@@ -655,7 +666,8 @@ def simulate_day(h: Harness, *, day: date, users: int, sessions_per_user: int, w
     """
     from app.response_cache import cache
 
-    events = build_sessions(h, day, users, sessions_per_user, weights, autosave_saves, random.Random(seed))
+    events = build_sessions(h, day, users, sessions_per_user, weights, autosave_saves, random.Random(seed),
+                            autosave_gap)
     # The process has been up since before the day began; whatever it cached
     # yesterday expired at midnight. The cache's clock follows the replay so its
     # day-boundary expiry happens at the simulated midnight, not the real one.
@@ -673,7 +685,8 @@ def simulate_day(h: Harness, *, day: date, users: int, sessions_per_user: int, w
     return {
         "day": day.isoformat(),
         "params": {"users": users, "sessions_per_user": sessions_per_user,
-                   "autosave_saves": autosave_saves, "seed": seed, "requests": len(events)},
+                   "autosave_saves": autosave_saves, "autosave_gap": autosave_gap, "seed": seed,
+                   "requests": len(events)},
         "user_traffic": summarize_touches(user_touches, connections),
         "scheduler": summarize_touches(sched),
         "legacy_cron": summarize_touches(legacy_cron_touches(day)),
@@ -756,7 +769,10 @@ def main() -> None:
                      help="Day to simulate (default: this week's Monday, so the weekly recap is included)")
     day.add_argument("--users", type=int, default=8, help="Members active during the day")
     day.add_argument("--sessions-per-user", type=int, default=3)
-    day.add_argument("--autosave-saves", type=int, default=4, help="Draft saves per session of the main member")
+    day.add_argument("--autosave-saves", type=int, default=DEFAULT_AUTOSAVE_SAVES,
+                     help="Server draft saves per session of the main member")
+    day.add_argument("--autosave-gap", type=int, default=DEFAULT_AUTOSAVE_GAP,
+                     help="Seconds between those saves (the old per-pause autosave: --autosave-saves 4 --autosave-gap 30)")
     day.add_argument("--hourly-weights", default=None,
                      help="24 comma-separated relative weights for session start hours (server time)")
     day.add_argument("--seed", type=int, default=7)
@@ -778,7 +794,7 @@ def main() -> None:
             report = simulate_day(
                 h, day=args.day_date or today - timedelta(days=today.weekday()),
                 users=args.users, sessions_per_user=args.sessions_per_user, weights=weights,
-                autosave_saves=args.autosave_saves, seed=args.seed,
+                autosave_saves=args.autosave_saves, autosave_gap=args.autosave_gap, seed=args.seed,
             )
             print_day(report, baseline)
         else:
