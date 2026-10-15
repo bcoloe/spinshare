@@ -2,6 +2,7 @@ import { createContext, useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { configureApiClient, refreshAccessToken, RefreshAuthError } from '../services/apiClient'
 import { authService } from '../services/authService'
+import { clearAllLocalDrafts } from '../utils/draftStorage'
 import type { LoginRequest, UserResponse } from '../types/auth'
 
 interface AuthContextValue {
@@ -22,6 +23,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     accessTokenRef.current = null
     localStorage.removeItem('refresh_token')
+    // Unpublished review text must not outlive the session on a shared browser.
+    clearAllLocalDrafts()
     setUser(null)
   }, [])
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Button, Group, Slider, Stack, Text, Textarea } from '@mantine/core'
 import { ratingColor } from '../../utils/ratingColor'
 import { notifications } from '@mantine/notifications'
@@ -10,9 +10,11 @@ import type { ReviewResponse } from '../../types/album'
 interface Props {
   albumId: number
   existingReview: ReviewResponse | null
+  /** False when the caller's review couldn't be loaded: its absence is then unknown. */
+  reviewLoaded?: boolean
 }
 
-export default function ReviewForm({ albumId, existingReview }: Props) {
+export default function ReviewForm({ albumId, existingReview, reviewLoaded = true }: Props) {
   const isDraft = !!existingReview?.is_draft
   const isPublished = !!existingReview && !isDraft
   const [editing, setEditing] = useState(false)
@@ -22,24 +24,19 @@ export default function ReviewForm({ albumId, existingReview }: Props) {
   const submitReview = useSubmitReview(albumId)
   const updateReview = useUpdateReview(albumId)
 
-  useEffect(() => {
-    if (existingReview) {
-      setRating(existingReview.rating)
-      setComment(existingReview.comment ?? '')
-    }
-  }, [existingReview?.id])
-
-  const restoreDraft = useCallback((draft: DraftContent) => {
+  // A draft's starting content comes from the hook (the server copy, or a newer
+  // local one); prefilling it here as well would overwrite typing. Editing a
+  // published review loads its values from the Edit button instead.
+  const loadDraft = useCallback((draft: DraftContent) => {
     setRating(draft.rating)
     setComment(draft.comment)
   }, [])
-  // The parent renders this form only once the caller's review has loaded.
   const autosave = useDraftAutosave({
     albumId,
     existingReview,
-    ready: true,
+    ready: reviewLoaded,
     content: { rating, comment },
-    onRestore: restoreDraft,
+    onLoad: loadDraft,
     submitReview,
     updateReview,
   })

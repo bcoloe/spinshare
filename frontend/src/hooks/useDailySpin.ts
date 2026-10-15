@@ -10,7 +10,7 @@ import type { NominationGuessCreate, ReviewCreate, ReviewResponse, ReviewUpdate 
  * average, stat, or credit, so invalidating those queries after an autosave
  * (every 3 s while typing) re-downloaded the group's whole history for nothing.
  */
-function applyDraftToCache(qc: QueryClient, albumId: number, draft: ReviewResponse) {
+export function applyDraftToCache(qc: QueryClient, albumId: number, draft: ReviewResponse) {
   qc.setQueryData(['reviews', albumId, 'me'], draft)
   qc.setQueriesData<ReviewResponse[]>(
     {

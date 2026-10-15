@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { ratingColor } from '../../utils/ratingColor'
 import {
   ActionIcon,
@@ -137,7 +137,7 @@ function ReviewSummary({ review }: { review: ReviewResponse }) {
 export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, addedBy, allowGuessing = true }: Props) {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const { data: existingReview, isLoading: reviewLoading } = useMyReview(albumId, !!user)
+  const { data: existingReview, isLoading: reviewLoading, isSuccess: reviewLoaded } = useMyReview(albumId, !!user)
   const { data: existingGuess, isLoading: guessLoading } = useMyGuess(groupId, groupAlbumId, !!user)
 
   const isSelfNominated = user?.id === addedBy
@@ -157,15 +157,10 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
   const [confirmOpen, { open: openConfirm, close: closeConfirm }] = useDisclosure(false)
   const [resultModal, setResultModal] = useState<{ isFirstReview: boolean } | null>(null)
 
-  // Pre-fill form state when a draft exists (data may arrive asynchronously)
-  useEffect(() => {
-    if (isDraft && existingReview) {
-      setRating(existingReview.rating)
-      setComment(existingReview.comment ?? '')
-    }
-  }, [existingReview?.id])
-
-  const restoreDraft = useCallback((draft: DraftContent) => {
+  // A draft's starting content comes from the hook (the server copy, or a newer
+  // local one). Prefilling it here as well would overwrite typing whenever the
+  // review's identity changes — e.g. when the first autosave creates the draft.
+  const loadDraft = useCallback((draft: DraftContent) => {
     setRating(draft.rating)
     setComment(draft.comment)
   }, [])
@@ -173,9 +168,10 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
     albumId,
     groupId,
     existingReview,
-    ready: !reviewLoading,
+    // Success, not "not loading": after a failed load, "no review" is unknown.
+    ready: reviewLoaded,
     content: { rating, comment },
-    onRestore: restoreDraft,
+    onLoad: loadDraft,
     submitReview,
     updateReview,
   })

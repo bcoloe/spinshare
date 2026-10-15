@@ -1,14 +1,10 @@
-import { StrictMode, useCallback, useEffect, useState, type ReactNode } from 'react'
+import { StrictMode, useCallback, useState, type ReactNode } from 'react'
 import { act, renderHook } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReviewResponse } from '../types/album'
-import {
-  LOCAL_SAVE_DELAY_MS,
-  SERVER_FLUSH_INTERVAL_MS,
-  draftStorageKey,
-  useDraftAutosave,
-  type DraftContent,
-} from './useDraftAutosave'
+import { clearAllLocalDrafts, draftStorageKey } from '../utils/draftStorage'
+import { SERVER_FLUSH_INTERVAL_MS, useDraftAutosave, type DraftContent } from './useDraftAutosave'
 
 vi.mock('./useAuth', () => ({ useAuth: () => ({ user: { id: 7 } }) }))
 vi.mock('../services/albumService', () => ({
@@ -19,7 +15,6 @@ import { albumService } from '../services/albumService'
 
 const ALBUM = 42
 const KEY = draftStorageKey(7, ALBUM)
-
 
 function review(overrides: Partial<ReviewResponse> = {}): ReviewResponse {
   return {
@@ -35,43 +30,62 @@ function review(overrides: Partial<ReviewResponse> = {}): ReviewResponse {
   } as ReviewResponse
 }
 
-function setup(opts: { existingReview?: ReviewResponse | null; ready?: boolean } = {}) {
-  const submit = vi.fn().mockResolvedValue({})
-  const update = vi.fn().mockResolvedValue({})
-  const onRestore = vi.fn()
+function stored(content: Partial<DraftContent> & { baseServerTime: string | null; savedAt?: string }) {
+  localStorage.setItem(KEY, JSON.stringify({ rating: 8, comment: 'local copy', savedAt: '2026-10-12T11:00:00Z', ...content }))
+}
+
+const local = () => JSON.parse(localStorage.getItem(KEY) ?? 'null')
+
+/**
+ * The hook inside a form-like component: it owns the content state, and — like the
+ * real forms — does not prefill drafts itself. Mutation results are rebuilt every
+ * render, as useMutation's are.
+ */
+function setup(opts: { existingReview?: ReviewResponse | null; ready?: boolean; strict?: boolean } = {}) {
+  const submit = vi.fn().mockImplementation(async (data) => review({ id: 99, ...data, updated_at: '2026-10-12T12:00:00Z' }))
+  const update = vi.fn().mockImplementation(async ({ reviewId, data }) =>
+    review({ id: reviewId, ...data, updated_at: '2026-10-12T12:00:00Z' }))
+  const onLoad = vi.fn()
+  const queryClient = new QueryClient()
+  const wrapper = ({ children }: { children: ReactNode }) => {
+    const tree = <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    return opts.strict ? <StrictMode>{tree}</StrictMode> : tree
+  }
   const hook = renderHook(
-    ({ content }: { content: DraftContent }) =>
-      useDraftAutosave({
+    ({ existingReview }: { existingReview: ReviewResponse | null }) => {
+      const [content, setContent] = useState<DraftContent>({ rating: null, comment: '' })
+      const load = useCallback((d: DraftContent) => {
+        onLoad(d)
+        setContent(d)
+      }, [])
+      const autosave = useDraftAutosave({
         albumId: ALBUM,
-        existingReview: opts.existingReview ?? null,
+        existingReview,
         ready: opts.ready ?? true,
         content,
-        onRestore,
-        // Like useMutation: a new result object on every render.
+        onLoad: load,
         submitReview: { mutateAsync: submit, isPending: false } as never,
         updateReview: { mutateAsync: update, isPending: false } as never,
-      }),
-    { initialProps: { content: { rating: null, comment: '' } as DraftContent } },
+      })
+      return { autosave, content, setContent }
+    },
+    { wrapper, initialProps: { existingReview: opts.existingReview ?? null } },
   )
   /** What a change handler does: mark dirty, then update state. */
-  const type = (content: DraftContent) => {
-    act(() => hook.result.current.markDirty())
-    hook.rerender({ content })
-  }
-  return {
-    hook,
-    type,
-    onRestore,
-    submit,
-    update,
-  }
+  const type = (content: DraftContent) =>
+    act(() => {
+      hook.result.current.autosave.markDirty()
+      hook.result.current.setContent(content)
+    })
+  const flush = (o?: { keepalive?: boolean }) => act(() => hook.result.current.autosave.flush(o))
+  return { hook, type, flush, onLoad, submit, update, queryClient }
 }
 
 beforeEach(() => {
   vi.useFakeTimers()
   localStorage.clear()
-  vi.mocked(albumService.submitReview).mockReset().mockResolvedValue({} as never)
-  vi.mocked(albumService.updateReview).mockReset().mockResolvedValue({} as never)
+  vi.mocked(albumService.submitReview).mockReset().mockResolvedValue(review({ id: 77 }))
+  vi.mocked(albumService.updateReview).mockReset().mockResolvedValue(review())
 })
 
 afterEach(() => {
@@ -79,13 +93,11 @@ afterEach(() => {
 })
 
 describe('typing', () => {
-  it('saves to this device, not the server', () => {
+  it('is written to this device straight away, not sent to the server', () => {
     const { type, submit } = setup()
     type({ rating: 7, comment: 'first thoughts' })
 
-    act(() => vi.advanceTimersByTime(LOCAL_SAVE_DELAY_MS))
-
-    expect(JSON.parse(localStorage.getItem(KEY)!)).toMatchObject({ rating: 7, comment: 'first thoughts' })
+    expect(local()).toMatchObject({ rating: 7, comment: 'first thoughts', baseServerTime: null })
     expect(submit).not.toHaveBeenCalled()
   })
 
@@ -93,32 +105,36 @@ describe('typing', () => {
     const { type, submit } = setup()
     for (let i = 0; i < 30; i++) {
       type({ rating: 7, comment: `draft ${i}` })
-      await act(async () => vi.advanceTimersByTime(3_000)) // a keystroke burst, then a pause
+      await act(async () => vi.advanceTimersByTime(3_000))
     }
-    // 90 s of editing: one flush at the 60 s mark
-    expect(submit).toHaveBeenCalledTimes(1)
+    expect(submit).toHaveBeenCalledTimes(1) // 90 s of editing: one flush at 60 s
+    expect(SERVER_FLUSH_INTERVAL_MS).toBe(60_000)
   })
 
   it('a re-render without an edit does not flush', async () => {
     const { hook, submit } = setup()
-    hook.rerender({ content: { rating: null, comment: '' } })
+    hook.rerender({ existingReview: null })
     await act(async () => vi.advanceTimersByTime(SERVER_FLUSH_INTERVAL_MS * 2))
     expect(submit).not.toHaveBeenCalled()
   })
 })
 
 describe('flush triggers', () => {
+  const form = () => {
+    const el = document.createElement('div')
+    const inside = document.createElement('textarea')
+    el.appendChild(inside)
+    return { el, inside, outside: document.createElement('button') }
+  }
+
   it('focus leaving the form sends the draft once', async () => {
     const { hook, type, submit } = setup()
     type({ rating: 4, comment: 'meh' })
-    const form = document.createElement('div')
-    const outside = document.createElement('button')
-
+    const { el, outside } = form()
     await act(async () => {
-      hook.result.current.onBlur({ currentTarget: form, relatedTarget: outside } as never)
-      hook.result.current.onBlur({ currentTarget: form, relatedTarget: outside } as never)
+      hook.result.current.autosave.onBlur({ currentTarget: el, relatedTarget: outside } as never)
+      hook.result.current.autosave.onBlur({ currentTarget: el, relatedTarget: outside } as never)
     })
-
     expect(submit).toHaveBeenCalledTimes(1)
     expect(submit).toHaveBeenCalledWith({ rating: 4, comment: 'meh', is_draft: true })
   })
@@ -126,34 +142,35 @@ describe('flush triggers', () => {
   it('focus moving within the form does not', async () => {
     const { hook, type, submit } = setup()
     type({ rating: 4, comment: 'meh' })
-    const form = document.createElement('div')
-    const inside = document.createElement('textarea')
-    form.appendChild(inside)
-
-    await act(async () => hook.result.current.onBlur({ currentTarget: form, relatedTarget: inside } as never))
-
+    const { el, inside } = form()
+    await act(async () => hook.result.current.autosave.onBlur({ currentTarget: el, relatedTarget: inside } as never))
     expect(submit).not.toHaveBeenCalled()
   })
 
-  it('hiding the tab sends the draft', async () => {
-    const { type, update } = setup({ existingReview: review() })
+  it('hiding the tab sends with keepalive (it may be the last chance) and updates the cache', async () => {
+    const { type, queryClient } = setup({ existingReview: review() })
     type({ rating: 9, comment: 'grew on me' })
 
     vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
     await act(async () => document.dispatchEvent(new Event('visibilitychange')))
 
-    expect(update).toHaveBeenCalledWith({ reviewId: 5, data: { rating: 9, comment: 'grew on me', is_draft: true } })
+    expect(albumService.updateReview).toHaveBeenCalledWith(
+      ALBUM, 5, { rating: 9, comment: 'grew on me', is_draft: true }, undefined, { keepalive: true },
+    )
+    expect(queryClient.getQueryData(['reviews', ALBUM, 'me'])).toMatchObject({ id: 5 })
   })
 
-  it('closing the page sends it with keepalive', async () => {
+  it('closing the page sends with keepalive; nothing is sent twice', async () => {
     const { type } = setup({ existingReview: review() })
     type({ rating: 9, comment: 'last words' })
 
-    await act(async () => window.dispatchEvent(new Event('pagehide')))
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'))
+      window.dispatchEvent(new Event('pagehide'))
+    })
 
-    expect(albumService.updateReview).toHaveBeenCalledWith(
-      ALBUM, 5, { rating: 9, comment: 'last words', is_draft: true }, undefined, { keepalive: true },
-    )
+    expect(albumService.updateReview).toHaveBeenCalledTimes(1)
   })
 
   it('unmounting sends the draft', async () => {
@@ -163,13 +180,14 @@ describe('flush triggers', () => {
     expect(submit).toHaveBeenCalledTimes(1)
   })
 
-  it('a failed send is retried by the next trigger', async () => {
-    const { hook, type, submit } = setup()
+  it('a failed send keeps everything on the device and is retried by the next trigger', async () => {
+    const { type, flush, submit } = setup()
     submit.mockRejectedValueOnce(new Error('offline'))
     type({ rating: 3, comment: 'retry me' })
 
-    expect(await act(async () => hook.result.current.flush())).toBe('failed')
-    expect(await act(async () => hook.result.current.flush())).toBe('saved')
+    expect(await flush()).toBe('failed')
+    expect(local()).toMatchObject({ comment: 'retry me' })
+    expect(await flush()).toBe('saved')
     expect(submit).toHaveBeenCalledTimes(2)
   })
 
@@ -182,84 +200,138 @@ describe('flush triggers', () => {
   })
 })
 
-describe('restoring', () => {
-  const stored = (savedAt: string, comment = 'local copy') =>
-    localStorage.setItem(KEY, JSON.stringify({ rating: 8, comment, savedAt }))
+describe('creating, then updating, the draft', () => {
+  it('the first save creates it and later saves update it, even before the cache catches up', async () => {
+    const { type, flush, submit, update } = setup()
+    type({ rating: 5, comment: 'one' })
+    await flush()
+    type({ rating: 5, comment: 'one two' })
+    await flush() // existingReview prop still null here
 
-  it('restores a local draft newer than the server copy, and syncs it', async () => {
-    stored('2026-10-12T11:00:00Z')
-    const { hook, onRestore, update } = setup({ existingReview: review() })
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(update).toHaveBeenCalledWith({ reviewId: 99, data: { rating: 5, comment: 'one two', is_draft: true } })
+  })
 
-    expect(onRestore).toHaveBeenCalledWith({ rating: 8, comment: 'local copy' })
-    await act(async () => hook.result.current.flush())
+  it('a save in flight blocks a second create (no duplicate draft)', async () => {
+    let finish: (r: ReviewResponse) => void = () => {}
+    vi.mocked(albumService.submitReview).mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+    const { hook, type, submit } = setup()
+    type({ rating: 5, comment: 'racing' })
+
+    let first: Promise<unknown> = Promise.resolve()
+    act(() => { first = hook.result.current.autosave.flush({ keepalive: true }) })
+    type({ rating: 5, comment: 'racing on' })
+    const second = await act(() => hook.result.current.autosave.flush())
+
+    expect(second).toBe('busy')
+    expect(submit).not.toHaveBeenCalled()
+    await act(async () => { finish(review({ id: 77 })); await first })
+  })
+
+  it('typing is not overwritten when the draft is created and the review changes identity', async () => {
+    const { hook, type, flush } = setup()
+    type({ rating: 5, comment: 'typed before the save' })
+    await flush()
+    type({ rating: 5, comment: 'typed while it was in flight' })
+
+    hook.rerender({ existingReview: review({ id: 99, comment: 'typed before the save' }) })
+
+    expect(hook.result.current.content.comment).toBe('typed while it was in flight')
+  })
+
+  it('a save that returns a new review object does not trigger another save', async () => {
+    const { hook, type, flush, update } = setup({ existingReview: review() })
+    type({ rating: 6, comment: 'edit' })
+    await flush()
+    hook.rerender({ existingReview: review({ comment: 'edit', updated_at: '2026-10-12T12:00:00Z' }) })
+
+    expect(await flush()).toBe('clean')
+    await act(async () => hook.unmount())
     expect(update).toHaveBeenCalledTimes(1)
   })
+})
 
-  it('the restored draft wins over the form prefilling from the server, even under StrictMode', () => {
-    // The real forms prefill from the server copy in their own effect, and dev
-    // builds run every effect twice (mount, unmount, mount).
-    stored('2026-10-12T11:00:00Z')
-    const server = review()
-    const { result } = renderHook(
-      () => {
-        const [content, setContent] = useState<DraftContent>({ rating: null, comment: '' })
-        useEffect(() => {
-          setContent({ rating: server.rating, comment: server.comment ?? '' })
-        }, [server.id])
-        const onRestore = useCallback((d: DraftContent) => setContent(d), [])
-        useDraftAutosave({
-          albumId: ALBUM, existingReview: server, ready: true, content, onRestore,
-          submitReview: { mutateAsync: vi.fn(), isPending: false } as never,
-          updateReview: { mutateAsync: vi.fn().mockResolvedValue({}), isPending: false } as never,
-        })
-        return content
-      },
-      { wrapper: ({ children }: { children: ReactNode }) => <StrictMode>{children}</StrictMode> },
-    )
-    expect(result.current).toEqual({ rating: 8, comment: 'local copy' })
+describe('starting content', () => {
+  it('loads the server draft once', () => {
+    const { hook, onLoad } = setup({ existingReview: review() })
+    hook.rerender({ existingReview: review({ comment: 'changed elsewhere', updated_at: '2026-10-12T13:00:00Z' }) })
+    expect(onLoad).toHaveBeenCalledTimes(1)
+    expect(onLoad).toHaveBeenCalledWith({ rating: 6, comment: 'server copy' })
   })
 
-  it('never re-applies the restore over later edits', () => {
-    stored('2026-10-12T11:00:00Z')
-    const { hook, type, onRestore } = setup({ existingReview: review() })
-    expect(onRestore).toHaveBeenCalledTimes(1)
+  it('restores a local draft edited on top of the current server copy, and syncs it', async () => {
+    stored({ baseServerTime: '2026-10-12T10:00:00Z' })
+    const { flush, onLoad, update } = setup({ existingReview: review() })
 
-    type({ rating: 8, comment: 'kept typing' })
-    hook.rerender({ content: { rating: 8, comment: 'kept typing' } })
-
-    expect(onRestore).toHaveBeenCalledTimes(1)
+    expect(onLoad).toHaveBeenCalledWith({ rating: 8, comment: 'local copy' })
+    await flush()
+    expect(update).toHaveBeenCalledWith({ reviewId: 5, data: { rating: 8, comment: 'local copy', is_draft: true } })
   })
 
   it('restores a local draft when the server has none', () => {
-    stored('2026-10-12T11:00:00Z')
-    const { onRestore } = setup({ existingReview: null })
-    expect(onRestore).toHaveBeenCalledTimes(1)
+    stored({ baseServerTime: null })
+    const { onLoad } = setup({ existingReview: null })
+    expect(onLoad).toHaveBeenCalledWith({ rating: 8, comment: 'local copy' })
   })
 
-  it('drops a local draft older than the server copy', () => {
-    stored('2026-10-12T09:00:00Z')
-    const { onRestore } = setup({ existingReview: review() })
-    expect(onRestore).not.toHaveBeenCalled()
-    expect(localStorage.getItem(KEY)).toBeNull()
+  it('drops a local draft once the server copy has moved on, whatever the client clock says', () => {
+    // savedAt is far in the future (a skewed clock); only server timestamps decide.
+    stored({ baseServerTime: '2026-10-12T09:00:00Z', savedAt: '2099-01-01T00:00:00Z' })
+    const { onLoad } = setup({ existingReview: review() })
+    expect(onLoad).toHaveBeenCalledWith({ rating: 6, comment: 'server copy' })
+    expect(local()).toBeNull()
+  })
+
+  it('drops a local draft that matches the server copy', () => {
+    stored({ baseServerTime: null, rating: 6, comment: 'server copy' })
+    const { onLoad } = setup({ existingReview: review() })
+    expect(onLoad).toHaveBeenCalledWith({ rating: 6, comment: 'server copy' })
+    expect(local()).toBeNull()
   })
 
   it('drops a local draft once the review is published', () => {
-    stored('2026-10-12T11:00:00Z')
-    const { onRestore } = setup({ existingReview: review({ is_draft: false }) })
-    expect(onRestore).not.toHaveBeenCalled()
-    expect(localStorage.getItem(KEY)).toBeNull()
+    stored({ baseServerTime: '2026-10-12T10:00:00Z' })
+    const { onLoad } = setup({ existingReview: review({ is_draft: false }) })
+    expect(onLoad).not.toHaveBeenCalled()
+    expect(local()).toBeNull()
   })
 
   it('waits until the server copy has loaded', () => {
-    stored('2026-10-12T11:00:00Z')
-    const { onRestore } = setup({ ready: false })
-    expect(onRestore).not.toHaveBeenCalled()
+    stored({ baseServerTime: null })
+    const { onLoad } = setup({ ready: false })
+    expect(onLoad).not.toHaveBeenCalled()
+    expect(local()).not.toBeNull()
   })
 
-  it('clearLocal forgets the draft', () => {
-    stored('2026-10-12T11:00:00Z')
-    const { hook } = setup({ existingReview: review({ is_draft: false }) })
-    act(() => hook.result.current.clearLocal())
-    expect(localStorage.getItem(KEY)).toBeNull()
+  it('under StrictMode, the restored draft is what the form shows and what gets sent', async () => {
+    stored({ baseServerTime: '2026-10-12T10:00:00Z' })
+    const { hook, update } = setup({ existingReview: review(), strict: true })
+
+    expect(hook.result.current.content).toEqual({ rating: 8, comment: 'local copy' })
+    for (const call of update.mock.calls) {
+      expect(call[0].data).toMatchObject({ comment: 'local copy' }) // never the pre-restore content
+    }
+  })
+})
+
+describe('clearing', () => {
+  it('clearLocal forgets this draft', () => {
+    stored({ baseServerTime: '2026-10-12T10:00:00Z' })
+    const { hook } = setup({ existingReview: review() })
+    expect(local()).not.toBeNull()
+
+    act(() => hook.result.current.autosave.clearLocal())
+
+    expect(local()).toBeNull()
+  })
+
+  it('clearAllLocalDrafts removes every draft and nothing else', () => {
+    localStorage.setItem(draftStorageKey(1, 2), '{}')
+    localStorage.setItem(draftStorageKey(3, 4), '{}')
+    localStorage.setItem('refresh_token', 'keep')
+
+    clearAllLocalDrafts()
+
+    expect(Object.keys(localStorage)).toEqual(['refresh_token'])
   })
 })

@@ -1,23 +1,27 @@
 import { useCallback, useEffect, useRef, useState, type FocusEvent } from 'react'
-import type { UseMutationResult } from '@tanstack/react-query'
+import { useQueryClient, type UseMutationResult } from '@tanstack/react-query'
 import { useAuth } from './useAuth'
+import { applyDraftToCache } from './useDailySpin'
 import { albumService } from '../services/albumService'
+import { draftStorageKey, readLocal, removeLocal, writeLocal } from '../utils/draftStorage'
 import type { ReviewCreate, ReviewResponse, ReviewUpdate } from '../types/album'
 
 /**
  * Autosave for a review draft that keeps the server out of the typing loop.
  *
  * Every server write wakes the database and invalidates cached pages for the whole
- * group, so drafts are saved to this device as you type (a second after the last
- * change) and sent to the server only when it matters:
+ * group. So drafts are written to this device on every edit, and sent to the server
+ * only when it matters:
  *
- *   - focus leaves the form (call `onBlur` from the form container),
- *   - the tab is hidden, or the page is closed (sent with `keepalive`),
- *   - the form unmounts (navigating away),
+ *   - focus leaves the form (attach `onBlur` to the form container),
+ *   - the tab is hidden or the page is closed (sent with `keepalive`),
+ *   - the form unmounts (navigating away within the app),
  *   - and at most once a minute during continuous editing.
  *
- * On return, a local draft newer than the server's copy is restored, so closing the
- * tab mid-sentence loses nothing even if the final flush didn't make it.
+ * The hook is also the only thing that sets the form's starting content: the
+ * server's draft, or a local one that is newer. Forms must not prefill drafts
+ * themselves — a second writer is how typing gets overwritten (for instance when
+ * the first save turns "no review" into a draft and changes its id).
  */
 
 export interface DraftContent {
@@ -25,71 +29,44 @@ export interface DraftContent {
   comment: string
 }
 
-interface StoredDraft extends DraftContent {
-  savedAt: string
-}
 
 export type FlushResult = 'saved' | 'clean' | 'busy' | 'failed'
 
-export const LOCAL_SAVE_DELAY_MS = 1000
 export const SERVER_FLUSH_INTERVAL_MS = 60_000
 
-export function draftStorageKey(userId: number, albumId: number): string {
-  return `spinshare:review-draft:${userId}:${albumId}`
+function serverTime(review: ReviewResponse | null | undefined): string | null {
+  return review ? (review.updated_at ?? review.reviewed_at) : null
 }
 
-// Storage can be unavailable (private mode, quota, disabled). Autosave then
-// degrades to server-only flushes rather than failing the form.
-function readLocal(key: string): StoredDraft | null {
-  try {
-    const raw = localStorage.getItem(key)
-    return raw ? (JSON.parse(raw) as StoredDraft) : null
-  } catch {
-    return null
-  }
-}
-
-function writeLocal(key: string, draft: StoredDraft): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(draft))
-  } catch {
-    // ignore: see readLocal
-  }
-}
-
-function removeLocal(key: string): void {
-  try {
-    localStorage.removeItem(key)
-  } catch {
-    // ignore: see readLocal
-  }
+function sameInstant(a: string | null, b: string | null): boolean {
+  return a === b || (a !== null && b !== null && Date.parse(a) === Date.parse(b))
 }
 
 function sameContent(a: DraftContent, b: DraftContent): boolean {
   return (a.rating ?? null) === (b.rating ?? null) && (a.comment ?? '') === (b.comment ?? '')
 }
 
-/** The local draft to restore over the server's copy, or null (dropping a stale one). */
-function decideRestore(
-  key: string,
-  existingReview: ReviewResponse | null | undefined,
-  published: boolean,
-): DraftContent | null {
+/**
+ * Where an unpublished form should start: the content to load (null for an empty
+ * form), and whether it still needs to reach the server.
+ */
+function startingContent(key: string, review: ReviewResponse | null | undefined): {
+  content: DraftContent | null
+  unsynced: boolean
+} {
+  const server = review ? { rating: review.rating, comment: review.comment ?? '' } : null
   const local = readLocal(key)
-  if (!local) return null
-  if (published) {
-    removeLocal(key)
-    return null
+  if (!local) return { content: server, unsynced: false }
+  const localContent = { rating: local.rating, comment: local.comment }
+  if (server && sameContent(localContent, server)) {
+    removeLocal(key) // already saved
+    return { content: server, unsynced: false }
   }
-  if (existingReview) {
-    const serverTime = Date.parse(existingReview.updated_at ?? existingReview.reviewed_at)
-    const serverContent = { rating: existingReview.rating, comment: existingReview.comment ?? '' }
-    if (sameContent(local, serverContent) || serverTime >= Date.parse(local.savedAt)) {
-      removeLocal(key)
-      return null
-    }
+  if (server && !sameInstant(serverTime(review), local.baseServerTime)) {
+    removeLocal(key) // the server copy changed after this draft was based on it
+    return { content: server, unsynced: false }
   }
-  return { rating: local.rating, comment: local.comment }
+  return { content: localContent, unsynced: true }
 }
 
 interface Options {
@@ -97,11 +74,11 @@ interface Options {
   groupId?: number
   /** The caller's review for this album: a draft, a published review, or none. */
   existingReview: ReviewResponse | null | undefined
-  /** False until `existingReview` has loaded, so restore compares against the truth. */
+  /** True once `existingReview` is known (loaded successfully), not merely not loading. */
   ready: boolean
   content: DraftContent
-  /** Called once with a local draft that is newer than the server's. */
-  onRestore: (content: DraftContent) => void
+  /** Sets the form's content. Called once, with the draft to start from. */
+  onLoad: (content: DraftContent) => void
   submitReview: UseMutationResult<ReviewResponse, Error, ReviewCreate>
   updateReview: UseMutationResult<ReviewResponse, Error, { reviewId: number; data: ReviewUpdate }>
 }
@@ -112,11 +89,12 @@ export function useDraftAutosave({
   existingReview,
   ready,
   content,
-  onRestore,
+  onLoad,
   submitReview,
   updateReview,
 }: Options) {
   const { user } = useAuth()
+  const queryClient = useQueryClient()
   const key = user ? draftStorageKey(user.id, albumId) : null
   const published = !!existingReview && !existingReview.is_draft
   const [savedAt, setSavedAt] = useState<Date | null>(null)
@@ -127,49 +105,73 @@ export function useDraftAutosave({
   const latest = useRef({ content, existingReview, published, key, submitReview, updateReview })
   latest.current = { content, existingReview, published, key, submitReview, updateReview }
   const dirty = useRef(false) // edited since the last server save
-  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // The local draft to restore: undefined until decided, null when there is none.
-  const restoreTo = useRef<DraftContent | null | undefined>(undefined)
   const editedHere = useRef(false) // the user has typed since this form mounted
+  const loaded = useRef(false)
+  const inFlight = useRef(false)
+  // The draft this hook last saved. Until the cache's copy catches up, it tells the
+  // next save to update that draft rather than create a second one.
+  const lastSaved = useRef<ReviewResponse | null>(null)
+  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const saveLocal = useCallback(() => {
+    const { key: storageKey, content: current, existingReview: review, published: isPublished } = latest.current
+    if (!storageKey || isPublished || !editedHere.current) return
+    writeLocal(storageKey, {
+      ...current,
+      savedAt: new Date().toISOString(),
+      baseServerTime: serverTime(review ?? lastSaved.current),
+    })
+  }, [])
 
   /** Send the draft to the server if it changed. Resolves to what happened. */
   const flush = useCallback(
     async ({ keepalive = false }: { keepalive?: boolean } = {}): Promise<FlushResult> => {
-      const { content: current, existingReview: review, published: isPublished, submitReview: submit, updateReview: update } =
+      const { content: current, existingReview: cached, published: isPublished, submitReview: submit, updateReview: update } =
         latest.current
       if (flushTimer.current) {
         clearTimeout(flushTimer.current)
         flushTimer.current = null
       }
       if (!dirty.current || isPublished) return 'clean'
-      if (submit.isPending || update.isPending) return 'busy' // stays dirty; a later trigger retries
+      // A keepalive send isn't tracked by the mutations, so guard in-flight saves here:
+      // two concurrent creates would race into a 409.
+      if (inFlight.current || submit.isPending || update.isPending) return 'busy'
+      saveLocal() // the device copy must hold everything being sent, in case this fails
       dirty.current = false
+      inFlight.current = true
+      const review = cached ?? lastSaved.current
       const data = {
         rating: current.rating ?? undefined,
         comment: current.comment || undefined,
         is_draft: true,
       }
       try {
+        let saved: ReviewResponse
         if (keepalive) {
-          // The page is going away: send directly, without waiting on React state.
-          await (review
+          // The page may be going away: send directly so the request outlives it.
+          saved = await (review
             ? albumService.updateReview(albumId, review.id, data, groupId, { keepalive: true })
             : albumService.submitReview(albumId, data, groupId, { keepalive: true }))
+          // If the page survives (hidden tab, back/forward cache), keep the cache right.
+          applyDraftToCache(queryClient, albumId, saved)
         } else if (review) {
-          await update.mutateAsync({ reviewId: review.id, data })
+          saved = await update.mutateAsync({ reviewId: review.id, data })
         } else {
-          await submit.mutateAsync(data)
+          saved = await submit.mutateAsync(data)
         }
+        lastSaved.current = saved
         return 'saved'
       } catch {
         dirty.current = true // keep it for the next trigger; the local copy is safe meanwhile
         return 'failed'
+      } finally {
+        inFlight.current = false
       }
     },
-    [albumId, groupId],
+    [albumId, groupId, queryClient, saveLocal],
   )
 
-  /** Call from the form's change handlers (user edits only, not prefills). */
+  /** Call from the form's change handlers (user edits only). */
   const markDirty = useCallback(() => {
     dirty.current = true
     editedHere.current = true
@@ -184,38 +186,40 @@ export function useDraftAutosave({
   /** Forget the local draft, e.g. once the review is published. */
   const clearLocal = useCallback(() => {
     dirty.current = false
+    editedHere.current = false
     if (latest.current.key) removeLocal(latest.current.key)
   }, [])
 
-  // Save to this device shortly after each edit.
+  // Write to this device on every edit. Cheap (a comment is at most 5,000 chars),
+  // and it means nothing typed is ever only in memory.
   useEffect(() => {
-    if (!key || published || !dirty.current) return
-    const timer = setTimeout(() => {
-      writeLocal(key, { ...content, savedAt: new Date().toISOString() })
-      setSavedAt(new Date())
-    }, LOCAL_SAVE_DELAY_MS)
-    return () => clearTimeout(timer)
-  }, [key, published, content.rating, content.comment]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!editedHere.current) return
+    saveLocal()
+    setSavedAt(new Date())
+  }, [content.rating, content.comment, saveLocal])
 
-  // Restore a newer local draft once the server's copy is known.
-  //
-  // The decision is made once; applying it is repeated each time this effect runs
-  // until the user edits. The forms prefill from the server copy in their own
-  // effect, and any remount (StrictMode does one in development) runs that prefill
-  // again — a restore applied only once would be overwritten.
+  // Decide the starting content once the server's copy is known.
   useEffect(() => {
-    if (!ready || !key) return
-    if (restoreTo.current === undefined) restoreTo.current = decideRestore(key, existingReview, published)
-    if (restoreTo.current && !editedHere.current) {
-      onRestore(restoreTo.current)
-      dirty.current = true // so it reaches the server on the next trigger
+    if (loaded.current || !ready || !key) return
+    loaded.current = true
+    if (published) {
+      removeLocal(key)
+      return
     }
-  }, [ready, key, published, existingReview, onRestore])
+    const start = startingContent(key, existingReview)
+    if (!start.content) return
+    // Set the ref too: a flush before the next render (StrictMode's simulated
+    // unmount does one) must send what the form is about to show.
+    latest.current.content = start.content
+    onLoad(start.content)
+    if (start.unsynced) dirty.current = true
+  }, [ready, key, published, existingReview, onLoad])
 
   // Flush when the tab is hidden or the page is closed, and on unmount.
   useEffect(() => {
+    // Hidden comes before pagehide and may be the last chance, so it uses keepalive too.
     const onVisibility = () => {
-      if (document.visibilityState === 'hidden') void flush()
+      if (document.visibilityState === 'hidden') void flush({ keepalive: true })
     }
     const onPageHide = () => void flush({ keepalive: true })
     document.addEventListener('visibilitychange', onVisibility)

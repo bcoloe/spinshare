@@ -347,7 +347,7 @@ export default function AlbumPage() {
   const { data: album, isLoading: albumLoading } = useAlbumDetails(albumId)
   const { data: reviews = [], isLoading: reviewsLoading } = useAlbumReviews(albumId)
   const { data: stats, isLoading: statsLoading } = useAlbumStats(albumId)
-  const { data: myReview = null, isLoading: myReviewLoading } = useMyReview(albumId, !!user)
+  const { data: myReview = null, isLoading: myReviewLoading, isSuccess: myReviewLoaded } = useMyReview(albumId, !!user)
 
   const {
     status: playerStatus,
@@ -650,7 +650,7 @@ export default function AlbumPage() {
           ) : myReviewLoading ? (
             <Skeleton h={80} />
           ) : (
-            <ReviewForm key={albumId} albumId={albumId} existingReview={myReview} />
+            <ReviewForm key={albumId} albumId={albumId} existingReview={myReview} reviewLoaded={myReviewLoaded} />
           )}
         </Paper>
 
