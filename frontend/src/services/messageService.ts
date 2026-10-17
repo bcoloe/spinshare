@@ -2,6 +2,7 @@ import { apiFetch } from './apiClient'
 import type {
   ChatTicketResponse,
   GroupUnread,
+  MessageReactions,
   MessageResponse,
   PresenceMember,
 } from '../types/message'
@@ -31,6 +32,19 @@ export const messageService = {
     return apiFetch(`/messages/${messageId}`, {
       method: 'PATCH',
       body: JSON.stringify({ body }),
+    })
+  },
+
+  addReaction(messageId: number, emoji: string): Promise<MessageReactions> {
+    return apiFetch(`/messages/${messageId}/reactions`, {
+      method: 'POST',
+      body: JSON.stringify({ emoji }),
+    })
+  },
+
+  removeReaction(messageId: number, emoji: string): Promise<MessageReactions> {
+    return apiFetch(`/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`, {
+      method: 'DELETE',
     })
   },
 

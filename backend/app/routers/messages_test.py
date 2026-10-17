@@ -37,6 +37,8 @@ def make_mock_message(
     message.edited_at = None
     message.deleted_at = deleted_at
     message.mentions = []
+    message.reactions = []
+    message.reactions_version = 0
     return message
 
 
@@ -215,6 +217,121 @@ class TestEditMessage:
 
     def test_requires_auth(self, unauthed_chat_client):
         resp = unauthed_chat_client.patch("/messages/5", json={"body": "hi"})
+        assert resp.status_code == 401
+
+
+def make_mock_reacted_message(id=5, group_id=2, reactions=()) -> MagicMock:
+    message = make_mock_message(id=id, group_id=group_id)
+    message.reactions = [MagicMock(emoji=emoji, user_id=uid) for emoji, uid in reactions]
+    message.reactions_version = 7
+    return message
+
+
+class TestAddReaction:
+    def test_returns_the_aggregate(self, chat_client, mock_message_service):
+        mock_message_service.add_reaction.return_value = make_mock_reacted_message(
+            reactions=[("🔥", 1), ("🔥", 2), ("👍", 1)]
+        )
+
+        resp = chat_client.post("/messages/5/reactions", json={"emoji": "🔥"})
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "message_id": 5,
+            "group_id": 2,
+            "version": 7,
+            "reactions": [
+                {"emoji": "🔥", "count": 2, "user_ids": [1, 2]},
+                {"emoji": "👍", "count": 1, "user_ids": [1]},
+            ],
+        }
+
+    def test_broadcasts_the_aggregate(self, chat_client, mock_message_service):
+        mock_message_service.add_reaction.return_value = make_mock_reacted_message(
+            reactions=[("🔥", 1)]
+        )
+
+        with patch("app.routers.messages.manager") as mock_manager:
+            chat_client.post("/messages/5/reactions", json={"emoji": "🔥"})
+
+        group_id, payload = mock_manager.broadcast_from_thread.call_args[0]
+        assert group_id == 2
+        assert payload["type"] == "message.reactions"
+        assert payload["message_id"] == 5
+        assert payload["reactions"] == [{"emoji": "🔥", "count": 1, "user_ids": [1]}]
+
+    @pytest.mark.parametrize(
+        "emoji",
+        [
+            "lol", " ", "", "🔥 ", "1", "a🔥", "→", "x" * 40,
+            # Marks that would spill onto neighbouring text, and a bidi override.
+            "🔥" + "\u0301" * 15, "🔥\u202e", "\u200b🔥",
+            # Modifier symbols that aren't skin tones.
+            "^", "`", "^^^^", "\u00a8", "\u02dc",
+        ],
+    )
+    def test_rejects_non_emoji(self, chat_client, mock_message_service, emoji):
+        resp = chat_client.post("/messages/5/reactions", json={"emoji": emoji})
+
+        assert resp.status_code == 422
+        mock_message_service.add_reaction.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "emoji",
+        ["🔥", "❤️", "👍🏽", "🇫🇷", "1️⃣", "👨‍👩‍👧", "\U0001F3F4\U000E0067\U000E0062\U000E0073\U000E0063\U000E0074\U000E007F"],
+    )
+    def test_accepts_real_emoji(self, chat_client, mock_message_service, emoji):
+        mock_message_service.add_reaction.return_value = make_mock_reacted_message()
+
+        resp = chat_client.post("/messages/5/reactions", json={"emoji": emoji})
+
+        assert resp.status_code == 200
+
+    def test_does_not_broadcast_when_the_write_fails(
+        self, chat_client, mock_message_service
+    ):
+        mock_message_service.add_reaction.side_effect = HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Cannot react to a deleted message"
+        )
+
+        with patch("app.routers.messages.manager") as mock_manager:
+            resp = chat_client.post("/messages/5/reactions", json={"emoji": "🔥"})
+
+        assert resp.status_code == 409
+        mock_manager.broadcast_from_thread.assert_not_called()
+
+    def test_requires_auth(self, unauthed_chat_client):
+        resp = unauthed_chat_client.post("/messages/5/reactions", json={"emoji": "🔥"})
+        assert resp.status_code == 401
+
+
+class TestRemoveReaction:
+    def test_removes_and_returns_the_aggregate(self, chat_client, mock_message_service, mock_user):
+        mock_message_service.remove_reaction.return_value = make_mock_reacted_message()
+
+        resp = chat_client.delete("/messages/5/reactions/%F0%9F%94%A5")
+
+        assert resp.status_code == 200
+        assert resp.json()["reactions"] == []
+        mock_message_service.remove_reaction.assert_called_once_with(5, mock_user, "🔥")
+
+    def test_broadcasts_the_aggregate(self, chat_client, mock_message_service):
+        mock_message_service.remove_reaction.return_value = make_mock_reacted_message()
+
+        with patch("app.routers.messages.manager") as mock_manager:
+            chat_client.delete("/messages/5/reactions/🔥")
+
+        _, payload = mock_manager.broadcast_from_thread.call_args[0]
+        assert payload["type"] == "message.reactions"
+
+    def test_rejects_non_emoji(self, chat_client, mock_message_service):
+        resp = chat_client.delete("/messages/5/reactions/lol")
+
+        assert resp.status_code == 422
+        mock_message_service.remove_reaction.assert_not_called()
+
+    def test_requires_auth(self, unauthed_chat_client):
+        resp = unauthed_chat_client.delete("/messages/5/reactions/🔥")
         assert resp.status_code == 401
 
 

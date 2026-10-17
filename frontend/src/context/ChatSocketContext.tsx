@@ -9,6 +9,7 @@ import type {
   PresenceMember,
 } from '../types/message'
 import { chatKeys } from '../hooks/chatKeys'
+import { applyReactions, withNewerReactions } from '../hooks/chatCache'
 
 // The socket opens once per session at the app shell, not per chat panel, so
 // presence dots work anywhere in the app without the chat drawer being open.
@@ -173,10 +174,17 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
           const message = event.message
           queryClient.setQueryData<MessageResponse[]>(
             chatKeys.messages(message.group_id),
-            // A late edit must never resurrect a message already tombstoned.
+            // A late edit must never resurrect a message already tombstoned,
+            // nor roll back newer reactions.
             (existing) =>
-              existing?.map((m) => (m.id === message.id && !m.is_deleted ? message : m)),
+              existing?.map((m) =>
+                m.id === message.id && !m.is_deleted ? withNewerReactions(message, m) : m,
+              ),
           )
+          break
+        }
+        case 'message.reactions': {
+          applyReactions(queryClient, event)
           break
         }
         case 'message.deleted': {

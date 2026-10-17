@@ -1,8 +1,10 @@
 """Chat message schemas."""
 
+import unicodedata
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator
 
 MAX_MESSAGE_LENGTH = 2000
 MAX_HISTORY_LIMIT = 100
@@ -11,6 +13,54 @@ MAX_HISTORY_LIMIT = 100
 # which for an old group would be a large query nobody asked for. Clients send
 # `limit` explicitly, so this is the floor for a caller that omits it.
 DEFAULT_HISTORY_LIMIT = 30
+
+# Longest emoji the reaction picker can produce is a ZWJ family/flag sequence of
+# roughly a dozen code points; anything far beyond that is not a single emoji.
+MAX_REACTION_LENGTH = 16
+# How many *different* emoji one user may put on one message.
+MAX_REACTIONS_PER_USER = 10
+# ASCII is allowed only as the base of a keycap sequence (1️⃣, #️⃣, *️⃣).
+_KEYCAP_BASES = set("0123456789#*")
+_KEYCAP = "\u20e3"
+# Fitzpatrick modifiers — the only "Sk" characters that belong in an emoji
+# (the rest of that category is ASCII ^ and ` and spacing accents).
+_SKIN_TONES = {chr(c) for c in range(0x1F3FB, 0x1F400)}
+# The non-symbol code points emoji sequences are built from — and nothing else:
+# zero-width joiner, variation selectors, the keycap mark, and the tag
+# characters of subdivision flags. Other combining marks would stack over
+# neighbouring text, and other format characters (bidi overrides) reorder it.
+_EMOJI_JOINERS = (
+    {"\u200d", _KEYCAP}
+    | {chr(c) for c in range(0xFE00, 0xFE10)}
+    | {chr(c) for c in range(0xE0020, 0xE0080)}
+)
+
+
+def validate_reaction_emoji(value: str) -> str:
+    """Accept a single emoji-like token; reject text and whitespace.
+
+    Not a full emoji grammar — that would need a Unicode data dependency — but
+    tight enough that a reaction can only ever render as a glyph or two, never
+    as words or as marks spilling onto neighbouring text: bounded length, and
+    every code point is a symbol ("So"), a skin-tone modifier, a keycap base,
+    or one of the joiners emoji sequences are built from — with at least one
+    symbol present.
+
+    Raises:
+        ValueError: If the value is not emoji-shaped
+    """
+    if not 1 <= len(value) <= MAX_REACTION_LENGTH:
+        raise ValueError("Reaction must be a single emoji")
+    has_symbol = False
+    for ch in value:
+        category = unicodedata.category(ch)
+        if category == "So" or ch in _SKIN_TONES or ch == _KEYCAP:
+            has_symbol = True
+        elif ch not in _KEYCAP_BASES and ch not in _EMOJI_JOINERS:
+            raise ValueError("Reaction must be a single emoji")
+    if not has_symbol:
+        raise ValueError("Reaction must be a single emoji")
+    return value
 
 
 class MessageCreate(BaseModel):
@@ -46,6 +96,25 @@ class MessageMentionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# A validated reaction emoji; used for both the request body and the DELETE
+# path parameter, so either rejects a non-emoji with the same 422.
+ReactionEmoji = Annotated[str, AfterValidator(validate_reaction_emoji)]
+
+
+class ReactionCreate(BaseModel):
+    """Inbound reaction."""
+
+    emoji: ReactionEmoji
+
+
+class MessageReactionSummary(BaseModel):
+    """Everyone who reacted to a message with one emoji."""
+
+    emoji: str
+    count: int
+    user_ids: list[int]
+
+
 class MessageResponse(BaseModel):
     """A chat message as returned by the API and pushed over the socket."""
 
@@ -60,8 +129,27 @@ class MessageResponse(BaseModel):
     edited_at: datetime | None
     is_deleted: bool
     mentions: list[MessageMentionResponse]
+    # In first-reacted order. Empty on a deleted message.
+    reactions: list[MessageReactionSummary]
+    reactions_version: int
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class MessageReactionsResponse(BaseModel):
+    """A message's full reaction state after a change.
+
+    Returned by the reaction endpoints and pushed as ``message.reactions``. It is
+    the whole aggregate rather than a delta, and ``version`` orders aggregates
+    for one message: a client applies one only if it is newer than what it
+    holds, so a late HTTP response or broadcast can never roll a newer state
+    back, and applying the same one twice is harmless.
+    """
+
+    message_id: int
+    group_id: int
+    version: int
+    reactions: list[MessageReactionSummary]
 
 
 class ChatSeenRequest(BaseModel):

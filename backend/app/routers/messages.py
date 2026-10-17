@@ -15,11 +15,18 @@ from app.schemas.message import (
     ChatTicketResponse,
     GroupUnread,
     MessageCreate,
+    MessageReactionsResponse,
     MessageResponse,
     MessageUpdate,
     PresenceMember,
+    ReactionCreate,
+    ReactionEmoji,
 )
-from app.services.message_service import MessageService, serialize_message
+from app.services.message_service import (
+    MessageService,
+    serialize_message,
+    serialize_reactions,
+)
 from app.utils.security import CHAT_TICKET_EXPIRE_SECONDS, create_chat_ticket
 from fastapi import APIRouter, Depends, Query, status
 
@@ -87,6 +94,42 @@ def edit_message(
         message.group_id,
         {"type": "message.edited", "message": payload.model_dump(mode="json")},
     )
+    return payload
+
+
+def _broadcast_reactions(payload: MessageReactionsResponse) -> None:
+    manager.broadcast_from_thread(
+        payload.group_id, {"type": "message.reactions", **payload.model_dump(mode="json")}
+    )
+
+
+@router.post("/messages/{message_id}/reactions", response_model=MessageReactionsResponse)
+def add_reaction(
+    message_id: int,
+    data: ReactionCreate,
+    current_user: User = Depends(get_current_user),
+    message_service: MessageService = Depends(get_message_service),
+):
+    """React to a message. Idempotent; returns and broadcasts the full aggregate."""
+    message = message_service.add_reaction(message_id, current_user, data.emoji)
+    payload = serialize_reactions(message)
+    _broadcast_reactions(payload)
+    return payload
+
+
+@router.delete(
+    "/messages/{message_id}/reactions/{emoji}", response_model=MessageReactionsResponse
+)
+def remove_reaction(
+    message_id: int,
+    emoji: ReactionEmoji,
+    current_user: User = Depends(get_current_user),
+    message_service: MessageService = Depends(get_message_service),
+):
+    """Withdraw your reaction. Idempotent; returns and broadcasts the full aggregate."""
+    message = message_service.remove_reaction(message_id, current_user, emoji)
+    payload = serialize_reactions(message)
+    _broadcast_reactions(payload)
     return payload
 
 
