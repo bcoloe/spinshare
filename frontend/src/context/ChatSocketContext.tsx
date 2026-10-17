@@ -9,6 +9,7 @@ import type {
   PresenceMember,
 } from '../types/message'
 import { chatKeys } from '../hooks/chatKeys'
+import { applyReactions } from '../hooks/chatCache'
 
 // The socket opens once per session at the app shell, not per chat panel, so
 // presence dots work anywhere in the app without the chat drawer being open.
@@ -177,6 +178,10 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
             (existing) =>
               existing?.map((m) => (m.id === message.id && !m.is_deleted ? message : m)),
           )
+          break
+        }
+        case 'message.reactions': {
+          applyReactions(queryClient, event)
           break
         }
         case 'message.deleted': {

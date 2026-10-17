@@ -33,20 +33,21 @@ const ICON_SIZE = 15
  * plain Unicode character, so a message reads identically whichever way it was
  * composed, and neither leaves markup behind for the renderer to interpret.
  */
-export default function EmojiPicker({ onSelect, disabled }: Props) {
-  const [opened, setOpened] = useState(false)
+interface GridProps {
+  onSelect: (char: string) => void
+}
+
+/**
+ * Searchable, grouped emoji grid — the body of the picker, also embedded by
+ * the chat reaction picker.
+ */
+export function EmojiGrid({ onSelect }: GridProps) {
   const [query, setQuery] = useState('')
 
   const results = useMemo(
     () => (query.trim() ? searchEmoji(query.trim(), MAX_SEARCH_RESULTS) : null),
     [query],
   )
-
-  const choose = (entry: EmojiEntry) => {
-    onSelect(entry.char)
-    setOpened(false)
-    setQuery('')
-  }
 
   const cell = (entry: EmojiEntry) => (
     <Tooltip key={entry.slug} label={`:${entry.slug}:`} openDelay={400} withinPortal>
@@ -56,7 +57,7 @@ export default function EmojiPicker({ onSelect, disabled }: Props) {
         // position it loses is exactly where the emoji needs to land.
         onMouseDown={(e) => {
           e.preventDefault()
-          choose(entry)
+          onSelect(entry.char)
         }}
         style={{
           fontSize: 20,
@@ -72,10 +73,52 @@ export default function EmojiPicker({ onSelect, disabled }: Props) {
   )
 
   return (
+    <Stack gap="xs">
+      <TextInput
+        size="xs"
+        placeholder="Search emoji"
+        value={query}
+        onChange={(e) => setQuery(e.currentTarget.value)}
+        aria-label="Search emoji"
+      />
+
+      <ScrollArea h={210} type="auto">
+        {results ? (
+          results.length === 0 ? (
+            <Text size="xs" c="dimmed" ta="center" py="md">
+              No emoji matching &ldquo;{query.trim()}&rdquo;
+            </Text>
+          ) : (
+            <SimpleGrid cols={COLUMNS} spacing={2}>
+              {results.map(cell)}
+            </SimpleGrid>
+          )
+        ) : (
+          <Stack gap="xs">
+            {EMOJI_GROUPS.map((group) => (
+              <div key={group.name}>
+                <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
+                  {group.name}
+                </Text>
+                <SimpleGrid cols={COLUMNS} spacing={2}>
+                  {group.emoji.map(cell)}
+                </SimpleGrid>
+              </div>
+            ))}
+          </Stack>
+        )}
+      </ScrollArea>
+    </Stack>
+  )
+}
+
+export default function EmojiPicker({ onSelect, disabled }: Props) {
+  const [opened, setOpened] = useState(false)
+
+  return (
     <Popover
       opened={opened}
       onChange={setOpened}
-      onClose={() => setQuery('')}
       position="top-start"
       shadow="md"
       width={300}
@@ -98,42 +141,15 @@ export default function EmojiPicker({ onSelect, disabled }: Props) {
       </Popover.Target>
 
       <Popover.Dropdown p="xs">
-        <Stack gap="xs">
-          <TextInput
-            size="xs"
-            placeholder="Search emoji"
-            value={query}
-            onChange={(e) => setQuery(e.currentTarget.value)}
-            aria-label="Search emoji"
+        {/* Unmounted on close, so the search box starts empty each time. */}
+        {opened && (
+          <EmojiGrid
+            onSelect={(char) => {
+              onSelect(char)
+              setOpened(false)
+            }}
           />
-
-          <ScrollArea h={210} type="auto">
-            {results ? (
-              results.length === 0 ? (
-                <Text size="xs" c="dimmed" ta="center" py="md">
-                  No emoji matching &ldquo;{query.trim()}&rdquo;
-                </Text>
-              ) : (
-                <SimpleGrid cols={COLUMNS} spacing={2}>
-                  {results.map(cell)}
-                </SimpleGrid>
-              )
-            ) : (
-              <Stack gap="xs">
-                {EMOJI_GROUPS.map((group) => (
-                  <div key={group.name}>
-                    <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
-                      {group.name}
-                    </Text>
-                    <SimpleGrid cols={COLUMNS} spacing={2}>
-                      {group.emoji.map(cell)}
-                    </SimpleGrid>
-                  </div>
-                ))}
-              </Stack>
-            )}
-          </ScrollArea>
-        </Stack>
+        )}
       </Popover.Dropdown>
     </Popover>
   )

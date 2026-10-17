@@ -3,9 +3,9 @@
 from contextlib import contextmanager
 
 import pytest
-from app.models import Message, Notification
+from app.models import Message, MessageReaction, Notification
 from app.models.group import GroupRole, group_members
-from app.schemas.message import MessageCreate, MessageUpdate
+from app.schemas.message import MAX_REACTIONS_PER_USER, MessageCreate, MessageUpdate
 from app.schemas.notification import NotificationType
 from fastapi import HTTPException, status
 from sqlalchemy import event, select
@@ -583,6 +583,130 @@ class TestEditMessage:
         assert edited.mentions == []
 
 
+class TestReactions:
+    def test_member_can_react(
+        self, message_service, sample_group, sample_user, group_member
+    ):
+        message = _post(message_service, sample_group, sample_user, "banger")
+
+        reacted = message_service.add_reaction(message.id, group_member, "🔥")
+
+        assert [(r.emoji, r.user_id) for r in reacted.reactions] == [("🔥", group_member.id)]
+
+    def test_adding_twice_is_idempotent(
+        self, message_service, db_session, sample_group, sample_user
+    ):
+        message = _post(message_service, sample_group, sample_user, "banger")
+
+        message_service.add_reaction(message.id, sample_user, "🔥")
+        message_service.add_reaction(message.id, sample_user, "🔥")
+
+        assert db_session.query(MessageReaction).count() == 1
+
+    def test_one_user_may_use_several_emoji(
+        self, message_service, sample_group, sample_user
+    ):
+        message = _post(message_service, sample_group, sample_user, "banger")
+
+        message_service.add_reaction(message.id, sample_user, "🔥")
+        reacted = message_service.add_reaction(message.id, sample_user, "👍")
+
+        assert [r.emoji for r in reacted.reactions] == ["🔥", "👍"]
+
+    def test_distinct_emoji_per_user_are_capped(
+        self, message_service, sample_group, sample_user, group_member
+    ):
+        message = _post(message_service, sample_group, sample_user, "banger")
+        emoji = [chr(0x1F600 + i) for i in range(MAX_REACTIONS_PER_USER + 1)]
+        for e in emoji[:-1]:
+            message_service.add_reaction(message.id, sample_user, e)
+
+        with pytest.raises(HTTPException) as exc:
+            message_service.add_reaction(message.id, sample_user, emoji[-1])
+
+        assert exc.value.status_code == status.HTTP_400_BAD_REQUEST
+        # The cap is per user: someone else can still react.
+        message_service.add_reaction(message.id, group_member, emoji[-1])
+
+    def test_non_member_cannot_react(
+        self, message_service, sample_group, sample_user, user_factory
+    ):
+        message = _post(message_service, sample_group, sample_user, "members only")
+        outsider = user_factory(email="out@test.com", username="outsider")
+
+        with pytest.raises(HTTPException) as exc:
+            message_service.add_reaction(message.id, outsider, "🔥")
+
+        assert exc.value.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_cannot_react_to_a_deleted_message(
+        self, message_service, sample_group, sample_user
+    ):
+        message = _post(message_service, sample_group, sample_user, "gone")
+        message_service.delete_message(message.id, sample_user)
+
+        with pytest.raises(HTTPException) as exc:
+            message_service.add_reaction(message.id, sample_user, "🔥")
+
+        assert exc.value.status_code == status.HTTP_409_CONFLICT
+
+    def test_unknown_message_404s(self, message_service, sample_user):
+        with pytest.raises(HTTPException) as exc:
+            message_service.add_reaction(99999, sample_user, "🔥")
+
+        assert exc.value.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_remove_only_withdraws_your_own(
+        self, message_service, sample_group, sample_user, group_member
+    ):
+        message = _post(message_service, sample_group, sample_user, "banger")
+        message_service.add_reaction(message.id, sample_user, "🔥")
+        message_service.add_reaction(message.id, group_member, "🔥")
+
+        after = message_service.remove_reaction(message.id, sample_user, "🔥")
+
+        assert [r.user_id for r in after.reactions] == [group_member.id]
+
+    def test_removing_nothing_succeeds(self, message_service, sample_group, sample_user):
+        message = _post(message_service, sample_group, sample_user, "banger")
+
+        after = message_service.remove_reaction(message.id, sample_user, "🔥")
+
+        assert after.reactions == []
+
+    def test_non_member_cannot_remove(
+        self, message_service, sample_group, sample_user, user_factory
+    ):
+        message = _post(message_service, sample_group, sample_user, "members only")
+        outsider = user_factory(email="out@test.com", username="outsider")
+
+        with pytest.raises(HTTPException) as exc:
+            message_service.remove_reaction(message.id, outsider, "🔥")
+
+        assert exc.value.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_reactions_go_when_the_message_row_does(
+        self, message_service, db_session, sample_group, sample_user
+    ):
+        message = _post(message_service, sample_group, sample_user, "banger")
+        message_service.add_reaction(message.id, sample_user, "🔥")
+
+        db_session.delete(message)
+        db_session.commit()
+
+        assert db_session.query(MessageReaction).count() == 0
+
+    def test_history_carries_reactions(
+        self, message_service, sample_group, sample_user, group_member
+    ):
+        message = _post(message_service, sample_group, sample_user, "banger")
+        message_service.add_reaction(message.id, group_member, "🔥")
+
+        [loaded] = message_service.get_history(sample_group.id, sample_user)
+
+        assert [r.emoji for r in loaded.reactions] == ["🔥"]
+
+
 class TestDeleteMessage:
     def test_author_can_delete(self, message_service, sample_group, sample_user):
         message = _post(message_service, sample_group, sample_user, "oops")
@@ -679,6 +803,24 @@ class TestSerializeMessage:
         assert payload.is_deleted is True
         assert payload.body == ""
         assert payload.mentions == []
+        assert payload.reactions == []
+
+    def test_reactions_are_grouped_in_first_reacted_order(
+        self, message_service, sample_group, sample_user, group_member
+    ):
+        from app.services.message_service import serialize_message
+
+        message = _post(message_service, sample_group, sample_user, "banger")
+        message_service.add_reaction(message.id, group_member, "👍")
+        message_service.add_reaction(message.id, sample_user, "🔥")
+        message_service.add_reaction(message.id, sample_user, "👍")
+
+        payload = serialize_message(message_service.get_message(message.id))
+
+        assert [(r.emoji, r.count, r.user_ids) for r in payload.reactions] == [
+            ("👍", 2, [group_member.id, sample_user.id]),
+            ("🔥", 1, [sample_user.id]),
+        ]
 
 
 @contextmanager

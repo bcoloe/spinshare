@@ -19,6 +19,24 @@
   }
 }
 
+/*
+ * Chat message actions (react / edit / delete) stay out of the way until the
+ * reader points at, focuses, or taps a message. `data-active` is set by a tap,
+ * which is the only way to reveal them on a touch screen.
+ */
+.chat-message-actions {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.chat-message:hover .chat-message-actions,
+.chat-message:focus-within .chat-message-actions,
+.chat-message[data-active] .chat-message-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 /* RichTextarea: one bordered box around the formatting bar and the text, so
    the focus ring goes on the box. Paragraphs are lines here, not prose blocks —
    no margins between them. */
