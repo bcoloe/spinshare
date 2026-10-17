@@ -169,13 +169,16 @@ export default function RichTextarea({
 
   /**
    * Accept typed or pasted text, turning any completed `:shortcode:` into its
-   * emoji on the spot — so every editor stores Unicode, not shortcodes. The
-   * halves either side of the caret are substituted separately, which keeps
-   * the caret put and leaves a shortcode still being typed alone.
+   * emoji on the spot — so every editor stores Unicode, not shortcodes.
+   *
+   * Only the text before the caret is substituted. Typing and pasting both
+   * leave the caret after what they added, and everything after it was already
+   * substituted on an earlier change — so this is complete, keeps the caret
+   * put, and never sees a fragment cut off from the word it belongs to.
    */
   const handleTyped = (raw: string, rawCaret: number) => {
     const before = replaceShortcodes(raw.slice(0, rawCaret))
-    const next = before + replaceShortcodes(raw.slice(rawCaret))
+    const next = before + raw.slice(rawCaret)
     onChange(next)
     setCaret(before.length)
     setHighlighted(0)

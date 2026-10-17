@@ -79,4 +79,12 @@ describe('RichTextarea', () => {
     await user.type(textarea, 'at 12:30:45')
     expect(textarea.value).toBe('at 12:30:45')
   })
+
+  it('does not substitute text after the caret when typing before it', async () => {
+    const { user, textarea } = setup()
+    await user.type(textarea, 'ratio 1:100:5')
+    textarea.setSelectionRange(7, 7) // just after the "1"
+    await user.type(textarea, '1', { initialSelectionStart: 7, initialSelectionEnd: 7 })
+    expect(textarea.value).toBe('ratio 11:100:5')
+  })
 })
