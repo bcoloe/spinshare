@@ -11,9 +11,11 @@ interface Props {
   onSend: (body: string) => void
   isSending: boolean
   disabled?: boolean
+  /** Up-arrow in an empty composer: open your most recent message for editing. */
+  onEditLast?: () => void
 }
 
-export default function MessageComposer({ members, onSend, isSending, disabled }: Props) {
+export default function MessageComposer({ members, onSend, isSending, disabled, onEditLast }: Props) {
   const [value, setValue] = useState('')
 
   const submit = () => {
@@ -29,6 +31,12 @@ export default function MessageComposer({ members, onSend, isSending, disabled }
       onChange={setValue}
       members={members}
       onSubmit={submit}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowUp' && !value && onEditLast) {
+          e.preventDefault()
+          onEditLast()
+        }
+      }}
       minRows={1}
       maxRows={5}
       maxLength={MAX_MESSAGE_LENGTH}

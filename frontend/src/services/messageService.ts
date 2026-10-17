@@ -27,6 +27,13 @@ export const messageService = {
     })
   },
 
+  editMessage(messageId: number, body: string): Promise<MessageResponse> {
+    return apiFetch(`/messages/${messageId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ body }),
+    })
+  },
+
   deleteMessage(messageId: number): Promise<MessageResponse> {
     return apiFetch(`/messages/${messageId}`, { method: 'DELETE' })
   },

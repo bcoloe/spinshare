@@ -66,9 +66,15 @@ export interface MessageDeletedEvent {
   message: MessageResponse
 }
 
+export interface MessageEditedEvent {
+  type: 'message.edited'
+  message: MessageResponse
+}
+
 export type ChatSocketEvent =
   | PresenceSnapshotEvent
   | PresenceJoinEvent
   | PresenceLeaveEvent
   | MessageNewEvent
   | MessageDeletedEvent
+  | MessageEditedEvent

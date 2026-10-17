@@ -127,4 +127,21 @@ describe('MessageComposer', () => {
     expect(screen.getByRole('button', { name: 'Insert emoji' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Bold' })).toBeDisabled()
   })
+
+  describe('edit last message', () => {
+    it('asks to edit the last message on ArrowUp when empty', () => {
+      const onEditLast = vi.fn()
+      const { editor } = renderComposer({ onEditLast })
+      pressKey(editor, 'ArrowUp')
+      expect(onEditLast).toHaveBeenCalled()
+    })
+
+    it('leaves ArrowUp alone once something is typed', () => {
+      const onEditLast = vi.fn()
+      const { editor } = renderComposer({ onEditLast })
+      typeText(editor, 'draft')
+      pressKey(editor, 'ArrowUp')
+      expect(onEditLast).not.toHaveBeenCalled()
+    })
+  })
 })

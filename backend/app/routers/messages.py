@@ -16,6 +16,7 @@ from app.schemas.message import (
     GroupUnread,
     MessageCreate,
     MessageResponse,
+    MessageUpdate,
     PresenceMember,
 )
 from app.services.message_service import MessageService, serialize_message
@@ -68,6 +69,23 @@ def post_message(
     payload = serialize_message(message)
     manager.broadcast_from_thread(
         group_id, {"type": "message.new", "message": payload.model_dump(mode="json")}
+    )
+    return payload
+
+
+@router.patch("/messages/{message_id}", response_model=MessageResponse)
+def edit_message(
+    message_id: int,
+    data: MessageUpdate,
+    current_user: User = Depends(get_current_user),
+    message_service: MessageService = Depends(get_message_service),
+):
+    """Edit your own message. Fanned out as ``message.edited`` after the commit."""
+    message = message_service.edit_message(message_id, current_user, data)
+    payload = serialize_message(message)
+    manager.broadcast_from_thread(
+        message.group_id,
+        {"type": "message.edited", "message": payload.model_dump(mode="json")},
     )
     return payload
 

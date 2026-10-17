@@ -11,6 +11,7 @@ from app.schemas.message import (
     MessageCreate,
     MessageMentionResponse,
     MessageResponse,
+    MessageUpdate,
 )
 from app.schemas.notification import NotificationType
 from app.services.group_service import GroupService
@@ -290,6 +291,67 @@ class MessageService:
         return self.notification_service.mark_read_for_group(
             user, group_id, NotificationType.mentioned_in_chat
         )
+
+    # ==================== UPDATE ====================
+
+    def edit_message(self, message_id: int, user: User, data: MessageUpdate) -> Message:
+        """Replace the body of the caller's own message.
+
+        Author only: moderators may delete a message but never put words in
+        someone else's mouth. Mentions are re-resolved against the new body, and
+        only people the edit *adds* are notified — fixing a typo must not ping
+        everyone a second time. An edit that changes nothing is a no-op and
+        leaves ``edited_at`` alone.
+
+        Raises:
+            HTTPException 403: If the user is not the author, or has left the group
+            HTTPException 404: If the message does not exist
+            HTTPException 409: If the message has been deleted
+        """
+        message = self.get_message(message_id)
+
+        if message.user_id != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only edit your own messages",
+            )
+        self.group_service.require_membership(user.id, message.group_id)
+        if message.deleted_at is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot edit a deleted message",
+            )
+        if data.body == message.body:
+            return message
+
+        resolved = self._resolve_mentions(data.body, message.group_id, exclude_user_id=user.id)
+        existing = {m.user_id: m for m in message.mentions}
+        added = [target for target in resolved if target.id not in existing]
+
+        message.body = data.body
+        message.edited_at = datetime.now(UTC)
+        # Keep surviving rows rather than delete-and-reinsert; delete-orphan
+        # cascade removes the ones the edit dropped.
+        message.mentions = [
+            existing.get(target.id)
+            or MessageMention(user_id=target.id, username=target.username)
+            for target in resolved
+        ]
+
+        self.db.commit()
+        self.db.refresh(message)
+
+        # As in create_message: after the commit, so a failed notify can never
+        # roll back the edit.
+        if added:
+            self.notification_service.create_many(
+                user_ids=[target.id for target in added],
+                type=NotificationType.mentioned_in_chat,
+                message=f"{user.username} mentioned you in chat",
+                group_id=message.group_id,
+            )
+
+        return message
 
     # ==================== DELETE ====================
 
