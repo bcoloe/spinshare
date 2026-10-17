@@ -12,7 +12,6 @@ import {
   Slider,
   Stack,
   Text,
-  Textarea,
   Tooltip,
 } from '@mantine/core'
 import { IconPencil, IconStar, IconX } from '@tabler/icons-react'
@@ -26,6 +25,8 @@ import { ApiError } from '../../services/apiClient'
 import GuessResult from './GuessResult'
 import GuestReviewPrompt from './GuestReviewPrompt'
 import type { ReviewResponse } from '../../types/album'
+import ReviewComment from '../common/ReviewComment'
+import RichTextarea from '../common/RichTextarea'
 
 interface Props {
   albumId: number
@@ -125,9 +126,7 @@ function ReviewSummary({ review }: { review: ReviewResponse }) {
         <Text size="sm" c="dimmed">Rating:</Text>
         <Text size="sm" fw={500}>{review.rating !== null ? `${review.rating} / 10` : '—'}</Text>
       </Group>
-      {review.comment && (
-        <Text size="sm" c="dimmed" fs="italic">&ldquo;{review.comment}&rdquo;</Text>
-      )}
+      <ReviewComment comment={review.comment} />
     </Stack>
   )
 }
@@ -267,13 +266,11 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
             mb="lg"
           />
         </div>
-        <Textarea
+        <RichTextarea
           label="Comment (optional)"
           value={editComment}
-          onChange={(e) => setEditComment(e.currentTarget.value)}
+          onChange={setEditComment}
           maxLength={5000}
-          autosize
-          minRows={2}
         />
         <Group gap="xs">
           <Button loading={updateReview.isPending} onClick={() => handleUpdate(hasPublishedReview)}>
@@ -433,14 +430,12 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
               mb="lg"
             />
           </div>
-          <Textarea
+          <RichTextarea
             label="Comment (optional)"
             placeholder="What did you think?"
             value={comment}
-            onChange={(e) => { autosave.markDirty(); setComment(e.currentTarget.value) }}
+            onChange={(v) => { autosave.markDirty(); setComment(v) }}
             maxLength={5000}
-            autosize
-            minRows={2}
           />
           {allowGuessing && (isSelfNominated ? (
             selfNominatedBanner

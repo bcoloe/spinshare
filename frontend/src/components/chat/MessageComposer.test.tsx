@@ -1,9 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
 import MessageComposer from './MessageComposer'
 import type { GroupMemberResponse } from '../../types/group'
+import { getEditor, pressKey, storedText, typeText } from '../../test/editor'
 
 function member(user_id: number, username: string, role: 'owner' | 'member'): GroupMemberResponse {
   return {
@@ -21,140 +22,109 @@ const MEMBERS: GroupMemberResponse[] = [member(1, 'alice', 'owner'), member(2, '
 
 function renderComposer(props: Partial<Parameters<typeof MessageComposer>[0]> = {}) {
   const onSend = vi.fn()
-  const utils = render(
+  render(
     <MantineProvider>
       <MessageComposer members={MEMBERS} onSend={onSend} isSending={false} {...props} />
     </MantineProvider>,
   )
-  const textarea = screen.getByRole('textbox') as HTMLTextAreaElement
-  return { ...utils, onSend, textarea }
-}
-
-async function pickEmoji(user: ReturnType<typeof userEvent.setup>, slug: string) {
-  await user.click(screen.getByRole('button', { name: 'Insert emoji' }))
-  await waitFor(() => expect(screen.getByLabelText('Search emoji')).toBeInTheDocument())
-  await user.click(screen.getByLabelText(slug))
+  return { onSend, editor: getEditor() }
 }
 
 describe('MessageComposer', () => {
-  describe('emoji picker insertion', () => {
-    it('appends the emoji when the caret is at the end', async () => {
-      const user = userEvent.setup()
-      const { textarea } = renderComposer()
+  it('sends on Enter and clears', () => {
+    const { editor, onSend } = renderComposer()
+    typeText(editor, 'great record')
+    pressKey(editor, 'Enter')
 
-      await user.type(textarea, 'this rules ')
-      await pickEmoji(user, 'fire')
-
-      expect(textarea.value).toBe('this rules 🔥')
-    })
-
-    it('inserts at the caret rather than the end', async () => {
-      const user = userEvent.setup()
-      const { textarea } = renderComposer()
-
-      await user.type(textarea, 'ab')
-      await user.keyboard('{ArrowLeft}')
-      await pickEmoji(user, 'fire')
-
-      expect(textarea.value).toBe('a🔥b')
-    })
-
-    it('leaves the caret after the inserted emoji so typing continues', async () => {
-      const user = userEvent.setup()
-      const { textarea } = renderComposer()
-
-      await user.type(textarea, 'wow ')
-      await pickEmoji(user, 'fire')
-      await user.type(textarea, '!')
-
-      expect(textarea.value).toBe('wow 🔥!')
-    })
-
-    it('sends the picked emoji as a plain character', async () => {
-      const user = userEvent.setup()
-      const { textarea, onSend } = renderComposer()
-
-      await user.type(textarea, 'yes ')
-      await pickEmoji(user, 'fire')
-      await user.type(textarea, '{Enter}')
-
-      expect(onSend).toHaveBeenCalledWith('yes 🔥')
-    })
+    expect(onSend).toHaveBeenCalledWith('great record')
+    expect(storedText(editor)).toBe('')
   })
 
-  describe('shortcode substitution', () => {
-    it('converts a typed-out shortcode on send', async () => {
-      const user = userEvent.setup()
-      const { textarea, onSend } = renderComposer()
+  it('inserts a line break on Shift+Enter instead of sending', () => {
+    const { editor, onSend } = renderComposer()
+    typeText(editor, 'one')
+    pressKey(editor, 'Enter', { shiftKey: true })
+    typeText(editor, 'two')
 
-      await user.type(textarea, 'closing track is :fire:{Enter}')
-
-      expect(onSend).toHaveBeenCalledWith('closing track is 🔥')
-    })
-
-    it('leaves an unknown shortcode alone', async () => {
-      const user = userEvent.setup()
-      const { textarea, onSend } = renderComposer()
-
-      await user.type(textarea, 'ship :not_an_emoji:{Enter}')
-
-      expect(onSend).toHaveBeenCalledWith('ship :not_an_emoji:')
-    })
+    expect(onSend).not.toHaveBeenCalled()
+    expect(storedText(editor)).toBe('one\ntwo')
   })
 
-  describe('autocomplete', () => {
-    it('offers members for a partial @handle', async () => {
-      const user = userEvent.setup()
-      const { textarea } = renderComposer()
+  it('sends formatting as stored markers', () => {
+    const { editor, onSend } = renderComposer()
+    typeText(editor, 'this is **huge** ')
+    pressKey(editor, 'Enter')
 
-      await user.type(textarea, 'hey @al')
+    expect(onSend).toHaveBeenCalledWith('this is **huge**')
+  })
 
-      expect(screen.getByText('@alice')).toBeInTheDocument()
-    })
+  it('does not send an empty message', () => {
+    const { editor, onSend } = renderComposer()
+    typeText(editor, '   ')
+    pressKey(editor, 'Enter')
 
-    it('completes a mention on Enter without sending', async () => {
-      const user = userEvent.setup()
-      const { textarea, onSend } = renderComposer()
+    expect(onSend).not.toHaveBeenCalled()
+  })
 
-      await user.type(textarea, 'hey @al{Enter}')
+  it('sends from the send button', async () => {
+    const { editor, onSend } = renderComposer()
+    typeText(editor, 'hi')
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }))
 
-      expect(textarea.value).toBe('hey @alice ')
-      expect(onSend).not.toHaveBeenCalled()
-    })
+    expect(onSend).toHaveBeenCalledWith('hi')
+  })
 
-    it('offers emoji for a partial shortcode', async () => {
-      const user = userEvent.setup()
-      const { textarea } = renderComposer()
+  it('sends a picked emoji as a plain character', async () => {
+    const { editor, onSend } = renderComposer()
+    typeText(editor, 'yes ')
+    await userEvent.click(screen.getByRole('button', { name: 'Insert emoji' }))
+    await userEvent.click(await screen.findByLabelText('fire'))
+    pressKey(editor, 'Enter')
 
-      await user.type(textarea, 'so :gui')
+    expect(onSend).toHaveBeenCalledWith('yes 🔥')
+  })
 
-      expect(screen.getByText(':guitar:')).toBeInTheDocument()
-    })
+  it('converts a typed-out shortcode', () => {
+    const { editor, onSend } = renderComposer()
+    typeText(editor, 'closing track is :fire:')
+    pressKey(editor, 'Enter')
 
-    it('completes a shortcode to its character on Enter', async () => {
-      const user = userEvent.setup()
-      const { textarea, onSend } = renderComposer()
+    expect(onSend).toHaveBeenCalledWith('closing track is 🔥')
+  })
 
-      await user.type(textarea, 'so :gui{Enter}')
+  it('leaves an unknown shortcode alone', () => {
+    const { editor, onSend } = renderComposer()
+    typeText(editor, 'ship :not_an_emoji:')
+    pressKey(editor, 'Enter')
 
-      expect(textarea.value).toBe('so 🎸 ')
-      expect(onSend).not.toHaveBeenCalled()
-    })
+    expect(onSend).toHaveBeenCalledWith('ship :not_an_emoji:')
+  })
 
-    it('does not open the picker for a lone colon', async () => {
-      const user = userEvent.setup()
-      const { textarea } = renderComposer()
+  it('completes a mention on Enter without sending', async () => {
+    const { editor, onSend } = renderComposer()
+    typeText(editor, 'hey @al')
+    await screen.findByText('@alice')
+    pressKey(editor, 'Enter')
 
-      await user.type(textarea, 'meet at 12:')
+    expect(storedText(editor)).toBe('hey @alice ')
+    expect(onSend).not.toHaveBeenCalled()
+  })
 
-      expect(screen.queryByText(/^:.+:$/)).not.toBeInTheDocument()
-    })
+  it('completes a shortcode to its character on Enter without sending', async () => {
+    const { editor, onSend } = renderComposer()
+    typeText(editor, 'so :gui')
+    await screen.findByText(':guitar:')
+    pressKey(editor, 'Enter')
+
+    expect(storedText(editor)).toBe('so 🎸 ')
+    expect(onSend).not.toHaveBeenCalled()
   })
 
   it('disables entry when the user cannot post', () => {
-    const { textarea } = renderComposer({ disabled: true })
+    const { editor } = renderComposer({ disabled: true })
 
-    expect(textarea).toBeDisabled()
+    expect(editor.view.dom).toHaveAttribute('contenteditable', 'false')
     expect(screen.getByRole('button', { name: 'Insert emoji' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Bold' })).toBeDisabled()
   })
 })

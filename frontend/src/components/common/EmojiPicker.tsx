@@ -22,6 +22,10 @@ interface Props {
   disabled?: boolean
 }
 
+// Matches the other buttons in RichTextarea's formatting bar.
+const BUTTON_SIZE = 'sm'
+const ICON_SIZE = 15
+
 /**
  * Browse-and-click emoji entry, for when you don't already know the shortcode.
  *
@@ -72,7 +76,7 @@ export default function EmojiPicker({ onSelect, disabled }: Props) {
       opened={opened}
       onChange={setOpened}
       onClose={() => setQuery('')}
-      position="top-end"
+      position="top-start"
       shadow="md"
       width={300}
       withinPortal
@@ -81,15 +85,14 @@ export default function EmojiPicker({ onSelect, disabled }: Props) {
       <Popover.Target>
         <Tooltip label="Insert emoji">
           <ActionIcon
-            size="lg"
-            radius="xl"
+            size={BUTTON_SIZE}
             variant="subtle"
             color="gray"
             aria-label="Insert emoji"
             disabled={disabled}
             onClick={() => setOpened((o) => !o)}
           >
-            <IconMoodSmile size={18} />
+            <IconMoodSmile size={ICON_SIZE} />
           </ActionIcon>
         </Tooltip>
       </Popover.Target>
