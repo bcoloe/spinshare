@@ -18,3 +18,9 @@
     transform: rotate(360deg) scale(1);
   }
 }
+
+/* RichTextarea draws its own border around the formatting bar and the text;
+   the inner textarea is unstyled, so the focus ring moves to the box. */
+.rich-textarea:focus-within {
+  border-color: var(--mantine-color-violet-5);
+}

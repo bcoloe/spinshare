@@ -1,8 +1,9 @@
-import { useMemo, useRef, useState } from 'react'
+import { useId, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import {
   ActionIcon,
   Group,
+  Input,
   Paper,
   Stack,
   Text,
@@ -115,6 +116,7 @@ export default function RichTextarea({
   // than a sentinel caret: the keyup that follows Escape re-syncs the caret.
   const [dismissed, setDismissed] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const inputId = useId()
 
   const mentionQuery = members && !dismissed ? activeMentionQuery(value, caret) : null
   const emojiQuery = dismissed ? null : activeEmojiQuery(value, caret)
@@ -250,8 +252,7 @@ export default function RichTextarea({
   const formatButton = (marker: FormatMarker, name: string, shortcut: string, icon: ReactNode) => (
     <Tooltip label={`${name} (${MOD_KEY}${shortcut})`}>
       <ActionIcon
-        size="lg"
-        radius="xl"
+        size="sm"
         variant="subtle"
         color="gray"
         aria-label={name}
@@ -308,29 +309,42 @@ export default function RichTextarea({
         </Paper>
       )}
 
-      <Group gap={4} align="flex-end" wrap="nowrap">
-        <Textarea
-          ref={inputRef}
-          flex={1}
-          label={label}
-          size={size}
-          autosize
-          minRows={minRows}
-          maxRows={maxRows}
-          maxLength={maxLength}
-          placeholder={placeholder}
-          value={value}
-          disabled={disabled}
-          onChange={(e) => handleTyped(e.currentTarget.value, e.currentTarget.selectionStart ?? 0)}
-          onKeyDown={handleKeyDown}
-          onKeyUp={syncCaret}
-          onClick={syncCaret}
-        />
-        {formatButton('**', 'Bold', 'B', <IconBold size={16} />)}
-        {formatButton('*', 'Italic', 'I', <IconItalic size={16} />)}
-        <EmojiPicker onSelect={insertAtCaret} disabled={disabled} />
-        {actions}
-      </Group>
+      <Input.Wrapper label={label} size={size} id={inputId}>
+        <Group gap={4} align="flex-end" wrap="nowrap">
+          {/* One bordered box: a formatting bar over the text, as in Slack. */}
+          <Paper withBorder radius="sm" className="rich-textarea" flex={1} style={{ minWidth: 0 }}>
+            <Group
+              gap={2}
+              px={4}
+              py={2}
+              style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}
+            >
+              {formatButton('**', 'Bold', 'B', <IconBold size={15} />)}
+              {formatButton('*', 'Italic', 'I', <IconItalic size={15} />)}
+              <EmojiPicker onSelect={insertAtCaret} disabled={disabled} />
+            </Group>
+            <Textarea
+              ref={inputRef}
+              id={inputId}
+              variant="unstyled"
+              px="xs"
+              size={size}
+              autosize
+              minRows={minRows}
+              maxRows={maxRows}
+              maxLength={maxLength}
+              placeholder={placeholder}
+              value={value}
+              disabled={disabled}
+              onChange={(e) => handleTyped(e.currentTarget.value, e.currentTarget.selectionStart ?? 0)}
+              onKeyDown={handleKeyDown}
+              onKeyUp={syncCaret}
+              onClick={syncCaret}
+            />
+          </Paper>
+          {actions}
+        </Group>
+      </Input.Wrapper>
     </Stack>
   )
 }
