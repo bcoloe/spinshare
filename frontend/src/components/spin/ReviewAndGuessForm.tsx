@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { ratingColor } from '../../utils/ratingColor'
 import {
   ActionIcon,
@@ -21,6 +21,7 @@ import { notifications } from '@mantine/notifications'
 import { Link, useNavigate } from 'react-router-dom'
 import { useMyReview, useMyGuess, useSubmitReview, useUpdateReview, useCheckGuess, useGuessOptions } from '../../hooks/useDailySpin'
 import { useAuth } from '../../hooks/useAuth'
+import { useDraftAutosave, type DraftContent } from '../../hooks/useDraftAutosave'
 import { ApiError } from '../../services/apiClient'
 import GuessResult from './GuessResult'
 import GuestReviewPrompt from './GuestReviewPrompt'
@@ -136,7 +137,7 @@ function ReviewSummary({ review }: { review: ReviewResponse }) {
 export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, addedBy, allowGuessing = true }: Props) {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const { data: existingReview, isLoading: reviewLoading } = useMyReview(albumId, !!user)
+  const { data: existingReview, isLoading: reviewLoading, isSuccess: reviewLoaded } = useMyReview(albumId, !!user)
   const { data: existingGuess, isLoading: guessLoading } = useMyGuess(groupId, groupAlbumId, !!user)
 
   const isSelfNominated = user?.id === addedBy
@@ -155,41 +156,25 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
   const [editComment, setEditComment] = useState('')
   const [confirmOpen, { open: openConfirm, close: closeConfirm }] = useDisclosure(false)
   const [resultModal, setResultModal] = useState<{ isFirstReview: boolean } | null>(null)
-  const [autosavedAt, setAutosavedAt] = useState<Date | null>(null)
-  const isDirtyRef = useRef(false)
-  const autosaveCallbackRef = useRef<() => Promise<void>>(() => Promise.resolve())
 
-  // Pre-fill form state when a draft exists (data may arrive asynchronously)
-  useEffect(() => {
-    if (isDraft && existingReview) {
-      setRating(existingReview.rating)
-      setComment(existingReview.comment ?? '')
-    }
-  }, [existingReview?.id])
-
-  // Keep autosave callback up to date with latest state on every render (avoids stale closures)
-  autosaveCallbackRef.current = async () => {
-    if (hasPublishedReview || submitReview.isPending || updateReview.isPending) return
-    try {
-      if (isDraft && existingReview) {
-        await updateReview.mutateAsync({
-          reviewId: existingReview.id,
-          data: { rating: rating ?? undefined, comment: comment || undefined, is_draft: true },
-        })
-      } else {
-        await submitReview.mutateAsync({ rating: rating ?? undefined, comment: comment || undefined, is_draft: true })
-      }
-      setAutosavedAt(new Date())
-    } catch {
-      // autosave silently fails
-    }
-  }
-
-  useEffect(() => {
-    if (!isDirtyRef.current) return
-    const timer = setTimeout(() => { autosaveCallbackRef.current() }, 3000)
-    return () => clearTimeout(timer)
-  }, [rating, comment])
+  // A draft's starting content comes from the hook (the server copy, or a newer
+  // local one). Prefilling it here as well would overwrite typing whenever the
+  // review's identity changes — e.g. when the first autosave creates the draft.
+  const loadDraft = useCallback((draft: DraftContent) => {
+    setRating(draft.rating)
+    setComment(draft.comment)
+  }, [])
+  const autosave = useDraftAutosave({
+    albumId,
+    groupId,
+    existingReview,
+    // Success, not "not loading": after a failed load, "no review" is unknown.
+    ready: reviewLoaded,
+    content: { rating, comment },
+    onLoad: loadDraft,
+    submitReview,
+    updateReview,
+  })
 
   const isPending = submitReview.isPending || checkGuess.isPending || updateReview.isPending
 
@@ -366,19 +351,12 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
   } else {
     // ── No review yet / Draft ───────────────────────────────────────────────
     const handleSaveDraft = async () => {
-      try {
-        if (isDraft && existingReview) {
-          await updateReview.mutateAsync({
-            reviewId: existingReview.id,
-            data: { rating: rating ?? undefined, comment: comment || undefined, is_draft: true },
-          })
-        } else {
-          await submitReview.mutateAsync({ rating: rating ?? undefined, comment: comment || undefined, is_draft: true })
-        }
+      autosave.markDirty() // an explicit save always goes to the server
+      const result = await autosave.flush()
+      if (result === 'failed') {
+        notifications.show({ color: 'red', message: 'Could not save draft' })
+      } else if (result === 'saved') {
         notifications.show({ color: 'teal', message: 'Draft saved' })
-      } catch (err) {
-        const message = err instanceof ApiError ? err.message : 'Could not save draft'
-        notifications.show({ color: 'red', message })
       }
     }
 
@@ -403,6 +381,7 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
         notifications.show({ color: 'red', message })
         return
       }
+      autosave.clearLocal()
 
       if (!skipGuess && guessedUserId !== null) {
         try {
@@ -434,7 +413,7 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
 
     body = (
       <>
-        <Stack gap="md">
+        <Stack gap="md" onBlur={autosave.onBlur}>
           <Text size="sm" fw={600}>{isDraft ? 'Your draft review' : 'Your review'}</Text>
           <div>
             <Group justify="space-between" mb={4}>
@@ -449,7 +428,7 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
               step={0.1}
               color={ratingColor(rating)}
               value={rating ?? 0}
-              onChange={(v) => { isDirtyRef.current = true; setRating(v) }}
+              onChange={(v) => { autosave.markDirty(); setRating(v) }}
               marks={[0, 2, 4, 6, 8, 10].map((v) => ({ value: v, label: String(v) }))}
               mb="lg"
             />
@@ -458,7 +437,7 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
             label="Comment (optional)"
             placeholder="What did you think?"
             value={comment}
-            onChange={(e) => { isDirtyRef.current = true; setComment(e.currentTarget.value) }}
+            onChange={(e) => { autosave.markDirty(); setComment(e.currentTarget.value) }}
             maxLength={5000}
             autosize
             minRows={2}
@@ -480,9 +459,9 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
                 Submit review
               </Button>
             </Group>
-            {autosavedAt && (
+            {autosave.savedAt && (
               <Text size="xs" c="dimmed">
-                Autosaved {autosavedAt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                Autosaved {autosave.savedAt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
               </Text>
             )}
           </Group>

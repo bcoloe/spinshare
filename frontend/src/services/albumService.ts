@@ -66,11 +66,18 @@ export const albumService = {
     return apiFetch(`/albums/${albumId}/stats`)
   },
 
-  submitReview(albumId: number, data: ReviewCreate, groupId?: number): Promise<ReviewResponse> {
+  // `init.keepalive` lets a draft flush outlive the page (sent on pagehide).
+  submitReview(
+    albumId: number,
+    data: ReviewCreate,
+    groupId?: number,
+    init: Pick<RequestInit, 'keepalive'> = {},
+  ): Promise<ReviewResponse> {
     const url = groupId != null
       ? `/albums/${albumId}/reviews?group_id=${groupId}`
       : `/albums/${albumId}/reviews`
     return apiFetch(url, {
+      ...init,
       method: 'POST',
       body: JSON.stringify(data),
     })
@@ -81,11 +88,13 @@ export const albumService = {
     reviewId: number,
     data: ReviewUpdate,
     groupId?: number,
+    init: Pick<RequestInit, 'keepalive'> = {},
   ): Promise<ReviewResponse> {
     const url = groupId != null
       ? `/albums/${albumId}/reviews/${reviewId}?group_id=${groupId}`
       : `/albums/${albumId}/reviews/${reviewId}`
     return apiFetch(url, {
+      ...init,
       method: 'PATCH',
       body: JSON.stringify(data),
     })

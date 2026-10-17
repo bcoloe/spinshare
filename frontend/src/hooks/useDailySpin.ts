@@ -10,7 +10,13 @@ import type { NominationGuessCreate, ReviewCreate, ReviewResponse, ReviewUpdate 
  * average, stat, or credit, so invalidating those queries after an autosave
  * (every 3 s while typing) re-downloaded the group's whole history for nothing.
  */
-function applyDraftToCache(qc: QueryClient, albumId: number, draft: ReviewResponse) {
+/**
+ * Identifies an album's review saves in the mutation cache, so code can ask whether
+ * one is pending *now* (queryClient.isMutating) rather than as of the last render.
+ */
+export const reviewSaveKey = (albumId: number) => ['reviews', albumId, 'save'] as const
+
+export function applyDraftToCache(qc: QueryClient, albumId: number, draft: ReviewResponse) {
   qc.setQueryData(['reviews', albumId, 'me'], draft)
   qc.setQueriesData<ReviewResponse[]>(
     {
@@ -26,6 +32,7 @@ function applyDraftToCache(qc: QueryClient, albumId: number, draft: ReviewRespon
 export function useUpdateReview(albumId: number, groupId?: number) {
   const qc = useQueryClient()
   return useMutation({
+    mutationKey: reviewSaveKey(albumId),
     mutationFn: ({ reviewId, data }: { reviewId: number; data: ReviewUpdate }) =>
       albumService.updateReview(albumId, reviewId, data, groupId),
     onSuccess: (updated) => {
@@ -133,6 +140,7 @@ export function useGuessOptions(groupId: number, groupAlbumId: number) {
 export function useSubmitReview(albumId: number, groupId?: number) {
   const qc = useQueryClient()
   return useMutation({
+    mutationKey: reviewSaveKey(albumId),
     mutationFn: (data: ReviewCreate) => albumService.submitReview(albumId, data, groupId),
     onSuccess: (created) => {
       if (created.is_draft) {

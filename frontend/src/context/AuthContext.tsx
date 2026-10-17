@@ -2,6 +2,7 @@ import { createContext, useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { configureApiClient, refreshAccessToken, RefreshAuthError } from '../services/apiClient'
 import { authService } from '../services/authService'
+import { clearAllLocalDrafts } from '../utils/draftStorage'
 import type { LoginRequest, UserResponse } from '../types/auth'
 
 interface AuthContextValue {
@@ -19,20 +20,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isInitializing, setIsInitializing] = useState(true)
   const accessTokenRef = useRef<string | null>(null)
 
-  const logout = useCallback(() => {
+  // Drop the session's credentials. This is also what happens when the session
+  // dies on its own (an expired or revoked refresh token), and then local review
+  // drafts must survive: keeping unsent text through exactly that is their job.
+  const endSession = useCallback(() => {
     accessTokenRef.current = null
     localStorage.removeItem('refresh_token')
     setUser(null)
   }, [])
+
+  // A deliberate logout also forgets local drafts, so unpublished review text
+  // doesn't outlive the session on a shared browser.
+  const logout = useCallback(() => {
+    clearAllLocalDrafts()
+    endSession()
+  }, [endSession])
 
   // Wire up the apiClient with the token getter and unauthorized handler.
   // This runs once on mount before any fetch can happen.
   useEffect(() => {
     configureApiClient(
       () => accessTokenRef.current,
-      logout,
+      endSession,
     )
-  }, [logout])
+  }, [endSession])
 
   // Listen for token refreshes triggered inside apiClient (on 401 retry)
   useEffect(() => {
