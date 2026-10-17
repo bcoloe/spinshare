@@ -17,6 +17,7 @@ import {
 import { ratingColor } from '../../utils/ratingColor'
 import { SPOILER_COLOR, SPOILER_HINT, SpoilerBlur, SpoilerToggle } from './ReviewSpoiler'
 import type { AlbumReviewItem } from '../../types/album'
+import ReviewComment from '../common/ReviewComment'
 
 type SortField = 'username' | 'date' | 'rating'
 type SortDir = 'asc' | 'desc'
@@ -118,14 +119,7 @@ function ReviewRow({ item, isExpanded, locked, onToggle }: ReviewRowProps) {
             colSpan={4}
             style={{ background: 'var(--mantine-color-dark-7)', padding: '12px 20px' }}
           >
-            <Text
-              size="sm"
-              c={item.comment ? undefined : 'dimmed'}
-              fs={item.comment ? 'italic' : undefined}
-              style={{ whiteSpace: 'pre-wrap' }}
-            >
-              {item.comment ? `"${item.comment}"` : 'No notes left.'}
-            </Text>
+            <ReviewComment comment={item.comment} emptyLabel="No notes left." />
           </Table.Td>
         </Table.Tr>
       )}

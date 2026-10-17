@@ -19,7 +19,6 @@ import {
   Table,
   Text,
   TextInput,
-  Textarea,
   Tooltip,
   UnstyledButton,
 } from '@mantine/core'
@@ -38,6 +37,9 @@ import {
 import { albumService } from '../../services/albumService'
 import { statsService } from '../../services/statsService'
 import { useAuth } from '../../hooks/useAuth'
+import { stripFormatting } from '../../utils/richText'
+import ReviewComment from '../common/ReviewComment'
+import RichTextarea from '../common/RichTextarea'
 import { useCheckGuess, useGuessOptions, useUpdateReview } from '../../hooks/useDailySpin'
 import { useUnseenReviews } from '../../context/UnseenReviewsContext'
 import { ApiError } from '../../services/apiClient'
@@ -462,7 +464,7 @@ function PeerReviewPanel({ ga, review, members, nominators, groupId, allowGuessi
           const memberName = fullName ? `${fullName} (${username})` : username
           const isMine = r.user_id === review.user_id
           const isCardExpanded = expandedCards.has(r.id) || (isMine && editMode)
-          const previewLine = r.comment?.split('\n')[0]
+          const previewLine = r.comment ? stripFormatting(r.comment.split('\n')[0]) : undefined
           const memberGuess = allowGuessing && guessesSettled ? memberGuessLookup.get(r.user_id) : undefined
 
           return (
@@ -539,13 +541,11 @@ function PeerReviewPanel({ ga, review, members, nominators, groupId, allowGuessi
                         mb="lg"
                       />
                     </div>
-                    <Textarea
+                    <RichTextarea
                       label="Comment (optional)"
                       value={editComment}
-                      onChange={(e) => setEditComment(e.currentTarget.value)}
+                      onChange={setEditComment}
                       maxLength={5000}
-                      autosize
-                      minRows={2}
                       size="xs"
                     />
                     <Group gap="xs">
@@ -554,9 +554,7 @@ function PeerReviewPanel({ ga, review, members, nominators, groupId, allowGuessi
                     </Group>
                   </Stack>
                 ) : (
-                  <Text size="sm" c={r.comment ? undefined : 'dimmed'} fs={r.comment ? 'italic' : undefined} style={{ whiteSpace: 'pre-wrap' }}>
-                    {r.comment ? `"${r.comment}"` : 'No notes left.'}
-                  </Text>
+                  <ReviewComment comment={r.comment} emptyLabel="No notes left." />
                 )
               )}
             </Paper>

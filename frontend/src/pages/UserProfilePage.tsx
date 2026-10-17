@@ -52,6 +52,7 @@ import { useUserGroups, useUserNominationBreakdown, useUserProfile, useUserRevie
 import { useAuth } from '../hooks/useAuth'
 import { userService } from '../services/userService'
 import type { UserReviewItem } from '../types/auth'
+import ReviewComment from '../components/common/ReviewComment'
 
 // ==================== TYPES ====================
 
@@ -202,14 +203,7 @@ function HistoryRow({ item, isExpanded, onToggle, onAlbumClick }: HistoryRowProp
             colSpan={6}
             style={{ background: 'var(--mantine-color-dark-7)', padding: '12px 20px' }}
           >
-            <Text
-              size="sm"
-              c={item.comment ? undefined : 'dimmed'}
-              fs={item.comment ? 'italic' : undefined}
-              style={{ whiteSpace: 'pre-wrap' }}
-            >
-              {item.comment ? `"${item.comment}"` : 'No notes left.'}
-            </Text>
+            <ReviewComment comment={item.comment} emptyLabel="No notes left." />
           </Table.Td>
         </Table.Tr>
       )}

@@ -3,6 +3,7 @@ import { ActionIcon, Avatar, Group, Loader, Stack, Text, Tooltip } from '@mantin
 import { IconTrash } from '@tabler/icons-react'
 import { useNavigate } from 'react-router-dom'
 import type { MessageResponse } from '../../types/message'
+import RichText from '../common/RichText'
 
 /** How close to the top counts as "asking for more". */
 const LOAD_OLDER_THRESHOLD_PX = 60
@@ -30,50 +31,6 @@ function formatDay(iso: string): string {
   const isToday = date.toDateString() === today.toDateString()
   if (isToday) return 'Today'
   return date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
-/**
- * Render a message body with its mentions highlighted.
- *
- * Spans come from the server's resolved `mentions` list — the body text itself
- * is never parsed for handles here. That means an unresolvable or spoofed
- * `@handle` renders as the plain text it is, and only people the backend
- * actually authorised as group members can appear as a real mention.
- */
-function renderBody(message: MessageResponse, currentUsername: string | undefined) {
-  if (message.mentions.length === 0) return message.body
-
-  const known = new Map(message.mentions.map((m) => [m.username.toLowerCase(), m]))
-  // Split on handle-shaped runs, then keep only the ones the server confirmed.
-  const parts = message.body.split(/(@[\w.-]+)/g)
-
-  return parts.map((part, i) => {
-    if (!part.startsWith('@')) return <Fragment key={i}>{part}</Fragment>
-
-    const mention = known.get(part.slice(1).toLowerCase())
-    if (!mention) return <Fragment key={i}>{part}</Fragment>
-
-    const isMe = currentUsername?.toLowerCase() === mention.username.toLowerCase()
-    return (
-      <Text
-        key={i}
-        span
-        fw={600}
-        c={isMe ? 'violet.3' : 'violet.5'}
-        style={
-          isMe
-            ? {
-                background: 'var(--mantine-color-violet-9)',
-                borderRadius: 'var(--mantine-radius-sm)',
-                padding: '0 3px',
-              }
-            : undefined
-        }
-      >
-        {part}
-      </Text>
-    )
-  })
 }
 
 export default function MessageList({
@@ -237,7 +194,11 @@ export default function MessageList({
                     </Text>
                   ) : (
                     <Text size="sm" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                      {renderBody(message, currentUsername)}
+                      <RichText
+                        text={message.body}
+                        mentions={message.mentions}
+                        currentUsername={currentUsername}
+                      />
                     </Text>
                   )}
                 </Stack>

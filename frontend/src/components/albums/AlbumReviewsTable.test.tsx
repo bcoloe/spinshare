@@ -44,11 +44,11 @@ describe('AlbumReviewsTable', () => {
     renderWithProviders(<AlbumReviewsTable reviews={reviews} loading={false} hidden={false} />)
 
     await userEvent.click(screen.getByText('kate'))
-    expect(screen.getByText('"A total knockout."')).toBeInTheDocument()
+    expect(screen.getByText('A total knockout.')).toBeInTheDocument()
 
     await userEvent.click(screen.getByText('alex'))
-    expect(screen.queryByText('"A total knockout."')).not.toBeInTheDocument()
-    expect(screen.getByText('"Not for me."')).toBeInTheDocument()
+    expect(screen.queryByText('A total knockout.')).not.toBeInTheDocument()
+    expect(screen.getByText('Not for me.')).toBeInTheDocument()
   })
 
   it('blurs every rating while hidden', () => {
@@ -97,7 +97,7 @@ describe('AlbumReviewsTable', () => {
       <AlbumReviewsTable reviews={reviews} loading={false} hidden onToggleHidden={() => {}} />,
     )
     await userEvent.click(screen.getByText('Mar 4, 2026'))
-    expect(screen.queryByText('"A total knockout."')).not.toBeInTheDocument()
+    expect(screen.queryByText('A total knockout.')).not.toBeInTheDocument()
   })
 
   it('withdraws both blurred sorts while hidden, so the row order cannot rank them', () => {

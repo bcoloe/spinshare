@@ -1,11 +1,13 @@
 import { useCallback, useState } from 'react'
-import { Button, Group, Slider, Stack, Text, Textarea } from '@mantine/core'
+import { Button, Group, Slider, Stack, Text } from '@mantine/core'
 import { ratingColor } from '../../utils/ratingColor'
 import { notifications } from '@mantine/notifications'
 import { useSubmitReview, useUpdateReview } from '../../hooks/useDailySpin'
 import { useDraftAutosave, type DraftContent } from '../../hooks/useDraftAutosave'
 import { ApiError } from '../../services/apiClient'
 import type { ReviewResponse } from '../../types/album'
+import ReviewComment from '../common/ReviewComment'
+import RichTextarea from '../common/RichTextarea'
 
 interface Props {
   albumId: number
@@ -62,9 +64,7 @@ export default function ReviewForm({ albumId, existingReview, reviewLoaded = tru
           <Text size="sm" c="dimmed">Rating:</Text>
           <Text size="sm" fw={500}>{existingReview.rating} / 10</Text>
         </Group>
-        {existingReview.comment && (
-          <Text size="sm" c="dimmed" fs="italic">&ldquo;{existingReview.comment}&rdquo;</Text>
-        )}
+        <ReviewComment comment={existingReview.comment} />
       </Stack>
     )
   }
@@ -126,14 +126,12 @@ export default function ReviewForm({ albumId, existingReview, reviewLoaded = tru
           mb="lg"
         />
       </div>
-      <Textarea
+      <RichTextarea
         label="Comment (optional)"
         placeholder="What did you think?"
         value={comment}
-        onChange={(e) => { autosave.markDirty(); setComment(e.currentTarget.value) }}
+        onChange={(v) => { autosave.markDirty(); setComment(v) }}
         maxLength={5000}
-        autosize
-        minRows={2}
       />
       <Group justify="space-between" align="center">
         <Group gap="xs">
