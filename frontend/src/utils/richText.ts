@@ -19,7 +19,9 @@ export type RichNode =
 // The closing `**` may not be followed by another '*', so in `***x***` the
 // bold closes on the last two stars and the inner `*x*` is left to read as italic.
 const BOLD = /\*\*(\S(?:[^\n]*?\S)?)\*\*(?!\*)/
-const ITALIC = /\*([^\s*](?:[^*\n]*[^\s*])?)\*/
+// Italic content is plain characters or whole `**bold**` runs, so italic can
+// wrap bold (`*a **b** c*`). It must open and close against a non-space.
+const ITALIC = /\*(?![\s*])((?:\*\*[^*\n]+\*\*|[^*\n])+?)(?<=\S)\*/
 
 /** Split text into plain runs and (possibly nested) emphasis spans. */
 export function parseRichText(text: string): RichNode[] {

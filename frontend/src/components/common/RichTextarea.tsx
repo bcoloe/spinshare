@@ -12,7 +12,7 @@ import {
 } from '@mantine/core'
 import type { MantineSize } from '@mantine/core'
 import { IconBold, IconItalic } from '@tabler/icons-react'
-import { searchEmoji } from '../../utils/emoji'
+import { replaceShortcodes, searchEmoji } from '../../utils/emoji'
 import { toggleFormat } from '../../utils/richText'
 import type { FormatMarker } from '../../utils/richText'
 import type { GroupMemberResponse } from '../../types/group'
@@ -111,10 +111,13 @@ export default function RichTextarea({
 }: Props) {
   const [caret, setCaret] = useState(0)
   const [highlighted, setHighlighted] = useState(0)
+  // Escape hides the suggestion list until the text next changes. A flag rather
+  // than a sentinel caret: the keyup that follows Escape re-syncs the caret.
+  const [dismissed, setDismissed] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  const mentionQuery = members ? activeMentionQuery(value, caret) : null
-  const emojiQuery = activeEmojiQuery(value, caret)
+  const mentionQuery = members && !dismissed ? activeMentionQuery(value, caret) : null
+  const emojiQuery = dismissed ? null : activeEmojiQuery(value, caret)
 
   const suggestions = useMemo<Suggestion[]>(() => {
     if (members && mentionQuery !== null) {
@@ -151,6 +154,7 @@ export default function RichTextarea({
     if (next.length > maxLength) return
     onChange(next)
     setCaret(end)
+    setDismissed(false)
     requestAnimationFrame(() => {
       inputRef.current?.focus()
       inputRef.current?.setSelectionRange(start, end)
@@ -159,10 +163,26 @@ export default function RichTextarea({
 
   /** Drop text in at the caret, leaving what surrounds it alone. */
   const insertAtCaret = (text: string) => {
-    // Escape parks the caret at -1 to dismiss the suggestion list; fall back to
-    // the end of the text rather than inserting at the start.
-    const at = caret >= 0 && caret <= value.length ? caret : value.length
+    const at = Math.min(caret, value.length)
     commit(value.slice(0, at) + text + value.slice(at), at + text.length)
+  }
+
+  /**
+   * Accept typed or pasted text, turning any completed `:shortcode:` into its
+   * emoji on the spot — so every editor stores Unicode, not shortcodes. The
+   * halves either side of the caret are substituted separately, which keeps
+   * the caret put and leaves a shortcode still being typed alone.
+   */
+  const handleTyped = (raw: string, rawCaret: number) => {
+    const before = replaceShortcodes(raw.slice(0, rawCaret))
+    const next = before + replaceShortcodes(raw.slice(rawCaret))
+    onChange(next)
+    setCaret(before.length)
+    setHighlighted(0)
+    setDismissed(false)
+    if (next !== raw) {
+      requestAnimationFrame(() => inputRef.current?.setSelectionRange(before.length, before.length))
+    }
   }
 
   const applySuggestion = (suggestion: Suggestion) => {
@@ -211,7 +231,7 @@ export default function RichTextarea({
       }
       if (event.key === 'Escape') {
         event.preventDefault()
-        setCaret(-1) // closes the list without altering the text
+        setDismissed(true)
         return
       }
     }
@@ -298,11 +318,7 @@ export default function RichTextarea({
           placeholder={placeholder}
           value={value}
           disabled={disabled}
-          onChange={(e) => {
-            onChange(e.currentTarget.value)
-            setCaret(e.currentTarget.selectionStart ?? 0)
-            setHighlighted(0)
-          }}
+          onChange={(e) => handleTyped(e.currentTarget.value, e.currentTarget.selectionStart ?? 0)}
           onKeyDown={handleKeyDown}
           onKeyUp={syncCaret}
           onClick={syncCaret}

@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { ActionIcon } from '@mantine/core'
 import { IconSend } from '@tabler/icons-react'
-import { replaceShortcodes } from '../../utils/emoji'
 import type { GroupMemberResponse } from '../../types/group'
 import RichTextarea from '../common/RichTextarea'
 
@@ -18,9 +17,7 @@ export default function MessageComposer({ members, onSend, isSending, disabled }
   const [value, setValue] = useState('')
 
   const submit = () => {
-    // Substitute over the whole body rather than only what the picker inserted,
-    // so shortcodes that were typed out in full or pasted in still resolve.
-    const body = replaceShortcodes(value).trim()
+    const body = value.trim()
     if (!body || isSending || disabled) return
     onSend(body)
     setValue('')

@@ -54,4 +54,29 @@ describe('RichTextarea', () => {
 
     expect(screen.getByText(':fire:')).toBeInTheDocument()
   })
+
+  it('keeps the suggestion list closed after Escape', async () => {
+    const { user, textarea } = setup()
+    await user.type(textarea, 'hot :fir')
+    expect(screen.getByText(':fire:')).toBeInTheDocument()
+
+    // user.keyboard sends keydown *and* keyup; the keyup must not reopen it.
+    await user.keyboard('{Escape}')
+    expect(screen.queryByText(':fire:')).not.toBeInTheDocument()
+
+    await user.type(textarea, 'e')
+    expect(screen.getByText(':fire:')).toBeInTheDocument()
+  })
+
+  it('turns a typed-out shortcode into its emoji', async () => {
+    const { user, textarea } = setup()
+    await user.type(textarea, 'so :fire: ')
+    expect(textarea.value).toBe('so 🔥 ')
+  })
+
+  it('leaves colon-separated numbers alone', async () => {
+    const { user, textarea } = setup()
+    await user.type(textarea, 'at 12:30:45')
+    expect(textarea.value).toBe('at 12:30:45')
+  })
 })

@@ -29,6 +29,19 @@ describe('parseRichText', () => {
     ])
   })
 
+  it('lets italic wrap bold', () => {
+    expect(parseRichText('*a **b** c*')).toEqual([
+      {
+        type: 'italic',
+        children: [
+          { type: 'text', text: 'a ' },
+          { type: 'bold', children: [{ type: 'text', text: 'b' }] },
+          { type: 'text', text: ' c' },
+        ],
+      },
+    ])
+  })
+
   it('reads a triple-star run as bold italic', () => {
     expect(parseRichText('***wow***')).toEqual([
       { type: 'bold', children: [{ type: 'italic', children: [{ type: 'text', text: 'wow' }] }] },
@@ -88,6 +101,12 @@ describe('toggleFormat', () => {
 
   it('italicises bold text rather than unwrapping it', () => {
     expect(toggleFormat({ value: '**good**', start: 2, end: 6 }, '*').value).toBe('***good***')
+  })
+
+  it('italicises a selection that contains bold', () => {
+    const result = toggleFormat({ value: 'a **b** c', start: 0, end: 9 }, '*')
+    expect(result.value).toBe('*a **b** c*')
+    expect(parseRichText(result.value)[0].type).toBe('italic')
   })
 
   it('removes only the italic from bold italic text', () => {
