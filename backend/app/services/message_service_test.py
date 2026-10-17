@@ -9,7 +9,7 @@ from app.models.group import GroupRole, group_members
 from app.schemas.message import MAX_REACTIONS_PER_USER, MessageCreate, MessageUpdate
 from app.schemas.notification import NotificationType
 from fastapi import HTTPException, status
-from sqlalchemy import event, select
+from sqlalchemy import event, func, select, update
 from sqlalchemy.orm.attributes import set_committed_value
 
 
@@ -690,6 +690,26 @@ class TestReactions:
             message_service.add_reaction(message.id, sample_user, "🔥")
 
         assert exc.value.status_code == status.HTTP_409_CONFLICT
+
+    def test_delete_landing_before_the_lock_is_seen(
+        self, message_service, db_session, sample_group, sample_user
+    ):
+        # This request read the message while it was live; a delete committed
+        # before it took the lock. The check under the lock must still refuse.
+        message = _post(message_service, sample_group, sample_user, "going")
+        stale = message_service.get_message(message.id)
+        db_session.execute(
+            update(Message).where(Message.id == message.id).values(deleted_at=func.now())
+        )
+        db_session.commit()
+        set_committed_value(stale, "deleted_at", None)
+
+        with patch.object(message_service, "get_message", return_value=stale):
+            with pytest.raises(HTTPException) as exc:
+                message_service.add_reaction(message.id, sample_user, "🔥")
+
+        assert exc.value.status_code == status.HTTP_409_CONFLICT
+        assert db_session.query(MessageReaction).count() == 0
 
     def test_unknown_message_404s(self, message_service, sample_user):
         with pytest.raises(HTTPException) as exc:

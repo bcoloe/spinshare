@@ -407,13 +407,16 @@ class MessageService:
         """
         message = self.get_message(message_id)
         self.group_service.require_membership(user.id, message.group_id)
+
+        self._lock_and_bump_reactions(message)
+        # Checked under the lock: a delete committed since the read above would
+        # otherwise leave a hidden reaction on a tombstone.
         if message.deleted_at is not None:
+            self.db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Cannot react to a deleted message",
             )
-
-        self._lock_and_bump_reactions(message)
         mine = {r.emoji for r in message.reactions if r.user_id == user.id}
         if emoji in mine:
             self.db.rollback()  # nothing changed: release the lock, keep the version
@@ -433,7 +436,7 @@ class MessageService:
 
     def _lock_and_bump_reactions(self, message: Message) -> None:
         """Take the message row's lock, bump its reaction version, and re-read
-        its reactions under that lock.
+        its reactions (and deletion state) under that lock.
 
         Reaction changes to one message are thereby serialized: each one's
         check (duplicate? at the per-user cap?) sees every earlier change, so a
@@ -445,7 +448,7 @@ class MessageService:
             .where(Message.id == message.id)
             .values(reactions_version=Message.reactions_version + 1)
         )
-        self.db.refresh(message, ["reactions", "reactions_version"])
+        self.db.refresh(message, ["reactions", "reactions_version", "deleted_at"])
 
     def remove_reaction(self, message_id: int, user: User, emoji: str) -> Message:
         """Withdraw the caller's reaction. Idempotent: removing nothing succeeds.
