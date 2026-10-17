@@ -257,14 +257,24 @@ class TestAddReaction:
         assert payload["message_id"] == 5
         assert payload["reactions"] == [{"emoji": "🔥", "count": 1, "user_ids": [1]}]
 
-    @pytest.mark.parametrize("emoji", ["lol", " ", "", "🔥 ", "1", "a🔥", "→", "x" * 40])
+    @pytest.mark.parametrize(
+        "emoji",
+        [
+            "lol", " ", "", "🔥 ", "1", "a🔥", "→", "x" * 40,
+            # Marks that would spill onto neighbouring text, and a bidi override.
+            "🔥" + "\u0301" * 15, "🔥\u202e", "\u200b🔥",
+        ],
+    )
     def test_rejects_non_emoji(self, chat_client, mock_message_service, emoji):
         resp = chat_client.post("/messages/5/reactions", json={"emoji": emoji})
 
         assert resp.status_code == 422
         mock_message_service.add_reaction.assert_not_called()
 
-    @pytest.mark.parametrize("emoji", ["🔥", "❤️", "👍🏽", "🇫🇷", "1️⃣", "👨‍👩‍👧"])
+    @pytest.mark.parametrize(
+        "emoji",
+        ["🔥", "❤️", "👍🏽", "🇫🇷", "1️⃣", "👨‍👩‍👧", "\U0001F3F4\U000E0067\U000E0062\U000E0073\U000E0063\U000E0074\U000E007F"],
+    )
     def test_accepts_real_emoji(self, chat_client, mock_message_service, emoji):
         mock_message_service.add_reaction.return_value = make_mock_reacted_message()
 

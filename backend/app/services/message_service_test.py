@@ -1,6 +1,7 @@
 """Tests for MessageService."""
 
 from contextlib import contextmanager
+from unittest.mock import patch
 
 import pytest
 from app.models import Message, MessageReaction, Notification
@@ -9,6 +10,7 @@ from app.schemas.message import MAX_REACTIONS_PER_USER, MessageCreate, MessageUp
 from app.schemas.notification import NotificationType
 from fastapi import HTTPException, status
 from sqlalchemy import event, select
+from sqlalchemy.orm.attributes import set_committed_value
 
 
 def _post(service, group, user, body: str) -> Message:
@@ -612,6 +614,24 @@ class TestReactions:
         reacted = message_service.add_reaction(message.id, sample_user, "👍")
 
         assert [r.emoji for r in reacted.reactions] == ["🔥", "👍"]
+
+    def test_concurrent_duplicate_add_is_absorbed(
+        self, message_service, db_session, sample_group, sample_user
+    ):
+        # Two taps race: the check-then-insert sees no row, but by commit time the
+        # other request has inserted it. The unique constraint fires, and the
+        # add must still succeed with exactly one row.
+        message = _post(message_service, sample_group, sample_user, "banger")
+        stale = message_service.get_message(message.id)
+        db_session.add(MessageReaction(message_id=message.id, user_id=sample_user.id, emoji="🔥"))
+        db_session.commit()
+        set_committed_value(stale, "reactions", [])
+
+        with patch.object(message_service, "get_message", return_value=stale):
+            reacted = message_service.add_reaction(message.id, sample_user, "🔥")
+
+        assert [r.emoji for r in reacted.reactions] == ["🔥"]
+        assert db_session.query(MessageReaction).count() == 1
 
     def test_distinct_emoji_per_user_are_capped(
         self, message_service, sample_group, sample_user, group_member

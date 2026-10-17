@@ -2,8 +2,9 @@
 
 import unicodedata
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator
 
 MAX_MESSAGE_LENGTH = 2000
 MAX_HISTORY_LIMIT = 100
@@ -21,6 +22,15 @@ MAX_REACTIONS_PER_USER = 10
 # ASCII is allowed only as the base of a keycap sequence (1️⃣, #️⃣, *️⃣).
 _KEYCAP_BASES = set("0123456789#*")
 _KEYCAP = "\u20e3"
+# The non-symbol code points emoji sequences are built from — and nothing else:
+# zero-width joiner, variation selectors, the keycap mark, and the tag
+# characters of subdivision flags. Other combining marks would stack over
+# neighbouring text, and other format characters (bidi overrides) reorder it.
+_EMOJI_JOINERS = (
+    {"\u200d", _KEYCAP}
+    | {chr(c) for c in range(0xFE00, 0xFE10)}
+    | {chr(c) for c in range(0xE0020, 0xE0080)}
+)
 
 
 def validate_reaction_emoji(value: str) -> str:
@@ -28,9 +38,10 @@ def validate_reaction_emoji(value: str) -> str:
 
     Not a full emoji grammar — that would need a Unicode data dependency — but
     tight enough that a reaction can only ever render as a glyph or two, never
-    as words: bounded length, no letters, no whitespace or control characters,
-    and at least one symbol code point. Format characters (ZWJ, variation
-    selectors, tag sequences) are allowed because real emoji are built from them.
+    as words or as marks spilling onto neighbouring text: bounded length, and
+    every code point is a symbol (including skin-tone modifiers), a keycap base,
+    or one of the joiners emoji sequences are built from — with at least one
+    symbol present.
 
     Raises:
         ValueError: If the value is not emoji-shaped
@@ -40,12 +51,10 @@ def validate_reaction_emoji(value: str) -> str:
     has_symbol = False
     for ch in value:
         category = unicodedata.category(ch)
-        if ch.isascii() and ch not in _KEYCAP_BASES:
-            raise ValueError("Reaction must be a single emoji")
-        if category[0] in ("L", "Z") or category in ("Cc", "Cs", "Co", "Cn"):
-            raise ValueError("Reaction must be a single emoji")
-        if category == "So" or ch == _KEYCAP:
+        if category in ("So", "Sk") or ch == _KEYCAP:
             has_symbol = True
+        elif ch not in _KEYCAP_BASES and ch not in _EMOJI_JOINERS:
+            raise ValueError("Reaction must be a single emoji")
     if not has_symbol:
         raise ValueError("Reaction must be a single emoji")
     return value
@@ -84,15 +93,15 @@ class MessageMentionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# A validated reaction emoji; used for both the request body and the DELETE
+# path parameter, so either rejects a non-emoji with the same 422.
+ReactionEmoji = Annotated[str, AfterValidator(validate_reaction_emoji)]
+
+
 class ReactionCreate(BaseModel):
     """Inbound reaction."""
 
-    emoji: str
-
-    @field_validator("emoji")
-    @classmethod
-    def validate_emoji(cls, v: str) -> str:
-        return validate_reaction_emoji(v)
+    emoji: ReactionEmoji
 
 
 class MessageReactionSummary(BaseModel):
