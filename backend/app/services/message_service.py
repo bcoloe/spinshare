@@ -292,8 +292,6 @@ class MessageService:
             user, group_id, NotificationType.mentioned_in_chat
         )
 
-    # ==================== UPDATE ====================
-
     def edit_message(self, message_id: int, user: User, data: MessageUpdate) -> Message:
         """Replace the body of the caller's own message.
 

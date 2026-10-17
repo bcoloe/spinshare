@@ -2,9 +2,8 @@ import { useState } from 'react'
 import { ActionIcon } from '@mantine/core'
 import { IconSend } from '@tabler/icons-react'
 import type { GroupMemberResponse } from '../../types/group'
+import { MAX_MESSAGE_LENGTH } from '../../types/message'
 import RichTextarea from '../common/RichTextarea'
-
-const MAX_MESSAGE_LENGTH = 2000
 
 interface Props {
   members: GroupMemberResponse[]
