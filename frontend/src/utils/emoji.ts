@@ -394,7 +394,11 @@ export function emojiFor(slug: string): string | null {
  * substitution is gated on resolving the code, they do.
  */
 export function replaceShortcodes(text: string): string {
-  return text.replace(SHORTCODE, (match, slug: string) => emojiFor(slug) ?? match)
+  return text.replace(SHORTCODE, (match, slug: string, offset: number) =>
+    // A shortcode must not start mid-word: `1:100:5` is a ratio, not 1💯5.
+    // Checked here rather than with a lookbehind, which older Safari lacks.
+    offset > 0 && /[a-z0-9]/i.test(text[offset - 1]) ? match : (emojiFor(slug) ?? match),
+  )
 }
 
 /**

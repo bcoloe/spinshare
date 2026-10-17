@@ -40,6 +40,10 @@ describe('replaceShortcodes', () => {
     expect(replaceShortcodes('ship it :not_a_real_one:')).toBe('ship it :not_a_real_one:')
   })
 
+  it('does not substitute a code that starts mid-word', () => {
+    expect(replaceShortcodes('ratio 1:100:5')).toBe('ratio 1:100:5')
+  })
+
   it('leaves a timestamp alone', () => {
     // The colons in "12:30:45" look like shortcode delimiters; substitution is
     // gated on the code resolving, which is what keeps them intact.

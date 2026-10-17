@@ -20,8 +20,10 @@ export type RichNode =
 // bold closes on the last two stars and the inner `*x*` is left to read as italic.
 const BOLD = /\*\*(\S(?:[^\n]*?\S)?)\*\*(?!\*)/
 // Italic content is plain characters or whole `**bold**` runs, so italic can
-// wrap bold (`*a **b** c*`). It must open and close against a non-space.
-const ITALIC = /\*(?![\s*])((?:\*\*[^*\n]+\*\*|[^*\n])+?)(?<=\S)\*/
+// wrap bold (`*a **b** c*`). It must open and close against a non-space: the
+// last unit is a bold run or a non-space character. (No lookbehind — Safari
+// before 16.4 cannot compile one.)
+const ITALIC = /\*(?![\s*])((?:\*\*[^*\n]+\*\*|[^*\n])*?(?:\*\*[^*\n]+\*\*|[^\s*]))\*/
 
 /** Split text into plain runs and (possibly nested) emphasis spans. */
 export function parseRichText(text: string): RichNode[] {
