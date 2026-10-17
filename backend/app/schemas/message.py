@@ -22,6 +22,9 @@ MAX_REACTIONS_PER_USER = 10
 # ASCII is allowed only as the base of a keycap sequence (1️⃣, #️⃣, *️⃣).
 _KEYCAP_BASES = set("0123456789#*")
 _KEYCAP = "\u20e3"
+# Fitzpatrick modifiers — the only "Sk" characters that belong in an emoji
+# (the rest of that category is ASCII ^ and ` and spacing accents).
+_SKIN_TONES = {chr(c) for c in range(0x1F3FB, 0x1F400)}
 # The non-symbol code points emoji sequences are built from — and nothing else:
 # zero-width joiner, variation selectors, the keycap mark, and the tag
 # characters of subdivision flags. Other combining marks would stack over
@@ -39,7 +42,7 @@ def validate_reaction_emoji(value: str) -> str:
     Not a full emoji grammar — that would need a Unicode data dependency — but
     tight enough that a reaction can only ever render as a glyph or two, never
     as words or as marks spilling onto neighbouring text: bounded length, and
-    every code point is a symbol (including skin-tone modifiers), a keycap base,
+    every code point is a symbol ("So"), a skin-tone modifier, a keycap base,
     or one of the joiners emoji sequences are built from — with at least one
     symbol present.
 
@@ -51,7 +54,7 @@ def validate_reaction_emoji(value: str) -> str:
     has_symbol = False
     for ch in value:
         category = unicodedata.category(ch)
-        if category in ("So", "Sk") or ch == _KEYCAP:
+        if category == "So" or ch in _SKIN_TONES or ch == _KEYCAP:
             has_symbol = True
         elif ch not in _KEYCAP_BASES and ch not in _EMOJI_JOINERS:
             raise ValueError("Reaction must be a single emoji")
@@ -128,6 +131,7 @@ class MessageResponse(BaseModel):
     mentions: list[MessageMentionResponse]
     # In first-reacted order. Empty on a deleted message.
     reactions: list[MessageReactionSummary]
+    reactions_version: int
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -136,12 +140,15 @@ class MessageReactionsResponse(BaseModel):
     """A message's full reaction state after a change.
 
     Returned by the reaction endpoints and pushed as ``message.reactions``. It is
-    the whole aggregate rather than a delta, so applying it twice, or out of
-    order with another client's change, still converges.
+    the whole aggregate rather than a delta, and ``version`` orders aggregates
+    for one message: a client applies one only if it is newer than what it
+    holds, so a late HTTP response or broadcast can never roll a newer state
+    back, and applying the same one twice is harmless.
     """
 
     message_id: int
     group_id: int
+    version: int
     reactions: list[MessageReactionSummary]
 
 

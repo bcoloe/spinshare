@@ -189,6 +189,7 @@ describe('ChatSocketProvider message events', () => {
     is_deleted: false,
     mentions: [],
     reactions: [{ emoji: '🔥', count: 1, user_ids: [1] }],
+    reactions_version: 3,
   }
 
   let queryClient: QueryClient
@@ -222,7 +223,10 @@ describe('ChatSocketProvider message events', () => {
   it('applies an edit without rolling back newer reactions', async () => {
     const send = await connect([base])
     // The edit was serialized before the reaction landed, so it carries none.
-    await send({ type: 'message.edited', message: { ...base, body: 'the', reactions: [] } })
+    await send({
+      type: 'message.edited',
+      message: { ...base, body: 'the', reactions: [], reactions_version: 2 },
+    })
 
     expect(cached()[0].body).toBe('the')
     expect(cached()[0].reactions).toEqual(base.reactions)
@@ -239,9 +243,25 @@ describe('ChatSocketProvider message events', () => {
   it('applies a reaction update without touching the body', async () => {
     const send = await connect([{ ...base, body: 'the newer edit' }])
     const reactions = [{ emoji: '👍', count: 2, user_ids: [1, 2] }]
-    await send({ type: 'message.reactions', message_id: 5, group_id: 1, reactions })
+    await send({ type: 'message.reactions', message_id: 5, group_id: 1, version: 4, reactions })
 
     expect(cached()[0].body).toBe('the newer edit')
+    expect(cached()[0].reactions).toEqual(reactions)
+  })
+
+  it('drops a reaction update older than the one held', async () => {
+    const send = await connect([base])
+    // A late broadcast (or HTTP response) from before the cached state.
+    await send({ type: 'message.reactions', message_id: 5, group_id: 1, version: 2, reactions: [] })
+
+    expect(cached()[0].reactions).toEqual(base.reactions)
+  })
+
+  it('takes reactions from an edit when they are the newer copy', async () => {
+    const send = await connect([base])
+    const reactions = [{ emoji: '👍', count: 1, user_ids: [2] }]
+    await send({ type: 'message.edited', message: { ...base, body: 'the', reactions, reactions_version: 5 } })
+
     expect(cached()[0].reactions).toEqual(reactions)
   })
 })

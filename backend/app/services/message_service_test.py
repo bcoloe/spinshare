@@ -615,12 +615,12 @@ class TestReactions:
 
         assert [r.emoji for r in reacted.reactions] == ["🔥", "👍"]
 
-    def test_concurrent_duplicate_add_is_absorbed(
+    def test_duplicate_check_reads_under_the_lock(
         self, message_service, db_session, sample_group, sample_user
     ):
-        # Two taps race: the check-then-insert sees no row, but by commit time the
-        # other request has inserted it. The unique constraint fires, and the
-        # add must still succeed with exactly one row.
+        # Two taps race: this request loaded the message before the other one
+        # inserted the same reaction. The check runs on reactions re-read under
+        # the row lock, so it still sees the row and the add stays a no-op.
         message = _post(message_service, sample_group, sample_user, "banger")
         stale = message_service.get_message(message.id)
         db_session.add(MessageReaction(message_id=message.id, user_id=sample_user.id, emoji="🔥"))
@@ -632,6 +632,27 @@ class TestReactions:
 
         assert [r.emoji for r in reacted.reactions] == ["🔥"]
         assert db_session.query(MessageReaction).count() == 1
+
+    def test_each_change_bumps_the_version(
+        self, message_service, sample_group, sample_user, group_member
+    ):
+        message = _post(message_service, sample_group, sample_user, "banger")
+        assert message.reactions_version == 0
+
+        v1 = message_service.add_reaction(message.id, sample_user, "🔥").reactions_version
+        v2 = message_service.add_reaction(message.id, group_member, "🔥").reactions_version
+        v3 = message_service.remove_reaction(message.id, sample_user, "🔥").reactions_version
+
+        assert 0 < v1 < v2 < v3
+
+    def test_a_no_op_leaves_the_version_alone(
+        self, message_service, sample_group, sample_user
+    ):
+        message = _post(message_service, sample_group, sample_user, "banger")
+        version = message_service.add_reaction(message.id, sample_user, "🔥").reactions_version
+
+        assert message_service.add_reaction(message.id, sample_user, "🔥").reactions_version == version
+        assert message_service.remove_reaction(message.id, sample_user, "👍").reactions_version == version
 
     def test_distinct_emoji_per_user_are_capped(
         self, message_service, sample_group, sample_user, group_member
