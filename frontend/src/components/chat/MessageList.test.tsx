@@ -18,6 +18,7 @@ function makeMessage(overrides: Partial<MessageResponse> = {}): MessageResponse 
     edited_at: null,
     is_deleted: false,
     mentions: [],
+    reactions: [],
     ...overrides,
   }
 }
@@ -39,6 +40,7 @@ function renderList(messages: MessageResponse[], props: Partial<Parameters<typeo
           onStartEdit={vi.fn()}
           onCancelEdit={vi.fn()}
           onSaveEdit={vi.fn()}
+          onToggleReaction={vi.fn()}
           hasOlder={false}
           isLoadingOlder={false}
           onLoadOlder={vi.fn()}
@@ -241,6 +243,71 @@ describe('MessageList', () => {
     it('marks an edited message', () => {
       renderList([makeMessage({ edited_at: '2026-08-16T12:05:00Z' })])
       expect(screen.getByText('(edited)')).toBeInTheDocument()
+    })
+  })
+
+  describe('reactions', () => {
+    const fire = { emoji: '🔥', count: 2, user_ids: [1, 2] }
+    const members = [
+      { user_id: 1, username: 'alice', role: 'owner' as const, joined_at: '', first_name: null, last_name: null, name_is_public: false },
+      { user_id: 2, username: 'bob', role: 'member' as const, joined_at: '', first_name: null, last_name: null, name_is_public: false },
+    ]
+
+    it('renders a chip per emoji with its count', () => {
+      renderList([makeMessage({ reactions: [fire] })])
+      expect(screen.getByLabelText('🔥 2')).toBeInTheDocument()
+    })
+
+    it('marks a chip you reacted with as pressed', () => {
+      renderList([makeMessage({ reactions: [fire, { emoji: '👍', count: 1, user_ids: [2] }] })])
+      expect(screen.getByLabelText('🔥 2')).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByLabelText('👍 1')).toHaveAttribute('aria-pressed', 'false')
+    })
+
+    it('clicking your chip withdraws the reaction', async () => {
+      const onToggleReaction = vi.fn()
+      renderList([makeMessage({ id: 3, reactions: [fire] })], { onToggleReaction, members })
+      await userEvent.click(screen.getByLabelText('🔥 2'))
+      expect(onToggleReaction).toHaveBeenCalledWith(3, '🔥', true)
+    })
+
+    it('clicking someone else’s chip adds yours', async () => {
+      const onToggleReaction = vi.fn()
+      renderList(
+        [makeMessage({ id: 3, reactions: [{ emoji: '👍', count: 1, user_ids: [2] }] })],
+        { onToggleReaction },
+      )
+      await userEvent.click(screen.getByLabelText('👍 1'))
+      expect(onToggleReaction).toHaveBeenCalledWith(3, '👍', false)
+    })
+
+    it('reacts from the quick picker', async () => {
+      const onToggleReaction = vi.fn()
+      renderList([makeMessage({ id: 3 })], { onToggleReaction })
+      await userEvent.click(screen.getByLabelText('Add reaction'))
+      await userEvent.click(await screen.findByLabelText('React 😂'))
+      expect(onToggleReaction).toHaveBeenCalledWith(3, '😂', false)
+    })
+
+    it('does not withdraw when picking an emoji you already used', async () => {
+      const onToggleReaction = vi.fn()
+      renderList([makeMessage({ id: 3, reactions: [fire] })], { onToggleReaction })
+      await userEvent.click(screen.getByLabelText('Add reaction'))
+      await userEvent.click(await screen.findByLabelText('React 🔥'))
+      expect(onToggleReaction).not.toHaveBeenCalled()
+    })
+
+    it('offers no reactions on a deleted message', () => {
+      renderList([makeMessage({ is_deleted: true })])
+      expect(screen.queryByLabelText('Add reaction')).not.toBeInTheDocument()
+    })
+
+    it('reveals the actions when the message is tapped', async () => {
+      const { container } = renderList([makeMessage({ id: 3 })])
+      const row = container.querySelector('.chat-message') as HTMLElement
+      expect(row).not.toHaveAttribute('data-active')
+      await userEvent.click(screen.getByText('hello'))
+      expect(row).toHaveAttribute('data-active')
     })
   })
 })

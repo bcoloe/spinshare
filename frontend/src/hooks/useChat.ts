@@ -6,6 +6,7 @@ import type { MessageResponse } from '../types/message'
 import type { NotificationResponse } from '../types/notification'
 import { notificationKeys } from './useNotifications'
 import { chatKeys } from './chatKeys'
+import { applyReactions } from './chatCache'
 
 export { chatKeys }
 
@@ -212,6 +213,18 @@ export function useEditMessage(groupId: number) {
         existing?.map((m) => (m.id === message.id && !m.is_deleted ? message : m)),
       )
     },
+  })
+}
+
+/** Add or withdraw the caller's reaction; `remove` picks which. */
+export function useToggleReaction() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ messageId, emoji, remove }: { messageId: number; emoji: string; remove: boolean }) =>
+      remove
+        ? messageService.removeReaction(messageId, emoji)
+        : messageService.addReaction(messageId, emoji),
+    onSuccess: (update) => applyReactions(qc, update),
   })
 }
 

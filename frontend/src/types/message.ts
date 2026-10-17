@@ -18,6 +18,21 @@ export interface MessageResponse {
   edited_at: string | null
   is_deleted: boolean
   mentions: MessageMention[]
+  // First-reacted order. Empty when is_deleted.
+  reactions: MessageReaction[]
+}
+
+export interface MessageReaction {
+  emoji: string
+  count: number
+  user_ids: number[]
+}
+
+/** A message's whole reaction state — the reaction endpoints' response and socket event body. */
+export interface MessageReactions {
+  message_id: number
+  group_id: number
+  reactions: MessageReaction[]
 }
 
 export interface PresenceMember {
@@ -74,6 +89,10 @@ export interface MessageEditedEvent {
   message: MessageResponse
 }
 
+export interface MessageReactionsEvent extends MessageReactions {
+  type: 'message.reactions'
+}
+
 export type ChatSocketEvent =
   | PresenceSnapshotEvent
   | PresenceJoinEvent
@@ -81,3 +100,4 @@ export type ChatSocketEvent =
   | MessageNewEvent
   | MessageDeletedEvent
   | MessageEditedEvent
+  | MessageReactionsEvent
