@@ -58,7 +58,8 @@ writes. For example, a "today" page cached before a manual draw would keep showi
 the old answer.
 
 ```bash
-curl -X POST https://<host>/api/admin/cache/clear -H "Authorization: Bearer <admin token>"
+cd /opt/spinshare/backend
+.venv/bin/python scripts/cache_status.py --admin-id <your admin user id> --clear
 # or: sudo systemctl restart spinshare-api
 ```
 

@@ -75,7 +75,8 @@ Neon bills compute-awake time, so database touches are a cost. `scripts/profile_
 
 `app/response_cache.py` serves the GET routes in `CACHED_GETS` from memory, per viewer. Entries are invalidated automatically: the cache records which tables each response read, and every committed write in this process bumps the tables it touched. There is nothing to declare per endpoint.
 
-- **Writes from outside the API process** (CLI scripts such as `daily_album_selector.py`, seeding, psql) are invisible to it. Afterwards, call `POST /admin/cache/clear` or restart the API.
+- **Writes from outside the API process** (CLI scripts such as `daily_album_selector.py`, seeding, psql) are invisible to it. Afterwards, clear it: `scripts/cache_status.py --admin-id <id> --clear` on the API host (or restart the API).
+- **Hit rate and size:** `.venv/bin/python scripts/cache_status.py --admin-id <id>` on the API host. It mints a one-minute admin token with the server's `SECRET_KEY` (no password) and reads `GET /admin/cache` over localhost. Counters reset on restart.
 - **Adding a route to `CACHED_GETS`:** its response must depend only on the database, the caller, the request and the date. If it changes at some other instant (an `expires_at`, say), call `response_cache.valid_until(...)` while computing it. The route must also be profiled in `scripts/profile_db.py`.
 - **Tests** run with the cache off (`app/conftest.py`). `app/response_cache_test.py` turns it on explicitly.
 
