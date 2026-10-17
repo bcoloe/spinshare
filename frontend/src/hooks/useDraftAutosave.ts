@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FocusEvent } from 'react'
 import { useQueryClient, type UseMutationResult } from '@tanstack/react-query'
 import { useAuth } from './useAuth'
-import { applyDraftToCache } from './useDailySpin'
+import { applyDraftToCache, reviewSaveKey } from './useDailySpin'
 import { albumService } from '../services/albumService'
 import { draftStorageKey, readLocal, removeLocal, writeLocal } from '../utils/draftStorage'
 import type { ReviewCreate, ReviewResponse, ReviewUpdate } from '../types/album'
@@ -108,6 +108,7 @@ export function useDraftAutosave({
   const editedHere = useRef(false) // the user has typed since this form mounted
   const loaded = useRef(false)
   const inFlight = useRef(false)
+  const retryWithKeepalive = useRef(false) // a busy trigger wanted keepalive
   // The draft this hook last saved. Until the cache's copy catches up, it tells the
   // next save to update that draft rather than create a second one.
   const lastSaved = useRef<ReviewResponse | null>(null)
@@ -128,6 +129,7 @@ export function useDraftAutosave({
     async ({ keepalive = false }: { keepalive?: boolean } = {}): Promise<FlushResult> => {
       const { content: current, existingReview: cached, published: isPublished, submitReview: submit, updateReview: update } =
         latest.current
+      keepalive = keepalive || retryWithKeepalive.current
       if (flushTimer.current) {
         clearTimeout(flushTimer.current)
         flushTimer.current = null
@@ -135,7 +137,15 @@ export function useDraftAutosave({
       if (!dirty.current || isPublished) return 'clean'
       // A keepalive send isn't tracked by the mutations, so guard in-flight saves here:
       // two concurrent creates would race into a 409.
-      if (inFlight.current || submit.isPending || update.isPending) return 'busy'
+      // Ask the mutation cache, not the mutation results: those are snapshots from
+      // the last render and still say "pending" for a moment after a save lands.
+      if (inFlight.current || queryClient.isMutating({ mutationKey: reviewSaveKey(albumId) }) > 0) {
+        // Whoever is in flight re-sends once it lands (see below); remember if this
+        // trigger needed the send to outlive the page.
+        if (keepalive) retryWithKeepalive.current = true
+        return 'busy'
+      }
+      retryWithKeepalive.current = false
       saveLocal() // the device copy must hold everything being sent, in case this fails
       dirty.current = false
       inFlight.current = true
@@ -159,8 +169,11 @@ export function useDraftAutosave({
         } else {
           saved = await submit.mutateAsync(data)
         }
-        // Later device writes record this as their base, so they stay restorable.
         lastSaved.current = saved
+        // Re-base the device copy on the version just saved right away: if edits
+        // came in meanwhile and the page is already gone, the re-send below never
+        // runs, and the copy must still be restorable against the server.
+        saveLocal()
         // Edits made while this was in flight — including from a last trigger
         // (blur, hide, unmount) that found the save busy — go out now.
         if (dirty.current) void Promise.resolve().then(() => flush({ keepalive }))

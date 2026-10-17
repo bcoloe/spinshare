@@ -1,9 +1,10 @@
 import { StrictMode, useCallback, useState, type ReactNode } from 'react'
 import { act, renderHook } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, useMutation } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReviewResponse } from '../types/album'
 import { clearAllLocalDrafts, draftStorageKey } from '../utils/draftStorage'
+import { reviewSaveKey } from './useDailySpin'
 import { SERVER_FLUSH_INTERVAL_MS, useDraftAutosave, type DraftContent } from './useDraftAutosave'
 
 vi.mock('./useAuth', () => ({ useAuth: () => ({ user: { id: 7 } }) }))
@@ -38,8 +39,9 @@ const local = () => JSON.parse(localStorage.getItem(KEY) ?? 'null')
 
 /**
  * The hook inside a form-like component: it owns the content state, and — like the
- * real forms — does not prefill drafts itself. Mutation results are rebuilt every
- * render, as useMutation's are.
+ * real forms — does not prefill drafts itself. The mutations are real useMutation
+ * instances keyed like the app's, so `isPending` lags a settled save by a tick
+ * exactly as it does in the browser.
  */
 function setup(opts: { existingReview?: ReviewResponse | null; ready?: boolean; strict?: boolean } = {}) {
   const submit = vi.fn().mockImplementation(async (data) => review({ id: 99, ...data, updated_at: '2026-10-12T12:00:00Z' }))
@@ -58,14 +60,16 @@ function setup(opts: { existingReview?: ReviewResponse | null; ready?: boolean; 
         onLoad(d)
         setContent(d)
       }, [])
+      const submitReview = useMutation({ mutationKey: reviewSaveKey(ALBUM), mutationFn: submit })
+      const updateReview = useMutation({ mutationKey: reviewSaveKey(ALBUM), mutationFn: update })
       const autosave = useDraftAutosave({
         albumId: ALBUM,
         existingReview,
         ready,
         content,
         onLoad: load,
-        submitReview: { mutateAsync: submit, isPending: false } as never,
-        updateReview: { mutateAsync: update, isPending: false } as never,
+        submitReview: submitReview as never,
+        updateReview: updateReview as never,
       })
       return { autosave, content, setContent }
     },
@@ -78,7 +82,9 @@ function setup(opts: { existingReview?: ReviewResponse | null; ready?: boolean; 
       hook.result.current.setContent(content)
     })
   const flush = (o?: { keepalive?: boolean }) => act(() => hook.result.current.autosave.flush(o))
-  return { hook, type, flush, onLoad, submit, update, queryClient }
+  /** Let React Query deliver its setTimeout(0) notifications (not the 60 s flush timer). */
+  const settle = () => act(() => vi.advanceTimersByTimeAsync(1))
+  return { hook, type, flush, settle, onLoad, submit, update, queryClient }
 }
 
 beforeEach(() => {
@@ -136,7 +142,7 @@ describe('flush triggers', () => {
       hook.result.current.autosave.onBlur({ currentTarget: el, relatedTarget: outside } as never)
     })
     expect(submit).toHaveBeenCalledTimes(1)
-    expect(submit).toHaveBeenCalledWith({ rating: 4, comment: 'meh', is_draft: true })
+    expect(submit).toHaveBeenCalledWith({ rating: 4, comment: 'meh', is_draft: true }, expect.anything())
   })
 
   it('focus moving within the form does not', async () => {
@@ -209,7 +215,7 @@ describe('creating, then updating, the draft', () => {
     await flush() // existingReview prop still null here
 
     expect(submit).toHaveBeenCalledTimes(1)
-    expect(update).toHaveBeenCalledWith({ reviewId: 99, data: { rating: 5, comment: 'one two', is_draft: true } })
+    expect(update).toHaveBeenCalledWith({ reviewId: 99, data: { rating: 5, comment: 'one two', is_draft: true } }, expect.anything())
   })
 
   it('a save in flight blocks a second create (no duplicate draft)', async () => {
@@ -241,23 +247,42 @@ describe('creating, then updating, the draft', () => {
 
   it('edits made while a save is in flight are sent once it lands, even if the last trigger found it busy', async () => {
     let finish: (r: ReviewResponse) => void = () => {}
-    const { hook, type, update } = setup({ existingReview: review() })
+    const { hook, type, settle, update } = setup({ existingReview: review() })
     update.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
     type({ rating: 6, comment: 'first' })
     act(() => { void hook.result.current.autosave.flush() }) // slow save in flight
+    await settle() // the form re-renders with isPending: true, as it would live
     type({ rating: 6, comment: 'first and more' })
 
     expect(await act(() => hook.result.current.autosave.flush())).toBe('busy') // e.g. blur
     await act(async () => { hook.unmount() }) // the last trigger: also busy
 
     await act(async () => { finish(review({ comment: 'first', updated_at: '2026-10-12T12:00:00Z' })) })
-    await act(async () => { await Promise.resolve() })
+    await settle()
 
     expect(update).toHaveBeenCalledTimes(2)
     expect(update.mock.calls[1][0].data.comment).toBe('first and more')
-    // And the device copy sits on the version just saved, so it stays restorable.
-    expect(local()).toMatchObject({ comment: 'first and more' })
-    expect(local().baseServerTime).not.toBe('2026-10-12T10:00:00Z')
+    // The device copy holds the newest text on the version just saved, so even if
+    // the re-send had never run (page gone) it would be restored next time.
+    expect(local()).toMatchObject({ comment: 'first and more', baseServerTime: '2026-10-12T12:00:00Z' })
+  })
+
+  it('a busy trigger that needed keepalive gets a keepalive re-send', async () => {
+    let finish: (r: ReviewResponse) => void = () => {}
+    const { hook, type, settle, update } = setup({ existingReview: review() })
+    update.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+    type({ rating: 6, comment: 'first' })
+    act(() => { void hook.result.current.autosave.flush() })
+    await settle()
+    type({ rating: 6, comment: 'closing now' })
+
+    await act(async () => window.dispatchEvent(new Event('pagehide'))) // busy
+    await act(async () => { finish(review({ updated_at: '2026-10-12T12:00:00Z' })) })
+    await settle()
+
+    expect(albumService.updateReview).toHaveBeenCalledWith(
+      ALBUM, 5, { rating: 6, comment: 'closing now', is_draft: true }, undefined, { keepalive: true },
+    )
   })
 
   it('a save that returns a new review object does not trigger another save', async () => {
@@ -286,7 +311,7 @@ describe('starting content', () => {
 
     expect(onLoad).toHaveBeenCalledWith({ rating: 8, comment: 'local copy' })
     await flush()
-    expect(update).toHaveBeenCalledWith({ reviewId: 5, data: { rating: 8, comment: 'local copy', is_draft: true } })
+    expect(update).toHaveBeenCalledWith({ reviewId: 5, data: { rating: 8, comment: 'local copy', is_draft: true } }, expect.anything())
   })
 
   it('restores a local draft when the server has none', () => {
@@ -337,7 +362,8 @@ describe('starting content', () => {
 
   it('under StrictMode, the restored draft is what the form shows and what gets sent', async () => {
     stored({ baseServerTime: '2026-10-12T10:00:00Z' })
-    const { hook, update } = setup({ existingReview: review(), strict: true })
+    const { hook, update, settle } = setup({ existingReview: review(), strict: true })
+    await settle()
 
     expect(hook.result.current.content).toEqual({ rating: 8, comment: 'local copy' })
     expect(update).toHaveBeenCalled() // StrictMode's simulated unmount flushes; the loop below must have something to check
