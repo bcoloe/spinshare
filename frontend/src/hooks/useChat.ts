@@ -210,7 +210,10 @@ export function useEditMessage(groupId: number) {
       // Patch in place rather than waiting for the socket echo, as for sends —
       // unless a moderator's delete landed first: never resurrect a tombstone.
       qc.setQueryData<MessageResponse[]>(chatKeys.messages(groupId), (existing) =>
-        existing?.map((m) => (m.id === message.id && !m.is_deleted ? message : m)),
+        existing?.map((m) =>
+          // Keep the cached reactions: they have their own event and may be newer.
+          m.id === message.id && !m.is_deleted ? { ...message, reactions: m.reactions } : m,
+        ),
       )
     },
   })

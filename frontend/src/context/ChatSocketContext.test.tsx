@@ -3,6 +3,8 @@ import { act, render } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatSocketProvider } from './ChatSocketContext'
+import { chatKeys } from '../hooks/chatKeys'
+import type { MessageResponse } from '../types/message'
 
 // One stable object, because the provider's connect effect keys off `user`
 // identity. AuthContext holds it in state, so it only changes on a real login or
@@ -172,5 +174,74 @@ describe('ChatSocketProvider backoff', () => {
 
     await advance(BASE_RETRY_CEILING_MS)
     expect(FakeSocket.instances).toHaveLength(2)
+  })
+})
+
+describe('ChatSocketProvider message events', () => {
+  const base: MessageResponse = {
+    id: 5,
+    group_id: 1,
+    user_id: 2,
+    username: 'bob',
+    body: 'teh',
+    created_at: '2026-01-01T00:00:00Z',
+    edited_at: null,
+    is_deleted: false,
+    mentions: [],
+    reactions: [{ emoji: '🔥', count: 1, user_ids: [1] }],
+  }
+
+  let queryClient: QueryClient
+
+  async function connect(messages: MessageResponse[]) {
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(chatKeys.messages(1), messages)
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ChatSocketProvider>{null}</ChatSocketProvider>
+      </QueryClientProvider>,
+    )
+    await flush()
+    const socket = FakeSocket.instances[FakeSocket.instances.length - 1]
+    await act(async () => socket.open())
+    return (event: object) =>
+      act(async () => socket.onmessage?.({ data: JSON.stringify(event) }))
+  }
+
+  const cached = () => queryClient.getQueryData<MessageResponse[]>(chatKeys.messages(1))!
+
+  beforeEach(() => {
+    FakeSocket.instances = []
+    vi.stubGlobal('WebSocket', FakeSocket)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('applies an edit without rolling back newer reactions', async () => {
+    const send = await connect([base])
+    // The edit was serialized before the reaction landed, so it carries none.
+    await send({ type: 'message.edited', message: { ...base, body: 'the', reactions: [] } })
+
+    expect(cached()[0].body).toBe('the')
+    expect(cached()[0].reactions).toEqual(base.reactions)
+  })
+
+  it('never resurrects a deleted message with a late edit', async () => {
+    const send = await connect([{ ...base, body: '', is_deleted: true, reactions: [] }])
+    await send({ type: 'message.edited', message: { ...base, body: 'the' } })
+
+    expect(cached()[0].is_deleted).toBe(true)
+    expect(cached()[0].body).toBe('')
+  })
+
+  it('applies a reaction update without touching the body', async () => {
+    const send = await connect([{ ...base, body: 'the newer edit' }])
+    const reactions = [{ emoji: '👍', count: 2, user_ids: [1, 2] }]
+    await send({ type: 'message.reactions', message_id: 5, group_id: 1, reactions })
+
+    expect(cached()[0].body).toBe('the newer edit')
+    expect(cached()[0].reactions).toEqual(reactions)
   })
 })

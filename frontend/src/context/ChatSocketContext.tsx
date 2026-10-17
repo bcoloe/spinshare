@@ -174,9 +174,13 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
           const message = event.message
           queryClient.setQueryData<MessageResponse[]>(
             chatKeys.messages(message.group_id),
-            // A late edit must never resurrect a message already tombstoned.
+            // A late edit must never resurrect a message already tombstoned, nor
+            // roll back reactions: those arrive on their own event (see
+            // applyReactions), so the cache's copy is always the newer one.
             (existing) =>
-              existing?.map((m) => (m.id === message.id && !m.is_deleted ? message : m)),
+              existing?.map((m) =>
+                m.id === message.id && !m.is_deleted ? { ...message, reactions: m.reactions } : m,
+              ),
           )
           break
         }

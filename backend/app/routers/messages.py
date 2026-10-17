@@ -20,7 +20,7 @@ from app.schemas.message import (
     MessageUpdate,
     PresenceMember,
     ReactionCreate,
-    validate_reaction_emoji,
+    ReactionEmoji,
 )
 from app.services.message_service import (
     MessageService,
@@ -28,7 +28,7 @@ from app.services.message_service import (
     serialize_reactions,
 )
 from app.utils.security import CHAT_TICKET_EXPIRE_SECONDS, create_chat_ticket
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 
 router = APIRouter(tags=["messages"])
 
@@ -122,17 +122,11 @@ def add_reaction(
 )
 def remove_reaction(
     message_id: int,
-    emoji: str,
+    emoji: ReactionEmoji,
     current_user: User = Depends(get_current_user),
     message_service: MessageService = Depends(get_message_service),
 ):
     """Withdraw your reaction. Idempotent; returns and broadcasts the full aggregate."""
-    try:
-        validate_reaction_emoji(emoji)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
-        ) from None
     message = message_service.remove_reaction(message_id, current_user, emoji)
     payload = serialize_reactions(message)
     _broadcast_reactions(payload)
