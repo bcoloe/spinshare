@@ -1,34 +1,27 @@
-import { useId, useMemo, useRef, useState } from 'react'
-import type { KeyboardEvent, ReactNode } from 'react'
-import {
-  ActionIcon,
-  Group,
-  Input,
-  Paper,
-  Stack,
-  Text,
-  Textarea,
-  Tooltip,
-  UnstyledButton,
-} from '@mantine/core'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
+import { Group, Input, Paper, Stack, Text, UnstyledButton } from '@mantine/core'
 import type { MantineSize } from '@mantine/core'
+import { RichTextEditor } from '@mantine/tiptap'
 import { IconBold, IconItalic } from '@tabler/icons-react'
-import { replaceShortcodes, searchEmoji } from '../../utils/emoji'
-import { toggleFormat } from '../../utils/richText'
-import type { FormatMarker } from '../../utils/richText'
+import { useEditor } from '@tiptap/react'
+import { searchEmoji } from '../../utils/emoji'
+import { docToMarkdown, markdownToDoc } from '../../utils/richTextDoc'
 import type { GroupMemberResponse } from '../../types/group'
 import EmojiPicker from './EmojiPicker'
+import { editorExtensions } from './richEditorExtensions'
+import type { ActiveSuggestion } from './richEditorExtensions'
 
 const MAX_SUGGESTIONS = 6
-
-/** The token before the caret that a chosen suggestion replaces. */
-const MENTION_TOKEN = /@[\w.-]*$/
-const EMOJI_TOKEN = /:[a-z0-9_+-]*$/i
+// The editable area's line height (see styles.css), so `minRows` / `maxRows`
+// size the box like the textarea this replaced.
+const LINE_HEIGHT_EM = 1.55
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
 const MOD_KEY = IS_MAC ? '⌘' : 'Ctrl+'
 
 interface Props {
+  /** Stored text: `**bold**` / `*italic*` markers, one line per paragraph. */
   value: string
   onChange: (value: string) => void
   /**
@@ -37,12 +30,13 @@ interface Props {
    * they may not be allowed to see yet.
    */
   members?: GroupMemberResponse[]
-  /** When set, Enter submits and Shift+Enter inserts a newline. */
+  /** When set, Enter submits and Shift+Enter inserts a line break. */
   onSubmit?: () => void
-  /** Rendered after the formatting controls, e.g. a send button. */
+  /** Rendered beside the editor, e.g. a send button. */
   actions?: ReactNode
   label?: string
   placeholder?: string
+  /** Limit on the stored text, markers included — what the server enforces. */
   maxLength: number
   minRows?: number
   maxRows?: number
@@ -51,50 +45,15 @@ interface Props {
 }
 
 /**
- * A completion offer for the partial token the caret is sitting in.
- *
- * Mentions and emoji are normalised into one shape so the keyboard handling,
- * highlight tracking and insertion logic stay single-path — the two triggers
- * differ only in what they search and what they leave behind.
- */
-interface Suggestion {
-  key: string
-  /** Replaces the partial token in the textarea. */
-  insert: string
-  /** Which token pattern the insert replaces. */
-  token: RegExp
-  /** Leading glyph in the dropdown (the emoji itself, or nothing). */
-  icon?: string
-  label: string
-}
-
-/** The partial `@handle` immediately before the caret, if we're in one. */
-function activeMentionQuery(value: string, caret: number): string | null {
-  const upToCaret = value.slice(0, caret)
-  // Only match when the '@' starts a word, so an email address never opens the
-  // autocomplete.
-  const match = upToCaret.match(/(?:^|\s)@([\w.-]*)$/)
-  return match ? match[1] : null
-}
-
-/** The partial `:shortcode` immediately before the caret, if we're in one. */
-function activeEmojiQuery(value: string, caret: number): string | null {
-  const upToCaret = value.slice(0, caret)
-  // Require the ':' to start a word and be followed by at least two characters.
-  // A lone or mid-word colon is far too common in ordinary prose — and in
-  // timestamps and URLs — to be worth opening a picker for.
-  const match = upToCaret.match(/(?:^|\s):([a-z0-9_+-]{2,})$/i)
-  return match ? match[1] : null
-}
-
-/**
  * The text editor shared by chat and review comments.
  *
- * Adds, on top of a plain textarea: `**bold**` / `*italic*` toggles (buttons
- * and Ctrl/Cmd+B / Ctrl/Cmd+I), `:shortcode` emoji autocomplete plus a picker,
- * and — when `members` is given — `@handle` autocomplete. Everything it inserts
- * is plain text (Unicode emoji, markdown-style markers), so what gets stored
- * reads sensibly even where it isn't rendered.
+ * Formatting shows as formatting, not markers: typing `**word**` or `*word*`
+ * turns it bold or italic on the spot, as do the toolbar buttons and
+ * Ctrl/Cmd+B / Ctrl/Cmd+I. `:shortcode:` becomes its emoji, with autocomplete
+ * and a picker, and — when `members` is given — `@handle` autocompletes.
+ *
+ * The value going in and out is still plain stored text (see `richText.ts`),
+ * so nothing that saves or renders it needs to know an editor is involved.
  */
 export default function RichTextarea({
   value,
@@ -110,248 +69,219 @@ export default function RichTextarea({
   size,
   disabled,
 }: Props) {
-  const [caret, setCaret] = useState(0)
+  const labelId = useId()
+  const [suggestion, setSuggestion] = useState<ActiveSuggestion | null>(null)
   const [highlighted, setHighlighted] = useState(0)
-  // Escape hides the suggestion list until the text next changes. A flag rather
-  // than a sentinel caret: the keyup that follows Escape re-syncs the caret.
-  const [dismissed, setDismissed] = useState(false)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
-  const inputId = useId()
 
-  const mentionQuery = members && !dismissed ? activeMentionQuery(value, caret) : null
-  const emojiQuery = dismissed ? null : activeEmojiQuery(value, caret)
+  // The editor's extensions are built once; everything they call back into is
+  // read through refs so it always sees the current props and state.
+  const latest = useRef({ onChange, onSubmit, members, suggestion, highlighted })
+  latest.current = { onChange, onSubmit, members, suggestion, highlighted }
+  // The last value this editor emitted, to tell our own echo from a real
+  // outside change (a cleared composer, a restored draft).
+  const emitted = useRef(value)
+  const hasMentions = !!members
 
-  const suggestions = useMemo<Suggestion[]>(() => {
-    if (members && mentionQuery !== null) {
-      const needle = mentionQuery.toLowerCase()
-      return members
-        .filter((m) => m.username.toLowerCase().startsWith(needle))
-        .slice(0, MAX_SUGGESTIONS)
-        .map((m) => ({
-          key: `mention-${m.user_id}`,
-          insert: `@${m.username}`,
-          token: MENTION_TOKEN,
-          label: `@${m.username}`,
-        }))
-    }
-
-    if (emojiQuery !== null) {
-      return searchEmoji(emojiQuery, MAX_SUGGESTIONS).map((e) => ({
-        key: `emoji-${e.slug}`,
-        // The emoji itself goes into the text, not the shortcode — so what
-        // gets stored is plain Unicode that reads the same everywhere.
-        insert: e.char,
-        token: EMOJI_TOKEN,
-        icon: e.char,
-        label: `:${e.slug}:`,
-      }))
-    }
-
-    return []
-  }, [mentionQuery, emojiQuery, members])
-
-  /** Commit a new value and put the selection back where the edit left it. */
-  const commit = (next: string, start: number, end = start) => {
-    // A programmatic edit must respect the limit the textarea enforces on typing.
-    if (next.length > maxLength) return
-    onChange(next)
-    setCaret(end)
-    setDismissed(false)
-    requestAnimationFrame(() => {
-      inputRef.current?.focus()
-      inputRef.current?.setSelectionRange(start, end)
-    })
-  }
-
-  /** Drop text in at the caret, leaving what surrounds it alone. */
-  const insertAtCaret = (text: string) => {
-    const at = Math.min(caret, value.length)
-    commit(value.slice(0, at) + text + value.slice(at), at + text.length)
-  }
-
-  /**
-   * Accept typed or pasted text, turning any completed `:shortcode:` into its
-   * emoji on the spot — so every editor stores Unicode, not shortcodes.
-   *
-   * Only the text before the caret is substituted. Typing and pasting both
-   * leave the caret after what they added, and everything after it was already
-   * substituted on an earlier change — so this keeps the caret put and never
-   * sees a fragment cut off from the word it belongs to. A shortcode completed
-   * *across* the caret (typing the opening ':' in front of `fire:`) stays as
-   * typed until it is retyped; that is literal text, not a wrong substitution.
-   */
-  const handleTyped = (raw: string, rawCaret: number) => {
-    const before = replaceShortcodes(raw.slice(0, rawCaret))
-    const next = before + raw.slice(rawCaret)
-    onChange(next)
-    setCaret(before.length)
-    setHighlighted(0)
-    setDismissed(false)
-    if (next !== raw) {
-      requestAnimationFrame(() => inputRef.current?.setSelectionRange(before.length, before.length))
-    }
-  }
-
-  const applySuggestion = (suggestion: Suggestion) => {
-    // Replace the partial token the caret is sitting in, leaving whatever
-    // follows the caret untouched.
-    const before = value.slice(0, caret).replace(suggestion.token, `${suggestion.insert} `)
-    commit(before + value.slice(caret), before.length)
-  }
-
-  const applyFormat = (marker: FormatMarker) => {
-    const el = inputRef.current
-    if (!el || disabled) return
-    const result = toggleFormat(
-      { value, start: el.selectionStart, end: el.selectionEnd },
-      marker,
-    )
-    commit(result.value, result.start, result.end)
-  }
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((event.ctrlKey || event.metaKey) && !event.altKey) {
-      const key = event.key.toLowerCase()
-      if (key === 'b' || key === 'i') {
-        event.preventDefault()
-        applyFormat(key === 'b' ? '**' : '*')
-        return
-      }
-    }
-
-    if (suggestions.length > 0) {
-      if (event.key === 'ArrowDown') {
-        event.preventDefault()
-        setHighlighted((i) => (i + 1) % suggestions.length)
-        return
-      }
-      if (event.key === 'ArrowUp') {
-        event.preventDefault()
-        setHighlighted((i) => (i - 1 + suggestions.length) % suggestions.length)
-        return
-      }
-      if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey)) {
-        event.preventDefault()
-        applySuggestion(suggestions[highlighted])
-        setHighlighted(0)
-        return
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        setDismissed(true)
-        return
-      }
-    }
-
-    if (onSubmit && event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault()
-      onSubmit()
-    }
-  }
-
-  const syncCaret = () => setCaret(inputRef.current?.selectionStart ?? 0)
-
-  const formatButton = (marker: FormatMarker, name: string, shortcut: string, icon: ReactNode) => (
-    <Tooltip label={`${name} (${MOD_KEY}${shortcut})`}>
-      <ActionIcon
-        size="sm"
-        variant="subtle"
-        color="gray"
-        aria-label={name}
-        disabled={disabled}
-        // mousedown, not click — click blurs the textarea first and loses the
-        // selection the marker needs to wrap.
-        onMouseDown={(e) => {
-          e.preventDefault()
-          applyFormat(marker)
-        }}
-        // Keyboard activation (Enter / Space on the focused button) arrives as
-        // a click with detail 0; a mouse click was already handled above.
-        onClick={(e) => {
-          if (e.detail === 0) applyFormat(marker)
-        }}
-      >
-        {icon}
-      </ActionIcon>
-    </Tooltip>
+  const extensions = useMemo(
+    () =>
+      editorExtensions({
+        placeholder,
+        maxLength,
+        emojiItems: (query) =>
+          // Two characters before offering anything: a lone ':' is far too
+          // common in prose, timestamps and URLs to open a picker for.
+          query.length < 2
+            ? []
+            : searchEmoji(query, MAX_SUGGESTIONS).map((e) => ({
+                key: `emoji-${e.slug}`,
+                insert: e.char,
+                icon: e.char,
+                label: `:${e.slug}:`,
+              })),
+        // The roster is read through `latest`, so a membership change doesn't
+        // rebuild the editor; only whether mentions exist at all does.
+        mentionItems: hasMentions
+          ? (query) =>
+              (latest.current.members ?? [])
+                .filter((m) => m.username.toLowerCase().startsWith(query.toLowerCase()))
+                .slice(0, MAX_SUGGESTIONS)
+                .map((m) => ({
+                  key: `mention-${m.user_id}`,
+                  insert: `@${m.username}`,
+                  label: `@${m.username}`,
+                }))
+          : undefined,
+        suggestions: {
+          onChange: (active) => {
+            setSuggestion(active)
+            setHighlighted(0)
+          },
+          onKeyDown: ({ event }) => {
+            const { suggestion: active, highlighted: index } = latest.current
+            if (!active) return false
+            const count = active.items.length
+            if (event.key === 'ArrowDown') {
+              setHighlighted((index + 1) % count)
+              return true
+            }
+            if (event.key === 'ArrowUp') {
+              setHighlighted((index - 1 + count) % count)
+              return true
+            }
+            if (event.key === 'Enter' || event.key === 'Tab') {
+              active.select(active.items[index])
+              return true
+            }
+            if (event.key === 'Escape') {
+              // Hidden until the query next changes, which reports a fresh list.
+              setSuggestion(null)
+              return true
+            }
+            return false
+          },
+        },
+      }),
+    [placeholder, maxLength, hasMentions],
   )
 
-  return (
-    <Stack gap={4} style={{ position: 'relative' }}>
-      {suggestions.length > 0 && (
-        <Paper
-          withBorder
-          radius="sm"
-          shadow="md"
-          p={4}
-          style={{ position: 'absolute', bottom: '100%', left: 0, right: 0, zIndex: 3 }}
-        >
-          <Stack gap={0}>
-            {suggestions.map((suggestion, i) => (
-              <UnstyledButton
-                key={suggestion.key}
-                onMouseDown={(e) => {
-                  // mousedown, not click — click would blur the textarea first
-                  // and lose the caret position we need.
-                  e.preventDefault()
-                  applySuggestion(suggestion)
-                }}
-                onMouseEnter={() => setHighlighted(i)}
-                p="xs"
-                style={{
-                  borderRadius: 'var(--mantine-radius-sm)',
-                  background:
-                    i === highlighted ? 'var(--mantine-color-dark-5)' : 'transparent',
-                }}
-              >
-                <Group gap="xs" wrap="nowrap">
-                  {suggestion.icon && <Text size="sm">{suggestion.icon}</Text>}
-                  <Text size="sm" truncate>
-                    {suggestion.label}
-                  </Text>
-                </Group>
-              </UnstyledButton>
-            ))}
-          </Stack>
-        </Paper>
-      )}
+  const editor = useEditor(
+    {
+      extensions,
+      content: markdownToDoc(value),
+      editable: !disabled,
+      editorProps: {
+        attributes: {
+          role: 'textbox',
+          'aria-multiline': 'true',
+          ...(label ? { 'aria-labelledby': labelId } : { 'aria-label': placeholder ?? 'Text' }),
+        },
+        handleKeyDown: (_view, event) => {
+          // An open suggestion list owns Enter; its plugin handles it next.
+          if (latest.current.suggestion) return false
+          const submit = latest.current.onSubmit
+          if (submit && event.key === 'Enter' && !event.shiftKey) {
+            submit()
+            return true
+          }
+          return false
+        },
+      },
+      onUpdate: ({ editor: current }) => {
+        // Only real edits count: Tiptap also emits "update" for things like an
+        // editable toggle, and draft autosave treats any onChange as typing.
+        const next = docToMarkdown(current.state.doc)
+        if (next === emitted.current) return
+        emitted.current = next
+        latest.current.onChange(next)
+      },
+    },
+    [extensions],
+  )
 
-      <Input.Wrapper label={label} size={size} id={inputId}>
+  // Outside changes (send clears the composer; autosave restores a draft).
+  useEffect(() => {
+    if (!editor || value === emitted.current) return
+    emitted.current = value
+    editor.commands.setContent(markdownToDoc(value), false)
+  }, [editor, value])
+
+  useEffect(() => {
+    // emitUpdate false: toggling editability is not an edit.
+    editor?.setEditable(!disabled, false)
+  }, [editor, disabled])
+
+  const insertEmoji = (char: string) => {
+    editor?.chain().focus().insertContent(char).run()
+  }
+
+  return (
+    <Input.Wrapper
+      label={label}
+      size={size}
+      labelProps={{ id: labelId, onClick: () => editor?.commands.focus() }}
+    >
+      <Stack gap={4} style={{ position: 'relative' }}>
+        {suggestion && (
+          <Paper
+            withBorder
+            radius="sm"
+            shadow="md"
+            p={4}
+            style={{ position: 'absolute', bottom: '100%', left: 0, right: 0, zIndex: 3 }}
+          >
+            <Stack gap={0}>
+              {suggestion.items.map((item, i) => (
+                <UnstyledButton
+                  key={item.key}
+                  onMouseDown={(e) => {
+                    // mousedown, not click — click would blur the editor first.
+                    e.preventDefault()
+                    suggestion.select(item)
+                  }}
+                  onMouseEnter={() => setHighlighted(i)}
+                  p="xs"
+                  style={{
+                    borderRadius: 'var(--mantine-radius-sm)',
+                    background: i === highlighted ? 'var(--mantine-color-dark-5)' : 'transparent',
+                  }}
+                >
+                  <Group gap="xs" wrap="nowrap">
+                    {item.icon && <Text size="sm">{item.icon}</Text>}
+                    <Text size="sm" truncate>
+                      {item.label}
+                    </Text>
+                  </Group>
+                </UnstyledButton>
+              ))}
+            </Stack>
+          </Paper>
+        )}
+
         <Group gap={4} align="flex-end" wrap="nowrap">
           {/* One bordered box: a formatting bar over the text, as in Slack. */}
-          <Paper withBorder radius="sm" className="rich-textarea" flex={1} style={{ minWidth: 0 }}>
-            <Group
-              gap={2}
-              px={4}
-              py={2}
-              style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}
-            >
-              {formatButton('**', 'Bold', 'B', <IconBold size={15} />)}
-              {formatButton('*', 'Italic', 'I', <IconItalic size={15} />)}
-              <EmojiPicker onSelect={insertAtCaret} disabled={disabled} />
-            </Group>
-            <Textarea
-              ref={inputRef}
-              id={inputId}
-              variant="unstyled"
-              px="xs"
-              size={size}
-              autosize
-              minRows={minRows}
-              maxRows={maxRows}
-              maxLength={maxLength}
-              placeholder={placeholder}
-              value={value}
-              disabled={disabled}
-              onChange={(e) => handleTyped(e.currentTarget.value, e.currentTarget.selectionStart ?? 0)}
-              onKeyDown={handleKeyDown}
-              onKeyUp={syncCaret}
-              onClick={syncCaret}
-            />
-          </Paper>
+          <RichTextEditor
+            editor={editor}
+            variant="subtle"
+            className="rich-textarea"
+            flex={1}
+            style={{
+              minWidth: 0,
+              // Sizing for the editable area, applied in styles.css.
+              '--rich-textarea-font-size': `var(--mantine-font-size-${size ?? 'sm'})`,
+              '--rich-textarea-min-height': `${minRows * LINE_HEIGHT_EM}em`,
+              '--rich-textarea-max-height': maxRows ? `${maxRows * LINE_HEIGHT_EM}em` : 'none',
+            } as CSSProperties}
+          >
+            <RichTextEditor.Toolbar p={2}>
+              {/* Generic controls rather than RichTextEditor.Bold / .Italic,
+                  which overwrite `disabled` with their own can-run check. */}
+              <RichTextEditor.ControlsGroup>
+                <RichTextEditor.Control
+                  aria-label="Bold"
+                  title={`Bold (${MOD_KEY}B)`}
+                  active={!!editor?.isActive('bold')}
+                  disabled={disabled}
+                  onClick={() => editor?.chain().focus().toggleBold().run()}
+                >
+                  <IconBold size={15} />
+                </RichTextEditor.Control>
+                <RichTextEditor.Control
+                  aria-label="Italic"
+                  title={`Italic (${MOD_KEY}I)`}
+                  active={!!editor?.isActive('italic')}
+                  disabled={disabled}
+                  onClick={() => editor?.chain().focus().toggleItalic().run()}
+                >
+                  <IconItalic size={15} />
+                </RichTextEditor.Control>
+              </RichTextEditor.ControlsGroup>
+              <EmojiPicker onSelect={insertEmoji} disabled={disabled} />
+            </RichTextEditor.Toolbar>
+            <RichTextEditor.Content />
+          </RichTextEditor>
           {actions}
         </Group>
-      </Input.Wrapper>
-    </Stack>
+      </Stack>
+    </Input.Wrapper>
   )
 }

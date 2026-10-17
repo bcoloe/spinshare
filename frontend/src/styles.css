@@ -19,8 +19,24 @@
   }
 }
 
-/* RichTextarea draws its own border around the formatting bar and the text;
-   the inner textarea is unstyled, so the focus ring moves to the box. */
+/* RichTextarea: one bordered box around the formatting bar and the text, so
+   the focus ring goes on the box. Paragraphs are lines here, not prose blocks —
+   no margins between them. */
 .rich-textarea:focus-within {
   border-color: var(--mantine-primary-color-filled);
+}
+
+.rich-textarea .ProseMirror {
+  padding: 6px 10px;
+  font-size: var(--rich-textarea-font-size);
+  line-height: 1.55;
+  /* Padding sits outside these, so they measure whole lines of text. */
+  box-sizing: content-box;
+  min-height: var(--rich-textarea-min-height);
+  max-height: var(--rich-textarea-max-height);
+  overflow-y: auto;
+}
+
+.rich-textarea .ProseMirror p {
+  margin: 0;
 }
