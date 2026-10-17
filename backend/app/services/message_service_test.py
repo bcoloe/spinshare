@@ -5,7 +5,7 @@ from contextlib import contextmanager
 import pytest
 from app.models import Message, Notification
 from app.models.group import GroupRole, group_members
-from app.schemas.message import MessageCreate
+from app.schemas.message import MessageCreate, MessageUpdate
 from app.schemas.notification import NotificationType
 from fastapi import HTTPException, status
 from sqlalchemy import event, select
@@ -443,6 +443,144 @@ class TestMarkChatSeen:
             message_service.mark_chat_seen(sample_group.id, outsider)
 
         assert exc.value.status_code == status.HTTP_403_FORBIDDEN
+
+
+def _edit(service, message, user, body: str) -> Message:
+    return service.edit_message(message.id, user, MessageUpdate(body=body))
+
+
+class TestEditMessage:
+    def test_author_can_edit(self, message_service, sample_group, sample_user):
+        message = _post(message_service, sample_group, sample_user, "teh best")
+
+        edited = _edit(message_service, message, sample_user, "the best")
+
+        assert edited.body == "the best"
+        assert edited.edited_at is not None
+
+    def test_body_is_stripped(self, message_service, sample_group, sample_user):
+        message = _post(message_service, sample_group, sample_user, "first")
+
+        edited = _edit(message_service, message, sample_user, "  second  ")
+
+        assert edited.body == "second"
+
+    def test_unchanged_body_is_a_no_op(self, message_service, sample_group, sample_user):
+        message = _post(message_service, sample_group, sample_user, "same")
+
+        edited = _edit(message_service, message, sample_user, "same")
+
+        assert edited.edited_at is None
+
+    def test_whitespace_only_body_rejected(self):
+        with pytest.raises(ValueError):
+            MessageUpdate(body="   ")
+
+    def test_other_member_cannot_edit(
+        self, message_service, sample_group, sample_user, group_member
+    ):
+        message = _post(message_service, sample_group, sample_user, "mine")
+
+        with pytest.raises(HTTPException) as exc:
+            _edit(message_service, message, group_member, "yours now")
+
+        assert exc.value.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_group_owner_cannot_edit_another_users_message(
+        self, message_service, sample_group, sample_user, group_member
+    ):
+        # Moderators can delete, never rewrite.
+        message = _post(message_service, sample_group, group_member, "my words")
+
+        with pytest.raises(HTTPException) as exc:
+            _edit(message_service, message, sample_user, "your words")
+
+        assert exc.value.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_author_who_left_the_group_cannot_edit(
+        self, message_service, db_session, sample_group, group_member
+    ):
+        message = _post(message_service, sample_group, group_member, "bye")
+        db_session.execute(
+            group_members.delete().where(
+                group_members.c.group_id == sample_group.id,
+                group_members.c.user_id == group_member.id,
+            )
+        )
+        db_session.commit()
+
+        with pytest.raises(HTTPException) as exc:
+            _edit(message_service, message, group_member, "still here")
+
+        assert exc.value.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_deleted_message_cannot_be_edited(
+        self, message_service, sample_group, sample_user
+    ):
+        message = _post(message_service, sample_group, sample_user, "gone")
+        message_service.delete_message(message.id, sample_user)
+
+        with pytest.raises(HTTPException) as exc:
+            _edit(message_service, message, sample_user, "back")
+
+        assert exc.value.status_code == status.HTTP_409_CONFLICT
+
+    def test_unknown_message_404s(self, message_service, sample_user):
+        with pytest.raises(HTTPException) as exc:
+            message_service.edit_message(99999, sample_user, MessageUpdate(body="hi"))
+
+        assert exc.value.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_added_mention_is_recorded_and_notified(
+        self, message_service, db_session, sample_group, sample_user, group_member
+    ):
+        message = _post(message_service, sample_group, sample_user, "thoughts?")
+
+        edited = _edit(
+            message_service, message, sample_user, f"@{group_member.username} thoughts?"
+        )
+
+        assert [m.user_id for m in edited.mentions] == [group_member.id]
+        note = db_session.query(Notification).one()
+        assert note.user_id == group_member.id
+        assert note.type == NotificationType.mentioned_in_chat
+
+    def test_kept_mention_is_not_notified_again(
+        self, message_service, db_session, sample_group, sample_user, group_member
+    ):
+        handle = group_member.username
+        message = _post(message_service, sample_group, sample_user, f"@{handle} teh")
+
+        edited = _edit(message_service, message, sample_user, f"@{handle} the")
+
+        assert [m.user_id for m in edited.mentions] == [group_member.id]
+        assert db_session.query(Notification).count() == 1
+
+    def test_kept_mention_takes_the_current_username(
+        self, message_service, db_session, sample_group, sample_user, group_member
+    ):
+        message = _post(message_service, sample_group, sample_user, f"@{group_member.username} hi")
+        group_member.username = "renamed_member"
+        db_session.commit()
+
+        edited = _edit(message_service, message, sample_user, "@renamed_member hi again")
+
+        assert [(m.user_id, m.username) for m in edited.mentions] == [
+            (group_member.id, "renamed_member")
+        ]
+        # Same person, so still not a new mention.
+        assert db_session.query(Notification).count() == 1
+
+    def test_removed_mention_is_dropped(
+        self, message_service, sample_group, sample_user, group_member
+    ):
+        message = _post(
+            message_service, sample_group, sample_user, f"@{group_member.username} hi"
+        )
+
+        edited = _edit(message_service, message, sample_user, "hi all")
+
+        assert edited.mentions == []
 
 
 class TestDeleteMessage:

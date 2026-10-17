@@ -57,6 +57,15 @@ describe('messageService', () => {
     expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ body: 'hello' })
   })
 
+  it('edits by message id with a PATCH of the new body', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ id: 9 }))
+    await messageService.editMessage(9, 'fixed')
+
+    expect(requestedUrl()).toBe('/api/messages/9')
+    expect(mockFetch.mock.calls[0][1].method).toBe('PATCH')
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ body: 'fixed' })
+  })
+
   it('deletes by message id, not group id', async () => {
     mockFetch.mockResolvedValue(jsonResponse({ id: 9 }))
     await messageService.deleteMessage(9)

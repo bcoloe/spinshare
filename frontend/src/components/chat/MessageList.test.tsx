@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { getEditor, pressKey, selectText, typeText } from '../../test/editor'
 import { MantineProvider } from '@mantine/core'
 import { MemoryRouter } from 'react-router-dom'
 import MessageList from './MessageList'
@@ -31,6 +33,12 @@ function renderList(messages: MessageResponse[], props: Partial<Parameters<typeo
           canModerate={false}
           onlineIds={new Set()}
           onDelete={vi.fn()}
+          members={[]}
+          editingId={null}
+          isSavingEdit={false}
+          onStartEdit={vi.fn()}
+          onCancelEdit={vi.fn()}
+          onSaveEdit={vi.fn()}
           hasOlder={false}
           isLoadingOlder={false}
           onLoadOlder={vi.fn()}
@@ -183,6 +191,56 @@ describe('MessageList', () => {
     it('hides delete on an already-deleted message', () => {
       renderList([makeMessage({ user_id: 1, is_deleted: true })], { canModerate: true })
       expect(screen.queryByLabelText('Delete message')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('editing', () => {
+    it('offers edit only on your own messages', () => {
+      renderList([
+        makeMessage({ id: 1, user_id: 1 }),
+        makeMessage({ id: 2, user_id: 2, username: 'bob' }),
+      ], { canModerate: true })
+      expect(screen.getAllByLabelText('Edit message')).toHaveLength(1)
+    })
+
+    it('hides edit on a deleted message', () => {
+      renderList([makeMessage({ user_id: 1, is_deleted: true })])
+      expect(screen.queryByLabelText('Edit message')).not.toBeInTheDocument()
+    })
+
+    it('starts editing from the pencil', async () => {
+      const onStartEdit = vi.fn()
+      renderList([makeMessage({ id: 4, user_id: 1 })], { onStartEdit })
+      await userEvent.click(screen.getByLabelText('Edit message'))
+      expect(onStartEdit).toHaveBeenCalledWith(4)
+    })
+
+    it('saves the edited body on Enter', async () => {
+      const onSaveEdit = vi.fn()
+      renderList([makeMessage({ id: 4, user_id: 1, body: 'teh' })], { editingId: 4, onSaveEdit })
+      const editor = getEditor()
+      // autoFocus puts the caret at the end, ready to keep typing.
+      expect(editor.state.selection.from).toBe(editor.state.doc.content.size - 1)
+      selectText(editor, 'teh')
+      typeText(editor, 'the')
+      pressKey(editor, 'Enter')
+      expect(onSaveEdit).toHaveBeenCalledWith(4, 'the')
+    })
+
+    it('cancels on Escape without saving', async () => {
+      const onSaveEdit = vi.fn()
+      const onCancelEdit = vi.fn()
+      renderList([makeMessage({ id: 4, user_id: 1 })], { editingId: 4, onSaveEdit, onCancelEdit })
+      const editor = getEditor()
+      typeText(editor, 'more')
+      pressKey(editor, 'Escape')
+      expect(onCancelEdit).toHaveBeenCalled()
+      expect(onSaveEdit).not.toHaveBeenCalled()
+    })
+
+    it('marks an edited message', () => {
+      renderList([makeMessage({ edited_at: '2026-08-16T12:05:00Z' })])
+      expect(screen.getByText('(edited)')).toBeInTheDocument()
     })
   })
 })

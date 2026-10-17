@@ -29,6 +29,10 @@ class MessageCreate(BaseModel):
         return stripped
 
 
+class MessageUpdate(MessageCreate):
+    """Replacement body for an edited message — validated exactly like a new one."""
+
+
 class MessageMentionResponse(BaseModel):
     """A resolved mention span within a message body.
 
