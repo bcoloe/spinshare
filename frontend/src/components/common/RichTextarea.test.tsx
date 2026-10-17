@@ -87,4 +87,14 @@ describe('RichTextarea', () => {
     await user.type(textarea, '1', { initialSelectionStart: 7, initialSelectionEnd: 7 })
     expect(textarea.value).toBe('ratio 11:100:5')
   })
+
+  it('bolds the selection when the button is activated from the keyboard', async () => {
+    const { user, textarea } = setup()
+    await user.type(textarea, 'so good')
+    textarea.setSelectionRange(3, 7)
+    screen.getByRole('button', { name: 'Bold' }).focus()
+    await user.keyboard('{Enter}')
+
+    expect(textarea.value).toBe('so **good**')
+  })
 })

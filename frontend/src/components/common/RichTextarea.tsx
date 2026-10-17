@@ -175,8 +175,10 @@ export default function RichTextarea({
    *
    * Only the text before the caret is substituted. Typing and pasting both
    * leave the caret after what they added, and everything after it was already
-   * substituted on an earlier change — so this is complete, keeps the caret
-   * put, and never sees a fragment cut off from the word it belongs to.
+   * substituted on an earlier change — so this keeps the caret put and never
+   * sees a fragment cut off from the word it belongs to. A shortcode completed
+   * *across* the caret (typing the opening ':' in front of `fire:`) stays as
+   * typed until it is retyped; that is literal text, not a wrong substitution.
    */
   const handleTyped = (raw: string, rawCaret: number) => {
     const before = replaceShortcodes(raw.slice(0, rawCaret))
@@ -262,6 +264,11 @@ export default function RichTextarea({
         onMouseDown={(e) => {
           e.preventDefault()
           applyFormat(marker)
+        }}
+        // Keyboard activation (Enter / Space on the focused button) arrives as
+        // a click with detail 0; a mouse click was already handled above.
+        onClick={(e) => {
+          if (e.detail === 0) applyFormat(marker)
         }}
       >
         {icon}
