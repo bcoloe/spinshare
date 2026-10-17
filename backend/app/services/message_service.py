@@ -329,12 +329,15 @@ class MessageService:
         message.body = data.body
         message.edited_at = datetime.now(UTC)
         # Keep surviving rows rather than delete-and-reinsert; delete-orphan
-        # cascade removes the ones the edit dropped.
-        message.mentions = [
-            existing.get(target.id)
-            or MessageMention(user_id=target.id, username=target.username)
-            for target in resolved
-        ]
+        # cascade removes the ones the edit dropped. A kept row takes the
+        # current username: the client highlights by name, and someone renamed
+        # since the original post is now mentioned by their new handle.
+        mentions = []
+        for target in resolved:
+            row = existing.get(target.id) or MessageMention(user_id=target.id)
+            row.username = target.username
+            mentions.append(row)
+        message.mentions = mentions
 
         self.db.commit()
         self.db.refresh(message)

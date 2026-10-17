@@ -556,6 +556,21 @@ class TestEditMessage:
         assert [m.user_id for m in edited.mentions] == [group_member.id]
         assert db_session.query(Notification).count() == 1
 
+    def test_kept_mention_takes_the_current_username(
+        self, message_service, db_session, sample_group, sample_user, group_member
+    ):
+        message = _post(message_service, sample_group, sample_user, f"@{group_member.username} hi")
+        group_member.username = "renamed_member"
+        db_session.commit()
+
+        edited = _edit(message_service, message, sample_user, "@renamed_member hi again")
+
+        assert [(m.user_id, m.username) for m in edited.mentions] == [
+            (group_member.id, "renamed_member")
+        ]
+        # Same person, so still not a new mention.
+        assert db_session.query(Notification).count() == 1
+
     def test_removed_mention_is_dropped(
         self, message_service, sample_group, sample_user, group_member
     ):
