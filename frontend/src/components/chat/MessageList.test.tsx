@@ -19,6 +19,7 @@ function makeMessage(overrides: Partial<MessageResponse> = {}): MessageResponse 
     is_deleted: false,
     mentions: [],
     reactions: [],
+    reactions_version: 0,
     ...overrides,
   }
 }

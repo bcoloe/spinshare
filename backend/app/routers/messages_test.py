@@ -38,6 +38,7 @@ def make_mock_message(
     message.deleted_at = deleted_at
     message.mentions = []
     message.reactions = []
+    message.reactions_version = 0
     return message
 
 
@@ -222,6 +223,7 @@ class TestEditMessage:
 def make_mock_reacted_message(id=5, group_id=2, reactions=()) -> MagicMock:
     message = make_mock_message(id=id, group_id=group_id)
     message.reactions = [MagicMock(emoji=emoji, user_id=uid) for emoji, uid in reactions]
+    message.reactions_version = 7
     return message
 
 
@@ -237,6 +239,7 @@ class TestAddReaction:
         assert resp.json() == {
             "message_id": 5,
             "group_id": 2,
+            "version": 7,
             "reactions": [
                 {"emoji": "🔥", "count": 2, "user_ids": [1, 2]},
                 {"emoji": "👍", "count": 1, "user_ids": [1]},
@@ -263,6 +266,8 @@ class TestAddReaction:
             "lol", " ", "", "🔥 ", "1", "a🔥", "→", "x" * 40,
             # Marks that would spill onto neighbouring text, and a bidi override.
             "🔥" + "\u0301" * 15, "🔥\u202e", "\u200b🔥",
+            # Modifier symbols that aren't skin tones.
+            "^", "`", "^^^^", "\u00a8", "\u02dc",
         ],
     )
     def test_rejects_non_emoji(self, chat_client, mock_message_service, emoji):

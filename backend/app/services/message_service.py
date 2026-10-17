@@ -21,7 +21,6 @@ from app.services.group_service import GroupService
 from app.services.notification_service import NotificationService
 from fastapi import HTTPException, status
 from sqlalchemy import delete, func, select, update
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 # Candidate @mention spans. Usernames are stored lowercase and constrained only
@@ -57,6 +56,7 @@ def serialize_reactions(message: Message) -> MessageReactionsResponse:
     return MessageReactionsResponse(
         message_id=message.id,
         group_id=message.group_id,
+        version=message.reactions_version,
         reactions=summarize_reactions(message),
     )
 
@@ -90,6 +90,7 @@ def serialize_message(message: Message) -> MessageResponse:
             ]
         ),
         reactions=summarize_reactions(message),
+        reactions_version=message.reactions_version,
     )
 
 
@@ -412,24 +413,39 @@ class MessageService:
                 detail="Cannot react to a deleted message",
             )
 
+        self._lock_and_bump_reactions(message)
         mine = {r.emoji for r in message.reactions if r.user_id == user.id}
         if emoji in mine:
+            self.db.rollback()  # nothing changed: release the lock, keep the version
+            self.db.refresh(message)
             return message
         if len(mine) >= MAX_REACTIONS_PER_USER:
+            self.db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"At most {MAX_REACTIONS_PER_USER} different reactions per message",
             )
 
         message.reactions.append(MessageReaction(user_id=user.id, emoji=emoji))
-        try:
-            self.db.commit()
-        except IntegrityError:
-            # The same reaction landed concurrently (a double tap). The row we
-            # wanted exists, which is all an idempotent add promises.
-            self.db.rollback()
+        self.db.commit()
         self.db.refresh(message)
         return message
+
+    def _lock_and_bump_reactions(self, message: Message) -> None:
+        """Take the message row's lock, bump its reaction version, and re-read
+        its reactions under that lock.
+
+        Reaction changes to one message are thereby serialized: each one's
+        check (duplicate? at the per-user cap?) sees every earlier change, so a
+        double tap can't insert twice nor two taps slip past the cap, and the
+        versions handed to clients are strictly increasing in commit order.
+        """
+        self.db.execute(
+            update(Message)
+            .where(Message.id == message.id)
+            .values(reactions_version=Message.reactions_version + 1)
+        )
+        self.db.refresh(message, ["reactions", "reactions_version"])
 
     def remove_reaction(self, message_id: int, user: User, emoji: str) -> Message:
         """Withdraw the caller's reaction. Idempotent: removing nothing succeeds.
@@ -441,14 +457,18 @@ class MessageService:
         message = self.get_message(message_id)
         self.group_service.require_membership(user.id, message.group_id)
 
-        self.db.execute(
+        self._lock_and_bump_reactions(message)
+        removed = self.db.execute(
             delete(MessageReaction).where(
                 MessageReaction.message_id == message.id,
                 MessageReaction.user_id == user.id,
                 MessageReaction.emoji == emoji,
             )
-        )
-        self.db.commit()
+        ).rowcount
+        if removed:
+            self.db.commit()
+        else:
+            self.db.rollback()  # nothing changed: release the lock, keep the version
         self.db.refresh(message)
         return message
 

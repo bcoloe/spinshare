@@ -34,6 +34,9 @@ class Message(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     edited_at = Column(DateTime(timezone=True), nullable=True)
     deleted_at = Column(DateTime(timezone=True), nullable=True)
+    # Bumped by every reaction change, inside the same transaction, so clients
+    # can tell a newer reaction aggregate from a late-arriving older one.
+    reactions_version = Column(Integer, nullable=False, server_default="0")
 
     # Relationships
     user = relationship("User", foreign_keys=[user_id])

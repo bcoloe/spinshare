@@ -6,7 +6,7 @@ import type { MessageResponse } from '../types/message'
 import type { NotificationResponse } from '../types/notification'
 import { notificationKeys } from './useNotifications'
 import { chatKeys } from './chatKeys'
-import { applyReactions } from './chatCache'
+import { applyReactions, withNewerReactions } from './chatCache'
 
 export { chatKeys }
 
@@ -211,8 +211,7 @@ export function useEditMessage(groupId: number) {
       // unless a moderator's delete landed first: never resurrect a tombstone.
       qc.setQueryData<MessageResponse[]>(chatKeys.messages(groupId), (existing) =>
         existing?.map((m) =>
-          // Keep the cached reactions: they have their own event and may be newer.
-          m.id === message.id && !m.is_deleted ? { ...message, reactions: m.reactions } : m,
+          m.id === message.id && !m.is_deleted ? withNewerReactions(message, m) : m,
         ),
       )
     },
