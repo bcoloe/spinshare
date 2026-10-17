@@ -119,7 +119,7 @@ export function useDraftAutosave({
     writeLocal(storageKey, {
       ...current,
       savedAt: new Date().toISOString(),
-      baseServerTime: serverTime(review ?? lastSaved.current),
+      baseServerTime: serverTime(lastSaved.current ?? review),
     })
   }, [])
 
@@ -159,7 +159,11 @@ export function useDraftAutosave({
         } else {
           saved = await submit.mutateAsync(data)
         }
+        // Later device writes record this as their base, so they stay restorable.
         lastSaved.current = saved
+        // Edits made while this was in flight — including from a last trigger
+        // (blur, hide, unmount) that found the save busy — go out now.
+        if (dirty.current) void Promise.resolve().then(() => flush({ keepalive }))
         return 'saved'
       } catch {
         dirty.current = true // keep it for the next trigger; the local copy is safe meanwhile
@@ -202,6 +206,9 @@ export function useDraftAutosave({
   useEffect(() => {
     if (loaded.current || !ready || !key) return
     loaded.current = true
+    // If the review only became known after the user started typing (a slow or
+    // failed-then-retried load), what they typed wins: loading would overwrite it.
+    if (editedHere.current) return
     if (published) {
       removeLocal(key)
       return

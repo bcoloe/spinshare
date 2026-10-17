@@ -52,7 +52,7 @@ function setup(opts: { existingReview?: ReviewResponse | null; ready?: boolean; 
     return opts.strict ? <StrictMode>{tree}</StrictMode> : tree
   }
   const hook = renderHook(
-    ({ existingReview }: { existingReview: ReviewResponse | null }) => {
+    ({ existingReview, ready }: { existingReview: ReviewResponse | null; ready: boolean }) => {
       const [content, setContent] = useState<DraftContent>({ rating: null, comment: '' })
       const load = useCallback((d: DraftContent) => {
         onLoad(d)
@@ -61,7 +61,7 @@ function setup(opts: { existingReview?: ReviewResponse | null; ready?: boolean; 
       const autosave = useDraftAutosave({
         albumId: ALBUM,
         existingReview,
-        ready: opts.ready ?? true,
+        ready,
         content,
         onLoad: load,
         submitReview: { mutateAsync: submit, isPending: false } as never,
@@ -69,7 +69,7 @@ function setup(opts: { existingReview?: ReviewResponse | null; ready?: boolean; 
       })
       return { autosave, content, setContent }
     },
-    { wrapper, initialProps: { existingReview: opts.existingReview ?? null } },
+    { wrapper, initialProps: { existingReview: opts.existingReview ?? null, ready: opts.ready ?? true } },
   )
   /** What a change handler does: mark dirty, then update state. */
   const type = (content: DraftContent) =>
@@ -113,7 +113,7 @@ describe('typing', () => {
 
   it('a re-render without an edit does not flush', async () => {
     const { hook, submit } = setup()
-    hook.rerender({ existingReview: null })
+    hook.rerender({ existingReview: null, ready: true })
     await act(async () => vi.advanceTimersByTime(SERVER_FLUSH_INTERVAL_MS * 2))
     expect(submit).not.toHaveBeenCalled()
   })
@@ -234,16 +234,37 @@ describe('creating, then updating, the draft', () => {
     await flush()
     type({ rating: 5, comment: 'typed while it was in flight' })
 
-    hook.rerender({ existingReview: review({ id: 99, comment: 'typed before the save' }) })
+    hook.rerender({ existingReview: review({ id: 99, comment: 'typed before the save' }), ready: true })
 
     expect(hook.result.current.content.comment).toBe('typed while it was in flight')
+  })
+
+  it('edits made while a save is in flight are sent once it lands, even if the last trigger found it busy', async () => {
+    let finish: (r: ReviewResponse) => void = () => {}
+    const { hook, type, update } = setup({ existingReview: review() })
+    update.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+    type({ rating: 6, comment: 'first' })
+    act(() => { void hook.result.current.autosave.flush() }) // slow save in flight
+    type({ rating: 6, comment: 'first and more' })
+
+    expect(await act(() => hook.result.current.autosave.flush())).toBe('busy') // e.g. blur
+    await act(async () => { hook.unmount() }) // the last trigger: also busy
+
+    await act(async () => { finish(review({ comment: 'first', updated_at: '2026-10-12T12:00:00Z' })) })
+    await act(async () => { await Promise.resolve() })
+
+    expect(update).toHaveBeenCalledTimes(2)
+    expect(update.mock.calls[1][0].data.comment).toBe('first and more')
+    // And the device copy sits on the version just saved, so it stays restorable.
+    expect(local()).toMatchObject({ comment: 'first and more' })
+    expect(local().baseServerTime).not.toBe('2026-10-12T10:00:00Z')
   })
 
   it('a save that returns a new review object does not trigger another save', async () => {
     const { hook, type, flush, update } = setup({ existingReview: review() })
     type({ rating: 6, comment: 'edit' })
     await flush()
-    hook.rerender({ existingReview: review({ comment: 'edit', updated_at: '2026-10-12T12:00:00Z' }) })
+    hook.rerender({ existingReview: review({ comment: 'edit', updated_at: '2026-10-12T12:00:00Z' }), ready: true })
 
     expect(await flush()).toBe('clean')
     await act(async () => hook.unmount())
@@ -254,7 +275,7 @@ describe('creating, then updating, the draft', () => {
 describe('starting content', () => {
   it('loads the server draft once', () => {
     const { hook, onLoad } = setup({ existingReview: review() })
-    hook.rerender({ existingReview: review({ comment: 'changed elsewhere', updated_at: '2026-10-12T13:00:00Z' }) })
+    hook.rerender({ existingReview: review({ comment: 'changed elsewhere', updated_at: '2026-10-12T13:00:00Z' }), ready: true })
     expect(onLoad).toHaveBeenCalledTimes(1)
     expect(onLoad).toHaveBeenCalledWith({ rating: 6, comment: 'server copy' })
   })
@@ -296,6 +317,17 @@ describe('starting content', () => {
     expect(local()).toBeNull()
   })
 
+  it('typing done before the review loaded is not replaced when it does', () => {
+    const { hook, type, onLoad } = setup({ ready: false })
+    type({ rating: 4, comment: 'typed while the review was still loading' })
+
+    hook.rerender({ existingReview: review(), ready: true })
+
+    expect(onLoad).not.toHaveBeenCalled()
+    expect(hook.result.current.content.comment).toBe('typed while the review was still loading')
+    expect(local()).toMatchObject({ comment: 'typed while the review was still loading' })
+  })
+
   it('waits until the server copy has loaded', () => {
     stored({ baseServerTime: null })
     const { onLoad } = setup({ ready: false })
@@ -308,6 +340,7 @@ describe('starting content', () => {
     const { hook, update } = setup({ existingReview: review(), strict: true })
 
     expect(hook.result.current.content).toEqual({ rating: 8, comment: 'local copy' })
+    expect(update).toHaveBeenCalled() // StrictMode's simulated unmount flushes; the loop below must have something to check
     for (const call of update.mock.calls) {
       expect(call[0].data).toMatchObject({ comment: 'local copy' }) // never the pre-restore content
     }
