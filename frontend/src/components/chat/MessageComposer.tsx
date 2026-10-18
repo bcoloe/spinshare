@@ -2,18 +2,19 @@ import { useState } from 'react'
 import { ActionIcon } from '@mantine/core'
 import { IconSend } from '@tabler/icons-react'
 import type { GroupMemberResponse } from '../../types/group'
+import { MAX_MESSAGE_LENGTH } from '../../types/message'
 import RichTextarea from '../common/RichTextarea'
-
-const MAX_MESSAGE_LENGTH = 2000
 
 interface Props {
   members: GroupMemberResponse[]
   onSend: (body: string) => void
   isSending: boolean
   disabled?: boolean
+  /** Up-arrow in an empty composer: open your most recent message for editing. */
+  onEditLast?: () => void
 }
 
-export default function MessageComposer({ members, onSend, isSending, disabled }: Props) {
+export default function MessageComposer({ members, onSend, isSending, disabled, onEditLast }: Props) {
   const [value, setValue] = useState('')
 
   const submit = () => {
@@ -29,6 +30,12 @@ export default function MessageComposer({ members, onSend, isSending, disabled }
       onChange={setValue}
       members={members}
       onSubmit={submit}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowUp' && !value && onEditLast) {
+          e.preventDefault()
+          onEditLast()
+        }
+      }}
       minRows={1}
       maxRows={5}
       maxLength={MAX_MESSAGE_LENGTH}

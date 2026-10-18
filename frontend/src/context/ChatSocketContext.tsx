@@ -169,6 +169,16 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
           }
           break
         }
+        case 'message.edited': {
+          const message = event.message
+          queryClient.setQueryData<MessageResponse[]>(
+            chatKeys.messages(message.group_id),
+            // A late edit must never resurrect a message already tombstoned.
+            (existing) =>
+              existing?.map((m) => (m.id === message.id && !m.is_deleted ? message : m)),
+          )
+          break
+        }
         case 'message.deleted': {
           const message = event.message
           queryClient.setQueryData<MessageResponse[]>(

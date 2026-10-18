@@ -1,8 +1,10 @@
 import { Fragment, useEffect, useRef } from 'react'
 import { ActionIcon, Avatar, Group, Loader, Stack, Text, Tooltip } from '@mantine/core'
-import { IconTrash } from '@tabler/icons-react'
+import { IconPencil, IconTrash } from '@tabler/icons-react'
 import { useNavigate } from 'react-router-dom'
 import type { MessageResponse } from '../../types/message'
+import type { GroupMemberResponse } from '../../types/group'
+import MessageEditor from './MessageEditor'
 import RichText from '../common/RichText'
 
 /** How close to the top counts as "asking for more". */
@@ -15,6 +17,14 @@ interface Props {
   canModerate: boolean
   onlineIds: Set<number>
   onDelete: (messageId: number) => void
+  /** Members offered by @ autocomplete while editing. */
+  members: GroupMemberResponse[]
+  /** The message currently open for editing, if any. */
+  editingId: number | null
+  isSavingEdit: boolean
+  onStartEdit: (messageId: number) => void
+  onCancelEdit: () => void
+  onSaveEdit: (messageId: number, body: string) => void
   /** Whether a page of older messages may still exist above the current window. */
   hasOlder: boolean
   isLoadingOlder: boolean
@@ -40,6 +50,12 @@ export default function MessageList({
   canModerate,
   onlineIds,
   onDelete,
+  members,
+  editingId,
+  isSavingEdit,
+  onStartEdit,
+  onCancelEdit,
+  onSaveEdit,
   hasOlder,
   isLoadingOlder,
   onLoadOlder,
@@ -127,6 +143,8 @@ export default function MessageList({
 
           const isMine = message.user_id !== null && message.user_id === currentUserId
           const canDelete = !message.is_deleted && (isMine || canModerate)
+          const canEdit = !message.is_deleted && isMine
+          const isEditing = canEdit && editingId === message.id
           const mentionsMe =
             currentUserId !== undefined &&
             message.mentions.some((m) => m.user_id === currentUserId)
@@ -186,12 +204,27 @@ export default function MessageList({
                     <Text size="xs" c="dimmed">
                       {formatTime(message.created_at)}
                     </Text>
+                    {message.edited_at && !message.is_deleted && (
+                      <Tooltip label={`Edited ${formatDay(message.edited_at)}, ${formatTime(message.edited_at)}`}>
+                        <Text size="xs" c="dimmed">
+                          (edited)
+                        </Text>
+                      </Tooltip>
+                    )}
                   </Group>
 
                   {message.is_deleted ? (
                     <Text size="sm" c="dimmed" fs="italic">
                       [message deleted]
                     </Text>
+                  ) : isEditing ? (
+                    <MessageEditor
+                      initialBody={message.body}
+                      members={members}
+                      isSaving={isSavingEdit}
+                      onSave={(body) => onSaveEdit(message.id, body)}
+                      onCancel={onCancelEdit}
+                    />
                   ) : (
                     <Text size="sm" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                       <RichText
@@ -203,7 +236,21 @@ export default function MessageList({
                   )}
                 </Stack>
 
-                {canDelete && (
+                {canEdit && !isEditing && (
+                  <Tooltip label="Edit message">
+                    <ActionIcon
+                      size="sm"
+                      variant="subtle"
+                      color="gray"
+                      aria-label="Edit message"
+                      onClick={() => onStartEdit(message.id)}
+                    >
+                      <IconPencil size={13} />
+                    </ActionIcon>
+                  </Tooltip>
+                )}
+
+                {canDelete && !isEditing && (
                   <Tooltip label="Delete message">
                     <ActionIcon
                       size="sm"

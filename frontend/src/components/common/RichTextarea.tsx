@@ -32,6 +32,14 @@ interface Props {
   members?: GroupMemberResponse[]
   /** When set, Enter submits and Shift+Enter inserts a line break. */
   onSubmit?: () => void
+  /**
+   * Extra key handling, run after an open suggestion list has had its turn (so
+   * arrows and Escape still drive it) and before Enter submits. Call
+   * `preventDefault()` to claim the key.
+   */
+  onKeyDown?: (event: KeyboardEvent) => void
+  /** Focus on mount with the caret at the end, e.g. when opening an editor. */
+  autoFocus?: boolean
   /** Rendered beside the editor, e.g. a send button. */
   actions?: ReactNode
   label?: string
@@ -60,6 +68,8 @@ export default function RichTextarea({
   onChange,
   members,
   onSubmit,
+  onKeyDown,
+  autoFocus,
   actions,
   label,
   placeholder,
@@ -75,8 +85,8 @@ export default function RichTextarea({
 
   // The editor's extensions are built once; everything they call back into is
   // read through refs so it always sees the current props and state.
-  const latest = useRef({ onChange, onSubmit, members, suggestion, highlighted })
-  latest.current = { onChange, onSubmit, members, suggestion, highlighted }
+  const latest = useRef({ onChange, onSubmit, onKeyDown, members, suggestion, highlighted })
+  latest.current = { onChange, onSubmit, onKeyDown, members, suggestion, highlighted }
   // The last value this editor emitted, to tell our own echo from a real
   // outside change (a cleared composer, a restored draft).
   const emitted = useRef(value)
@@ -149,6 +159,7 @@ export default function RichTextarea({
       extensions,
       content: markdownToDoc(value),
       editable: !disabled,
+      autofocus: autoFocus ? 'end' : false,
       editorProps: {
         attributes: {
           role: 'textbox',
@@ -158,6 +169,8 @@ export default function RichTextarea({
         handleKeyDown: (_view, event) => {
           // An open suggestion list owns Enter; its plugin handles it next.
           if (latest.current.suggestion) return false
+          latest.current.onKeyDown?.(event)
+          if (event.defaultPrevented) return true
           const submit = latest.current.onSubmit
           if (submit && event.key === 'Enter' && !event.shiftKey) {
             submit()

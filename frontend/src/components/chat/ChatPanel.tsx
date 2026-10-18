@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Badge, Group, Skeleton, Stack, Text, Tooltip } from '@mantine/core'
 import { IconCircleFilled, IconPlugConnectedX } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
@@ -8,6 +8,7 @@ import {
   CHAT_PAGE_SIZE,
   useChatMessages,
   useDeleteMessage,
+  useEditMessage,
   useGroupPresence,
   useChatSocket,
   useLoadOlderMessages,
@@ -53,6 +54,8 @@ export default function ChatPanel({ group, members, showPresence = true }: Props
   const { data: messages = [], isLoading } = useChatMessages(group.id, isMember)
   const sendMessage = useSendMessage(group.id)
   const deleteMessage = useDeleteMessage(group.id)
+  const editMessage = useEditMessage(group.id)
+  const [editingId, setEditingId] = useState<number | null>(null)
   const { loadOlder, isLoadingOlder, hasOlder } = useLoadOlderMessages(group.id)
 
   // Until a backwards page has actually come back we cannot know whether more
@@ -148,6 +151,23 @@ export default function ChatPanel({ group, members, showPresence = true }: Props
     }
   }
 
+  const handleSaveEdit = async (messageId: number, body: string) => {
+    try {
+      await editMessage.mutateAsync({ messageId, body })
+      setEditingId(null)
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Could not edit message'
+      notifications.show({ color: 'red', message })
+    }
+  }
+
+  const editLastMessage = () => {
+    const last = [...messages]
+      .reverse()
+      .find((m) => !m.is_deleted && m.user_id !== null && m.user_id === user?.id)
+    if (last) setEditingId(last.id)
+  }
+
   const handleDelete = async (messageId: number) => {
     try {
       await deleteMessage.mutateAsync(messageId)
@@ -203,6 +223,12 @@ export default function ChatPanel({ group, members, showPresence = true }: Props
             canModerate={canModerate}
             onlineIds={onlineIds}
             onDelete={handleDelete}
+            members={members}
+            editingId={editingId}
+            isSavingEdit={editMessage.isPending}
+            onStartEdit={setEditingId}
+            onCancelEdit={() => setEditingId(null)}
+            onSaveEdit={handleSaveEdit}
             hasOlder={canLoadOlder}
             isLoadingOlder={isLoadingOlder}
             onLoadOlder={loadOlder}
@@ -215,6 +241,7 @@ export default function ChatPanel({ group, members, showPresence = true }: Props
         onSend={handleSend}
         isSending={sendMessage.isPending}
         disabled={!isMember}
+        onEditLast={editLastMessage}
       />
     </Stack>
   )

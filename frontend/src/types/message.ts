@@ -1,3 +1,6 @@
+/** Mirrors the server's limit on a message body (`MAX_MESSAGE_LENGTH`). */
+export const MAX_MESSAGE_LENGTH = 2000
+
 export interface MessageMention {
   user_id: number
   username: string
@@ -66,9 +69,15 @@ export interface MessageDeletedEvent {
   message: MessageResponse
 }
 
+export interface MessageEditedEvent {
+  type: 'message.edited'
+  message: MessageResponse
+}
+
 export type ChatSocketEvent =
   | PresenceSnapshotEvent
   | PresenceJoinEvent
   | PresenceLeaveEvent
   | MessageNewEvent
   | MessageDeletedEvent
+  | MessageEditedEvent

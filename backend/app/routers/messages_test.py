@@ -167,6 +167,57 @@ class TestPostMessage:
         mock_manager.broadcast_from_thread.assert_not_called()
 
 
+class TestEditMessage:
+    def test_edits_message(self, chat_client, mock_message_service):
+        edited = make_mock_message(id=5, body="fixed")
+        edited.edited_at = CREATED_AT
+        mock_message_service.edit_message.return_value = edited
+
+        resp = chat_client.patch("/messages/5", json={"body": "fixed"})
+
+        assert resp.status_code == 200
+        assert resp.json()["body"] == "fixed"
+        assert resp.json()["edited_at"] is not None
+
+    def test_empty_body_is_rejected(self, chat_client):
+        resp = chat_client.patch("/messages/5", json={"body": "   "})
+        assert resp.status_code == 422
+
+    def test_oversized_body_is_rejected(self, chat_client):
+        resp = chat_client.patch("/messages/5", json={"body": "x" * (MAX_MESSAGE_LENGTH + 1)})
+        assert resp.status_code == 422
+
+    def test_broadcasts_the_edit(self, chat_client, mock_message_service):
+        mock_message_service.edit_message.return_value = make_mock_message(
+            id=5, group_id=2, body="fixed"
+        )
+
+        with patch("app.routers.messages.manager") as mock_manager:
+            chat_client.patch("/messages/5", json={"body": "fixed"})
+
+        group_id, payload = mock_manager.broadcast_from_thread.call_args[0]
+        assert group_id == 2
+        assert payload["type"] == "message.edited"
+        assert payload["message"]["body"] == "fixed"
+
+    def test_does_not_broadcast_when_the_edit_fails(
+        self, chat_client, mock_message_service
+    ):
+        mock_message_service.edit_message.side_effect = HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="You can only edit your own messages"
+        )
+
+        with patch("app.routers.messages.manager") as mock_manager:
+            resp = chat_client.patch("/messages/5", json={"body": "hi"})
+
+        assert resp.status_code == 403
+        mock_manager.broadcast_from_thread.assert_not_called()
+
+    def test_requires_auth(self, unauthed_chat_client):
+        resp = unauthed_chat_client.patch("/messages/5", json={"body": "hi"})
+        assert resp.status_code == 401
+
+
 class TestDeleteMessage:
     def test_deletes_message(self, chat_client, mock_message_service):
         mock_message_service.delete_message.return_value = make_mock_message(

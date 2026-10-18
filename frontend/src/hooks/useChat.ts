@@ -200,6 +200,21 @@ export function useSendMessage(groupId: number) {
   })
 }
 
+export function useEditMessage(groupId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ messageId, body }: { messageId: number; body: string }) =>
+      messageService.editMessage(messageId, body),
+    onSuccess: (message) => {
+      // Patch in place rather than waiting for the socket echo, as for sends —
+      // unless a moderator's delete landed first: never resurrect a tombstone.
+      qc.setQueryData<MessageResponse[]>(chatKeys.messages(groupId), (existing) =>
+        existing?.map((m) => (m.id === message.id && !m.is_deleted ? message : m)),
+      )
+    },
+  })
+}
+
 export function useDeleteMessage(groupId: number) {
   const qc = useQueryClient()
   return useMutation({
