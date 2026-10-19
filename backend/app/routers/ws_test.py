@@ -235,9 +235,15 @@ class TestLifecycle:
                     f"/ws/chat?ticket={create_chat_ticket(2)}"
                 ) as second:
                     second.receive_json()
-            first.receive_json()  # the join
+                    first.receive_json()  # the join
 
-            event = first.receive_json()
+                    # Disconnect explicitly and read the leave while the session is
+                    # still open. Leaving the context instead sends the disconnect
+                    # and then cancels the handler straight away; on a busy machine
+                    # the cancel can beat the leave broadcast, and this read would
+                    # then block forever.
+                    second.close()
+                    event = first.receive_json()
 
         assert event["type"] == "presence.leave"
         assert event["user_id"] == 2
