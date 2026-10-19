@@ -9,7 +9,7 @@ from .group_settings import GroupSettings
 from .invitation import GroupInvitation
 from .invite_link import GroupInviteLink
 from .link_report import LinkReport
-from .message import Message, MessageMention
+from .message import Message, MessageMention, MessageReaction
 from .nomination_guess import NominationGuess
 from .notification import Notification
 from .participation import GroupParticipation, PriorityReviewCredit
@@ -35,6 +35,7 @@ __all__ = [
     "LinkReport",
     "Message",
     "MessageMention",
+    "MessageReaction",
     "NominationGuess",
     "Notification",
     "GroupParticipation",

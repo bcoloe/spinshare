@@ -1,10 +1,12 @@
-import { Fragment, useEffect, useRef } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { ActionIcon, Avatar, Group, Loader, Stack, Text, Tooltip } from '@mantine/core'
 import { IconPencil, IconTrash } from '@tabler/icons-react'
 import { useNavigate } from 'react-router-dom'
 import type { MessageResponse } from '../../types/message'
 import type { GroupMemberResponse } from '../../types/group'
 import MessageEditor from './MessageEditor'
+import ReactionChips from './ReactionChips'
+import ReactionPicker from './ReactionPicker'
 import RichText from '../common/RichText'
 
 /** How close to the top counts as "asking for more". */
@@ -25,6 +27,7 @@ interface Props {
   onStartEdit: (messageId: number) => void
   onCancelEdit: () => void
   onSaveEdit: (messageId: number, body: string) => void
+  onToggleReaction: (messageId: number, emoji: string, remove: boolean) => void
   /** Whether a page of older messages may still exist above the current window. */
   hasOlder: boolean
   isLoadingOlder: boolean
@@ -56,11 +59,20 @@ export default function MessageList({
   onStartEdit,
   onCancelEdit,
   onSaveEdit,
+  onToggleReaction,
   hasOlder,
   isLoadingOlder,
   onLoadOlder,
 }: Props) {
   const navigate = useNavigate()
+  // The message whose actions a tap revealed (touch screens have no hover), and
+  // the one whose reaction picker is open — its bar must not vanish under it.
+  const [activeId, setActiveId] = useState<number | null>(null)
+  const [pickerId, setPickerId] = useState<number | null>(null)
+  const usernames = useMemo(
+    () => new Map(members.map((m) => [m.user_id, m.username])),
+    [members],
+  )
   const bottomRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   // Only auto-scroll when the reader is already at the bottom, so a new message
@@ -145,6 +157,7 @@ export default function MessageList({
           const canDelete = !message.is_deleted && (isMine || canModerate)
           const canEdit = !message.is_deleted && isMine
           const isEditing = canEdit && editingId === message.id
+          const canReact = !message.is_deleted
           const mentionsMe =
             currentUserId !== undefined &&
             message.mentions.some((m) => m.user_id === currentUserId)
@@ -158,6 +171,13 @@ export default function MessageList({
               )}
 
               <Group
+                className="chat-message"
+                data-active={activeId === message.id || pickerId === message.id || undefined}
+                onClick={(e) => {
+                  // Taps on the message's own controls, links and inline editor are theirs.
+                  if ((e.target as HTMLElement).closest('button, a, textarea, [contenteditable="true"]')) return
+                  setActiveId((id) => (id === message.id ? null : message.id))
+                }}
                 gap="xs"
                 align="flex-start"
                 wrap="nowrap"
@@ -234,35 +254,59 @@ export default function MessageList({
                       />
                     </Text>
                   )}
+
+                  {!message.is_deleted && (
+                    <ReactionChips
+                      reactions={message.reactions}
+                      currentUserId={currentUserId}
+                      usernames={usernames}
+                      onToggle={(emoji, remove) => onToggleReaction(message.id, emoji, remove)}
+                    />
+                  )}
                 </Stack>
 
-                {canEdit && !isEditing && (
-                  <Tooltip label="Edit message">
-                    <ActionIcon
-                      size="sm"
-                      variant="subtle"
-                      color="gray"
-                      aria-label="Edit message"
-                      onClick={() => onStartEdit(message.id)}
-                    >
-                      <IconPencil size={13} />
-                    </ActionIcon>
-                  </Tooltip>
-                )}
+                <Group gap={2} wrap="nowrap" className="chat-message-actions">
+                  {canReact && !isEditing && (
+                    <ReactionPicker
+                      onReact={(emoji) => {
+                        const already = message.reactions.some(
+                          (r) => r.emoji === emoji && currentUserId !== undefined && r.user_ids.includes(currentUserId),
+                        )
+                        // Picking an emoji you already used is a no-op, not a removal.
+                        if (!already) onToggleReaction(message.id, emoji, false)
+                      }}
+                      onOpenChange={(opened) => setPickerId(opened ? message.id : null)}
+                    />
+                  )}
 
-                {canDelete && !isEditing && (
-                  <Tooltip label="Delete message">
-                    <ActionIcon
-                      size="sm"
-                      variant="subtle"
-                      color="red"
-                      aria-label="Delete message"
-                      onClick={() => onDelete(message.id)}
-                    >
-                      <IconTrash size={13} />
-                    </ActionIcon>
-                  </Tooltip>
-                )}
+                  {canEdit && !isEditing && (
+                    <Tooltip label="Edit message">
+                      <ActionIcon
+                        size="sm"
+                        variant="subtle"
+                        color="gray"
+                        aria-label="Edit message"
+                        onClick={() => onStartEdit(message.id)}
+                      >
+                        <IconPencil size={13} />
+                      </ActionIcon>
+                    </Tooltip>
+                  )}
+
+                  {canDelete && !isEditing && (
+                    <Tooltip label="Delete message">
+                      <ActionIcon
+                        size="sm"
+                        variant="subtle"
+                        color="red"
+                        aria-label="Delete message"
+                        onClick={() => onDelete(message.id)}
+                      >
+                        <IconTrash size={13} />
+                      </ActionIcon>
+                    </Tooltip>
+                  )}
+                </Group>
               </Group>
             </Fragment>
           )

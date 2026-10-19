@@ -9,6 +9,7 @@ import {
   useChatMessages,
   useDeleteMessage,
   useEditMessage,
+  useToggleReaction,
   useGroupPresence,
   useChatSocket,
   useLoadOlderMessages,
@@ -55,6 +56,7 @@ export default function ChatPanel({ group, members, showPresence = true }: Props
   const sendMessage = useSendMessage(group.id)
   const deleteMessage = useDeleteMessage(group.id)
   const editMessage = useEditMessage(group.id)
+  const toggleReaction = useToggleReaction()
   const [editingId, setEditingId] = useState<number | null>(null)
   const { loadOlder, isLoadingOlder, hasOlder } = useLoadOlderMessages(group.id)
 
@@ -168,6 +170,15 @@ export default function ChatPanel({ group, members, showPresence = true }: Props
     if (last) setEditingId(last.id)
   }
 
+  const handleToggleReaction = async (messageId: number, emoji: string, remove: boolean) => {
+    try {
+      await toggleReaction.mutateAsync({ messageId, emoji, remove })
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Could not update reaction'
+      notifications.show({ color: 'red', message })
+    }
+  }
+
   const handleDelete = async (messageId: number) => {
     try {
       await deleteMessage.mutateAsync(messageId)
@@ -229,6 +240,7 @@ export default function ChatPanel({ group, members, showPresence = true }: Props
             onStartEdit={setEditingId}
             onCancelEdit={() => setEditingId(null)}
             onSaveEdit={handleSaveEdit}
+            onToggleReaction={handleToggleReaction}
             hasOlder={canLoadOlder}
             isLoadingOlder={isLoadingOlder}
             onLoadOlder={loadOlder}

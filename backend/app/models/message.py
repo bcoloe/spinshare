@@ -1,6 +1,15 @@
 """Group chat message table definitions."""
 
-from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -25,12 +34,22 @@ class Message(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     edited_at = Column(DateTime(timezone=True), nullable=True)
     deleted_at = Column(DateTime(timezone=True), nullable=True)
+    # Bumped by every reaction change, inside the same transaction, so clients
+    # can tell a newer reaction aggregate from a late-arriving older one.
+    reactions_version = Column(Integer, nullable=False, server_default="0")
 
     # Relationships
     user = relationship("User", foreign_keys=[user_id])
     group = relationship("Group")
     mentions = relationship(
         "MessageMention", back_populates="message", cascade="all, delete-orphan"
+    )
+    # Ordered by id so reaction chips keep a stable, first-reacted-first order.
+    reactions = relationship(
+        "MessageReaction",
+        back_populates="message",
+        cascade="all, delete-orphan",
+        order_by="MessageReaction.id",
     )
 
     __table_args__ = (
@@ -62,3 +81,29 @@ class MessageMention(Base):
     # Relationships
     message = relationship("Message", back_populates="mentions")
     user = relationship("User", foreign_keys=[user_id])
+
+
+class MessageReaction(Base):
+    """One user's emoji reaction to a message.
+
+    A user may react to a message with several different emoji, but with each
+    one only once — the unique constraint makes adding a reaction idempotent.
+    """
+
+    __tablename__ = "message_reactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    # No separate index: unique_message_user_reaction is message_id-leading, so
+    # it already serves "all reactions on these messages".
+    message_id = Column(Integer, ForeignKey("messages.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    emoji = Column(String(32), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    message = relationship("Message", back_populates="reactions")
+    user = relationship("User", foreign_keys=[user_id])
+
+    __table_args__ = (
+        UniqueConstraint("message_id", "user_id", "emoji", name="unique_message_user_reaction"),
+    )

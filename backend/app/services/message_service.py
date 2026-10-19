@@ -3,13 +3,16 @@
 import re
 from datetime import UTC, datetime
 
-from app.models import Message, MessageMention, User
+from app.models import Message, MessageMention, MessageReaction, User
 from app.models.group import GroupRole, group_members
 from app.schemas.message import (
     DEFAULT_HISTORY_LIMIT,
     MAX_HISTORY_LIMIT,
+    MAX_REACTIONS_PER_USER,
     MessageCreate,
     MessageMentionResponse,
+    MessageReactionsResponse,
+    MessageReactionSummary,
     MessageResponse,
     MessageUpdate,
 )
@@ -17,7 +20,7 @@ from app.schemas.notification import NotificationType
 from app.services.group_service import GroupService
 from app.services.notification_service import NotificationService
 from fastapi import HTTPException, status
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 # Candidate @mention spans. Usernames are stored lowercase and constrained only
@@ -30,6 +33,32 @@ MENTION_PATTERN = re.compile(r"@([A-Za-z0-9_.\-]{3,50})")
 # A single message can only notify this many people, regardless of how many
 # handles it contains. Stops "@a @b @c ..." from becoming a notification cannon.
 MAX_MENTIONS_PER_MESSAGE = 10
+
+
+def summarize_reactions(message: Message) -> list[MessageReactionSummary]:
+    """Group a message's reaction rows by emoji, in first-reacted order.
+
+    A deleted message surrenders its reactions along with its body.
+    """
+    if message.deleted_at is not None:
+        return []
+    by_emoji: dict[str, list[int]] = {}
+    for reaction in message.reactions:  # relationship is ordered by id
+        by_emoji.setdefault(reaction.emoji, []).append(reaction.user_id)
+    return [
+        MessageReactionSummary(emoji=emoji, count=len(user_ids), user_ids=user_ids)
+        for emoji, user_ids in by_emoji.items()
+    ]
+
+
+def serialize_reactions(message: Message) -> MessageReactionsResponse:
+    """The wire shape for a reaction change: the message's whole aggregate."""
+    return MessageReactionsResponse(
+        message_id=message.id,
+        group_id=message.group_id,
+        version=message.reactions_version,
+        reactions=summarize_reactions(message),
+    )
 
 
 def serialize_message(message: Message) -> MessageResponse:
@@ -60,6 +89,8 @@ def serialize_message(message: Message) -> MessageResponse:
                 for m in message.mentions
             ]
         ),
+        reactions=summarize_reactions(message),
+        reactions_version=message.reactions_version,
     )
 
 
@@ -188,7 +219,11 @@ class MessageService:
 
         stmt = (
             select(Message)
-            .options(selectinload(Message.mentions), selectinload(Message.user))
+            .options(
+                selectinload(Message.mentions),
+                selectinload(Message.reactions),
+                selectinload(Message.user),
+            )
             .where(Message.group_id == group_id)
         )
         if before is not None:
@@ -211,7 +246,11 @@ class MessageService:
         """
         message = self.db.scalars(
             select(Message)
-            .options(selectinload(Message.mentions), selectinload(Message.user))
+            .options(
+                selectinload(Message.mentions),
+                selectinload(Message.reactions),
+                selectinload(Message.user),
+            )
             .where(Message.id == message_id)
         ).first()
         if message is None:
@@ -352,6 +391,88 @@ class MessageService:
                 group_id=message.group_id,
             )
 
+        return message
+
+    # ==================== REACTIONS ====================
+
+    def add_reaction(self, message_id: int, user: User, emoji: str) -> Message:
+        """React to a message with an emoji. Idempotent.
+
+        Raises:
+            HTTPException 400: If the user already has the maximum number of
+                different reactions on this message
+            HTTPException 403: If the user is not a member of the message's group
+            HTTPException 404: If the message does not exist
+            HTTPException 409: If the message has been deleted
+        """
+        message = self.get_message(message_id)
+        self.group_service.require_membership(user.id, message.group_id)
+
+        self._lock_and_bump_reactions(message)
+        # Checked under the lock: a delete committed since the read above would
+        # otherwise leave a hidden reaction on a tombstone.
+        if message.deleted_at is not None:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot react to a deleted message",
+            )
+        mine = {r.emoji for r in message.reactions if r.user_id == user.id}
+        if emoji in mine:
+            self.db.rollback()  # nothing changed: release the lock, keep the version
+            self.db.refresh(message)
+            return message
+        if len(mine) >= MAX_REACTIONS_PER_USER:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"At most {MAX_REACTIONS_PER_USER} different reactions per message",
+            )
+
+        message.reactions.append(MessageReaction(user_id=user.id, emoji=emoji))
+        self.db.commit()
+        self.db.refresh(message)
+        return message
+
+    def _lock_and_bump_reactions(self, message: Message) -> None:
+        """Take the message row's lock, bump its reaction version, and re-read
+        its reactions (and deletion state) under that lock.
+
+        Reaction changes to one message are thereby serialized: each one's
+        check (duplicate? at the per-user cap?) sees every earlier change, so a
+        double tap can't insert twice nor two taps slip past the cap, and the
+        versions handed to clients are strictly increasing in commit order.
+        """
+        self.db.execute(
+            update(Message)
+            .where(Message.id == message.id)
+            .values(reactions_version=Message.reactions_version + 1)
+        )
+        self.db.refresh(message, ["reactions", "reactions_version", "deleted_at"])
+
+    def remove_reaction(self, message_id: int, user: User, emoji: str) -> Message:
+        """Withdraw the caller's reaction. Idempotent: removing nothing succeeds.
+
+        Raises:
+            HTTPException 403: If the user is not a member of the message's group
+            HTTPException 404: If the message does not exist
+        """
+        message = self.get_message(message_id)
+        self.group_service.require_membership(user.id, message.group_id)
+
+        self._lock_and_bump_reactions(message)
+        removed = self.db.execute(
+            delete(MessageReaction).where(
+                MessageReaction.message_id == message.id,
+                MessageReaction.user_id == user.id,
+                MessageReaction.emoji == emoji,
+            )
+        ).rowcount
+        if removed:
+            self.db.commit()
+        else:
+            self.db.rollback()  # nothing changed: release the lock, keep the version
+        self.db.refresh(message)
         return message
 
     # ==================== DELETE ====================
