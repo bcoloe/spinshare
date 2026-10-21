@@ -155,6 +155,10 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
   const [editComment, setEditComment] = useState('')
   const [confirmOpen, { open: openConfirm, close: closeConfirm }] = useDisclosure(false)
   const [resultModal, setResultModal] = useState<{ isFirstReview: boolean } | null>(null)
+  // The buttons' own loading states, never the mutations': autosave shares those,
+  // and a background save disabling Submit mid-click swallows the click (#186).
+  const [submitting, setSubmitting] = useState(false)
+  const [savingDraft, setSavingDraft] = useState(false)
 
   // A draft's starting content comes from the hook (the server copy, or a newer
   // local one). Prefilling it here as well would overwrite typing whenever the
@@ -174,8 +178,6 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
     submitReview,
     updateReview,
   })
-
-  const isPending = submitReview.isPending || checkGuess.isPending || updateReview.isPending
 
   const startEditing = (r: ReviewResponse) => {
     setEditRating(r.rating ?? 0)
@@ -348,11 +350,13 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
   } else {
     // ── No review yet / Draft ───────────────────────────────────────────────
     const handleSaveDraft = async () => {
-      autosave.markDirty() // an explicit save always goes to the server
+      setSavingDraft(true)
+      autosave.markDirty() // an explicit save always goes to the server (if anything changed)
       const result = await autosave.flush()
+      setSavingDraft(false)
       if (result === 'failed') {
         notifications.show({ color: 'red', message: 'Could not save draft' })
-      } else if (result === 'saved') {
+      } else if (result === 'saved' || result === 'clean') {
         notifications.show({ color: 'teal', message: 'Draft saved' })
       }
     }
@@ -363,37 +367,34 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
         return
       }
       closeConfirm()
-      let submittedReview: ReviewResponse
+      setSubmitting(true)
       try {
-        if (isDraft && existingReview) {
-          submittedReview = await updateReview.mutateAsync({
-            reviewId: existingReview.id,
-            data: { rating: rating ?? undefined, comment: comment || undefined, is_draft: false },
-          })
-        } else {
-          submittedReview = await submitReview.mutateAsync({ rating: rating ?? undefined, comment: comment || undefined })
-        }
-      } catch (err) {
-        const message = err instanceof ApiError ? err.message : 'Could not submit review'
-        notifications.show({ color: 'red', message })
-        return
-      }
-      autosave.clearLocal()
-
-      if (!skipGuess && guessedUserId !== null) {
+        let submittedReview: ReviewResponse
         try {
-          await checkGuess.mutateAsync({ guessed_user_id: guessedUserId === 'chaos' ? null : guessedUserId })
+          submittedReview = await autosave.publish({ rating, comment })
         } catch (err) {
-          const message =
-            err instanceof ApiError
-              ? err.message
-              : 'Review saved, but guess could not be submitted'
-          notifications.show({ color: 'yellow', message })
+          const message = err instanceof ApiError ? err.message : 'Could not submit review'
+          notifications.show({ color: 'red', message })
           return
         }
-      }
 
-      setResultModal({ isFirstReview: submittedReview.is_first_review })
+        if (!skipGuess && guessedUserId !== null) {
+          try {
+            await checkGuess.mutateAsync({ guessed_user_id: guessedUserId === 'chaos' ? null : guessedUserId })
+          } catch (err) {
+            const message =
+              err instanceof ApiError
+                ? err.message
+                : 'Review saved, but guess could not be submitted'
+            notifications.show({ color: 'yellow', message })
+            return
+          }
+        }
+
+        setResultModal({ isFirstReview: submittedReview.is_first_review })
+      } finally {
+        setSubmitting(false)
+      }
     }
 
     const handleSubmitClick = () => {
@@ -410,7 +411,7 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
 
     body = (
       <>
-        <Stack gap="md" onBlur={autosave.onBlur}>
+        <Stack gap="md">
           <Text size="sm" fw={600}>{isDraft ? 'Your draft review' : 'Your review'}</Text>
           <div>
             <Group justify="space-between" mb={4}>
@@ -447,10 +448,10 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
           ))}
           <Group justify="space-between" align="center">
             <Group gap="xs">
-              <Button variant="default" onClick={handleSaveDraft} loading={isPending}>
+              <Button variant="default" onClick={handleSaveDraft} loading={savingDraft} disabled={submitting}>
                 Save draft
               </Button>
-              <Button onClick={handleSubmitClick} loading={isPending} disabled={rating === null}>
+              <Button onClick={handleSubmitClick} loading={submitting} disabled={rating === null}>
                 Submit review
               </Button>
             </Group>
@@ -471,7 +472,7 @@ export default function ReviewAndGuessForm({ albumId, groupId, groupAlbumId, add
               <Button variant="default" onClick={closeConfirm}>
                 Go back
               </Button>
-              <Button loading={isPending} onClick={() => doSubmit(true)}>
+              <Button loading={submitting} onClick={() => doSubmit(true)}>
                 Submit anyway
               </Button>
             </Group>

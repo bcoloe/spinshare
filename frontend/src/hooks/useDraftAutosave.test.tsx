@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReviewResponse } from '../types/album'
 import { clearAllLocalDrafts, draftStorageKey } from '../utils/draftStorage'
 import { reviewSaveKey } from './useDailySpin'
-import { SERVER_FLUSH_INTERVAL_MS, useDraftAutosave, type DraftContent } from './useDraftAutosave'
+import { useDraftAutosave, type DraftContent } from './useDraftAutosave'
 
 vi.mock('./useAuth', () => ({ useAuth: () => ({ user: { id: 7 } }) }))
 vi.mock('../services/albumService', () => ({
@@ -82,7 +82,7 @@ function setup(opts: { existingReview?: ReviewResponse | null; ready?: boolean; 
       hook.result.current.setContent(content)
     })
   const flush = (o?: { keepalive?: boolean }) => act(() => hook.result.current.autosave.flush(o))
-  /** Let React Query deliver its setTimeout(0) notifications (not the 60 s flush timer). */
+  /** Let React Query deliver its setTimeout(0) notifications. */
   const settle = () => act(() => vi.advanceTimersByTimeAsync(1))
   return { hook, type, flush, settle, onLoad, submit, update, queryClient }
 }
@@ -107,50 +107,54 @@ describe('typing', () => {
     expect(submit).not.toHaveBeenCalled()
   })
 
-  it('reaches the server at most once a minute however long it goes on', async () => {
+  it('never reaches the server while the user stays on the page, however long it goes on', async () => {
     const { type, submit } = setup()
     for (let i = 0; i < 30; i++) {
       type({ rating: 7, comment: `draft ${i}` })
-      await act(async () => vi.advanceTimersByTime(3_000))
+      await act(async () => vi.advanceTimersByTime(60_000))
     }
-    expect(submit).toHaveBeenCalledTimes(1) // 90 s of editing: one flush at 60 s
-    expect(SERVER_FLUSH_INTERVAL_MS).toBe(60_000)
+    expect(submit).not.toHaveBeenCalled()
+  })
+})
+
+describe('unchanged content', () => {
+  it('an edit undone before a trigger sends nothing', async () => {
+    const { type, flush, update } = setup({ existingReview: review() })
+    type({ rating: 6, comment: 'server copy, and more' })
+    type({ rating: 6, comment: 'server copy' })
+
+    expect(await flush()).toBe('clean')
+    expect(update).not.toHaveBeenCalled()
   })
 
-  it('a re-render without an edit does not flush', async () => {
-    const { hook, submit } = setup()
-    hook.rerender({ existingReview: null, ready: true })
-    await act(async () => vi.advanceTimersByTime(SERVER_FLUSH_INTERVAL_MS * 2))
+  it('compares with the last save, not a cached copy that has yet to catch up', async () => {
+    const { type, flush, update } = setup({ existingReview: review() })
+    type({ rating: 6, comment: 'second thoughts' })
+    await flush() // existingReview prop still holds 'server copy'
+    type({ rating: 6, comment: 'server copy' })
+
+    expect(await flush()).toBe('saved')
+    expect(update).toHaveBeenCalledTimes(2)
+    expect(update.mock.calls[1][0].data.comment).toBe('server copy')
+  })
+
+  it('an untouched form does not create an empty draft', async () => {
+    const { type, flush, submit } = setup()
+    type({ rating: null, comment: '' })
+
+    expect(await flush()).toBe('clean')
     expect(submit).not.toHaveBeenCalled()
   })
 })
 
 describe('flush triggers', () => {
-  const form = () => {
-    const el = document.createElement('div')
-    const inside = document.createElement('textarea')
-    el.appendChild(inside)
-    return { el, inside, outside: document.createElement('button') }
-  }
-
-  it('focus leaving the form sends the draft once', async () => {
-    const { hook, type, submit } = setup()
+  it('an explicit flush sends the draft once', async () => {
+    const { type, flush, submit } = setup()
     type({ rating: 4, comment: 'meh' })
-    const { el, outside } = form()
-    await act(async () => {
-      hook.result.current.autosave.onBlur({ currentTarget: el, relatedTarget: outside } as never)
-      hook.result.current.autosave.onBlur({ currentTarget: el, relatedTarget: outside } as never)
-    })
+    await flush()
+    await flush()
     expect(submit).toHaveBeenCalledTimes(1)
     expect(submit).toHaveBeenCalledWith({ rating: 4, comment: 'meh', is_draft: true }, expect.anything())
-  })
-
-  it('focus moving within the form does not', async () => {
-    const { hook, type, submit } = setup()
-    type({ rating: 4, comment: 'meh' })
-    const { el, inside } = form()
-    await act(async () => hook.result.current.autosave.onBlur({ currentTarget: el, relatedTarget: inside } as never))
-    expect(submit).not.toHaveBeenCalled()
   })
 
   it('hiding the tab sends with keepalive (it may be the last chance) and updates the cache', async () => {
@@ -254,7 +258,7 @@ describe('creating, then updating, the draft', () => {
     await settle() // the form re-renders with isPending: true, as it would live
     type({ rating: 6, comment: 'first and more' })
 
-    expect(await act(() => hook.result.current.autosave.flush())).toBe('busy') // e.g. blur
+    expect(await act(() => hook.result.current.autosave.flush())).toBe('busy') // e.g. Save draft
     await act(async () => { hook.unmount() }) // the last trigger: also busy
 
     await act(async () => { finish(review({ comment: 'first', updated_at: '2026-10-12T12:00:00Z' })) })
@@ -373,16 +377,82 @@ describe('starting content', () => {
   })
 })
 
-describe('clearing', () => {
-  it('clearLocal forgets this draft', () => {
-    stored({ baseServerTime: '2026-10-12T10:00:00Z' })
-    const { hook } = setup({ existingReview: review() })
-    expect(local()).not.toBeNull()
+describe('publishing', () => {
+  const publish = (hook: ReturnType<typeof setup>['hook'], content: { rating: number; comment: string }) =>
+    act(() => hook.result.current.autosave.publish(content))
 
-    act(() => hook.result.current.autosave.clearLocal())
+  it('creates a published review when there is no draft, and forgets the local copy', async () => {
+    const { hook, type, submit } = setup()
+    type({ rating: 8, comment: 'great' })
 
+    await publish(hook, { rating: 8, comment: 'great' })
+
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(submit).toHaveBeenCalledWith({ rating: 8, comment: 'great' }, expect.anything())
     expect(local()).toBeNull()
   })
+
+  it('publishes the existing draft', async () => {
+    const { hook, update } = setup({ existingReview: review() })
+
+    await publish(hook, { rating: 7, comment: '' })
+
+    expect(update).toHaveBeenCalledWith({ reviewId: 5, data: { rating: 7, comment: undefined, is_draft: false } }, expect.anything())
+  })
+
+  it('waits for a draft save in flight, then publishes the draft it created (no second review)', async () => {
+    let finish: (r: ReviewResponse) => void = () => {}
+    const { hook, type, settle, submit, update } = setup()
+    submit.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+    type({ rating: 5, comment: 'racing' })
+    act(() => { void hook.result.current.autosave.flush() }) // e.g. Save draft
+    await settle()
+
+    let published: Promise<unknown> = Promise.resolve()
+    act(() => { published = hook.result.current.autosave.publish({ rating: 5, comment: 'racing' }) })
+    await settle()
+    expect(update).not.toHaveBeenCalled() // still waiting on the create
+
+    await act(async () => { finish(review({ id: 99, comment: 'racing' })); await published })
+
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(update).toHaveBeenCalledTimes(1)
+    expect(update).toHaveBeenCalledWith({ reviewId: 99, data: { rating: 5, comment: 'racing', is_draft: false } }, expect.anything())
+  })
+
+  it('a draft save is not sent over a publish in flight', async () => {
+    let finish: (r: ReviewResponse) => void = () => {}
+    const { hook, type, update } = setup({ existingReview: review() })
+    update.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+    type({ rating: 9, comment: 'final' })
+
+    let published: Promise<unknown> = Promise.resolve()
+    act(() => { published = hook.result.current.autosave.publish({ rating: 9, comment: 'final' }) })
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')))
+    await act(async () => { finish(review({ is_draft: false, rating: 9, comment: 'final' })); await published })
+
+    expect(albumService.updateReview).not.toHaveBeenCalled()
+    expect(update).toHaveBeenCalledTimes(1)
+  })
+
+  it('a failed publish rejects and keeps the draft for autosave', async () => {
+    const { hook, type, flush, settle, update } = setup({ existingReview: review() })
+    update.mockRejectedValueOnce(new Error('offline'))
+    type({ rating: 9, comment: 'not yet' })
+
+    let outcome: Promise<Error | null> = Promise.resolve(null)
+    act(() => { outcome = hook.result.current.autosave.publish({ rating: 9, comment: 'not yet' }).then(() => null, (e: Error) => e) })
+    await settle() // React Query delivers the failure on a timer tick
+    expect((await outcome)?.message).toBe('offline')
+
+    expect(local()).toMatchObject({ comment: 'not yet' })
+    expect(await flush()).toBe('saved')
+    expect(update.mock.calls[1][0].data).toMatchObject({ comment: 'not yet', is_draft: true })
+  })
+})
+
+describe('clearing', () => {
 
   it('clearAllLocalDrafts removes every draft and nothing else', () => {
     localStorage.setItem(draftStorageKey(1, 2), '{}')

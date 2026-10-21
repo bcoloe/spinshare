@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FocusEvent } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQueryClient, type UseMutationResult } from '@tanstack/react-query'
 import { useAuth } from './useAuth'
 import { applyDraftToCache, reviewSaveKey } from './useDailySpin'
@@ -11,12 +11,17 @@ import type { ReviewCreate, ReviewResponse, ReviewUpdate } from '../types/album'
  *
  * Every server write wakes the database and invalidates cached pages for the whole
  * group. So drafts are written to this device on every edit, and sent to the server
- * only when it matters:
+ * only when the user leaves, and only if the content differs from what it holds:
  *
- *   - focus leaves the form (attach `onBlur` to the form container),
  *   - the tab is hidden or the page is closed (sent with `keepalive`),
  *   - the form unmounts (navigating away within the app),
- *   - and at most once a minute during continuous editing.
+ *   - or the form's Save draft button calls `flush()`.
+ *
+ * Nothing is sent while the user is on the page. A save then would put the form's
+ * buttons into their loading state mid-click and swallow the click (#186).
+ *
+ * Publishing goes through `publish()`, which waits for any save in flight so it
+ * updates the draft that save created instead of creating a second review.
  *
  * The hook is also the only thing that sets the form's starting content: the
  * server's draft, or a local one that is newer. Forms must not prefill drafts
@@ -31,8 +36,6 @@ export interface DraftContent {
 
 
 export type FlushResult = 'saved' | 'clean' | 'busy' | 'failed'
-
-export const SERVER_FLUSH_INTERVAL_MS = 60_000
 
 function serverTime(review: ReviewResponse | null | undefined): string | null {
   return review ? (review.updated_at ?? review.reviewed_at) : null
@@ -80,6 +83,7 @@ interface Options {
   /** Sets the form's content. Called once, with the draft to start from. */
   onLoad: (content: DraftContent) => void
   submitReview: UseMutationResult<ReviewResponse, Error, ReviewCreate>
+  /** Also how `publish()` saves edits to an already published review. */
   updateReview: UseMutationResult<ReviewResponse, Error, { reviewId: number; data: ReviewUpdate }>
 }
 
@@ -107,12 +111,12 @@ export function useDraftAutosave({
   const dirty = useRef(false) // edited since the last server save
   const editedHere = useRef(false) // the user has typed since this form mounted
   const loaded = useRef(false)
-  const inFlight = useRef(false)
+  const saving = useRef<Promise<FlushResult> | null>(null) // the server save in flight
+  const publishing = useRef(false) // drafts must not be saved over a publish
   const retryWithKeepalive = useRef(false) // a busy trigger wanted keepalive
   // The draft this hook last saved. Until the cache's copy catches up, it tells the
   // next save to update that draft rather than create a second one.
   const lastSaved = useRef<ReviewResponse | null>(null)
-  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const saveLocal = useCallback(() => {
     const { key: storageKey, content: current, existingReview: review, published: isPublished } = latest.current
@@ -130,60 +134,68 @@ export function useDraftAutosave({
       const { content: current, existingReview: cached, published: isPublished, submitReview: submit, updateReview: update } =
         latest.current
       keepalive = keepalive || retryWithKeepalive.current
-      if (flushTimer.current) {
-        clearTimeout(flushTimer.current)
-        flushTimer.current = null
-      }
-      if (!dirty.current || isPublished) return 'clean'
+      if (!dirty.current || isPublished || publishing.current) return 'clean'
       // A keepalive send isn't tracked by the mutations, so guard in-flight saves here:
       // two concurrent creates would race into a 409.
       // Ask the mutation cache, not the mutation results: those are snapshots from
       // the last render and still say "pending" for a moment after a save lands.
-      if (inFlight.current || queryClient.isMutating({ mutationKey: reviewSaveKey(albumId) }) > 0) {
+      if (saving.current || queryClient.isMutating({ mutationKey: reviewSaveKey(albumId) }) > 0) {
         // Whoever is in flight re-sends once it lands (see below); remember if this
         // trigger needed the send to outlive the page.
         if (keepalive) retryWithKeepalive.current = true
         return 'busy'
       }
       retryWithKeepalive.current = false
+      const review = cached ?? lastSaved.current
+      // Edits that end where they started (typed and deleted, slider dragged back)
+      // leave nothing to send, and an untouched form must not create an empty draft.
+      // Compare with this hook's last save first: the cached copy can lag it a render.
+      const server = lastSaved.current ?? cached
+      const base = server ? { rating: server.rating, comment: server.comment ?? '' } : { rating: null, comment: '' }
+      if (sameContent(current, base)) {
+        dirty.current = false
+        return 'clean'
+      }
       saveLocal() // the device copy must hold everything being sent, in case this fails
       dirty.current = false
-      inFlight.current = true
-      const review = cached ?? lastSaved.current
       const data = {
         rating: current.rating ?? undefined,
         comment: current.comment || undefined,
         is_draft: true,
       }
-      try {
-        let saved: ReviewResponse
-        if (keepalive) {
-          // The page may be going away: send directly so the request outlives it.
-          saved = await (review
-            ? albumService.updateReview(albumId, review.id, data, groupId, { keepalive: true })
-            : albumService.submitReview(albumId, data, groupId, { keepalive: true }))
-          // If the page survives (hidden tab, back/forward cache), keep the cache right.
-          applyDraftToCache(queryClient, albumId, saved)
-        } else if (review) {
-          saved = await update.mutateAsync({ reviewId: review.id, data })
-        } else {
-          saved = await submit.mutateAsync(data)
+      const send = async (): Promise<FlushResult> => {
+        try {
+          let saved: ReviewResponse
+          if (keepalive) {
+            // The page may be going away: send directly so the request outlives it.
+            saved = await (review
+              ? albumService.updateReview(albumId, review.id, data, groupId, { keepalive: true })
+              : albumService.submitReview(albumId, data, groupId, { keepalive: true }))
+            // If the page survives (hidden tab, back/forward cache), keep the cache right.
+            applyDraftToCache(queryClient, albumId, saved)
+          } else if (review) {
+            saved = await update.mutateAsync({ reviewId: review.id, data })
+          } else {
+            saved = await submit.mutateAsync(data)
+          }
+          lastSaved.current = saved
+          // Re-base the device copy on the version just saved right away: if edits
+          // came in meanwhile and the page is already gone, the re-send below never
+          // runs, and the copy must still be restorable against the server.
+          saveLocal()
+          // Edits made while this was in flight — including from a last trigger
+          // (Save draft, hide, unmount) that found the save busy — go out now.
+          if (dirty.current) void Promise.resolve().then(() => flush({ keepalive }))
+          return 'saved'
+        } catch {
+          dirty.current = true // keep it for the next trigger; the local copy is safe meanwhile
+          return 'failed'
+        } finally {
+          saving.current = null
         }
-        lastSaved.current = saved
-        // Re-base the device copy on the version just saved right away: if edits
-        // came in meanwhile and the page is already gone, the re-send below never
-        // runs, and the copy must still be restorable against the server.
-        saveLocal()
-        // Edits made while this was in flight — including from a last trigger
-        // (blur, hide, unmount) that found the save busy — go out now.
-        if (dirty.current) void Promise.resolve().then(() => flush({ keepalive }))
-        return 'saved'
-      } catch {
-        dirty.current = true // keep it for the next trigger; the local copy is safe meanwhile
-        return 'failed'
-      } finally {
-        inFlight.current = false
       }
+      saving.current = send()
+      return saving.current
     },
     [albumId, groupId, queryClient, saveLocal],
   )
@@ -192,19 +204,34 @@ export function useDraftAutosave({
   const markDirty = useCallback(() => {
     dirty.current = true
     editedHere.current = true
-    if (!flushTimer.current) {
-      flushTimer.current = setTimeout(() => {
-        flushTimer.current = null
-        void flush()
-      }, SERVER_FLUSH_INTERVAL_MS)
-    }
-  }, [flush])
+  }, [])
 
-  /** Forget the local draft, e.g. once the review is published. */
-  const clearLocal = useCallback(() => {
+  /**
+   * Publish the review (or save edits to a published one) and forget the local
+   * draft. Waits for a draft save in flight first: publishing alongside it would
+   * create a second review while that save is still creating the first.
+   * Rejects with the server's error; autosave then carries on as before.
+   */
+  const publish = useCallback(async ({ rating, comment }: { rating: number; comment: string }) => {
+    publishing.current = true
+    const wasDirty = dirty.current
     dirty.current = false
-    editedHere.current = false
-    if (latest.current.key) removeLocal(latest.current.key)
+    try {
+      await saving.current // never rejects: a failed save resolves to 'failed'
+      const { existingReview: cached, submitReview: submit, updateReview: update } = latest.current
+      const review = cached ?? lastSaved.current
+      const saved = review
+        ? await update.mutateAsync({ reviewId: review.id, data: { rating, comment: comment || undefined, is_draft: false } })
+        : await submit.mutateAsync({ rating, comment: comment || undefined })
+      editedHere.current = false
+      if (latest.current.key) removeLocal(latest.current.key)
+      return saved
+    } catch (err) {
+      dirty.current = dirty.current || wasDirty
+      throw err
+    } finally {
+      publishing.current = false
+    }
   }, [])
 
   // Write to this device on every edit. Cheap (a comment is at most 5,000 chars),
@@ -251,13 +278,5 @@ export function useDraftAutosave({
     }
   }, [flush])
 
-  /** Attach to the form container: flushes when focus leaves the form entirely. */
-  const onBlur = useCallback(
-    (event: FocusEvent<HTMLElement>) => {
-      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) void flush()
-    },
-    [flush],
-  )
-
-  return { markDirty, flush, clearLocal, onBlur, savedAt }
+  return { markDirty, flush, publish, savedAt }
 }
