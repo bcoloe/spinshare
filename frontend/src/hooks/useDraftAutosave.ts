@@ -35,7 +35,8 @@ export interface DraftContent {
 }
 
 
-export type FlushResult = 'saved' | 'clean' | 'busy' | 'failed'
+/** 'empty': no draft on the server and nothing typed, so there is nothing to save. */
+export type FlushResult = 'saved' | 'clean' | 'empty' | 'busy' | 'failed'
 
 function serverTime(review: ReviewResponse | null | undefined): string | null {
   return review ? (review.updated_at ?? review.reviewed_at) : null
@@ -154,7 +155,7 @@ export function useDraftAutosave({
       const base = server ? { rating: server.rating, comment: server.comment ?? '' } : { rating: null, comment: '' }
       if (sameContent(current, base)) {
         dirty.current = false
-        return 'clean'
+        return server ? 'clean' : 'empty'
       }
       saveLocal() // the device copy must hold everything being sent, in case this fails
       dirty.current = false
@@ -223,6 +224,10 @@ export function useDraftAutosave({
       const saved = review
         ? await update.mutateAsync({ reviewId: review.id, data: { rating, comment: comment || undefined, is_draft: false } })
         : await submit.mutateAsync({ rating, comment: comment || undefined })
+      // A draft save that failed while this waited marked the content dirty again.
+      // Left set, a flush before the next render (unmount, tab hidden) would send
+      // is_draft: true and unpublish the review.
+      dirty.current = false
       editedHere.current = false
       if (latest.current.key) removeLocal(latest.current.key)
       return saved

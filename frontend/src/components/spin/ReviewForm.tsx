@@ -80,7 +80,7 @@ export default function ReviewForm({ albumId, existingReview, reviewLoaded = tru
     setSavingDraft(false)
     if (result === 'failed') {
       notifications.show({ color: 'red', message: 'Could not save draft' })
-    } else if (result === 'saved' || result === 'clean') {
+    } else if (result === 'saved' || result === 'clean') { // not 'empty': no draft exists
       notifications.show({ color: 'teal', message: 'Draft saved' })
     }
   }

@@ -142,7 +142,7 @@ describe('unchanged content', () => {
     const { type, flush, submit } = setup()
     type({ rating: null, comment: '' })
 
-    expect(await flush()).toBe('clean')
+    expect(await flush()).toBe('empty')
     expect(submit).not.toHaveBeenCalled()
   })
 })
@@ -434,6 +434,25 @@ describe('publishing', () => {
 
     expect(albumService.updateReview).not.toHaveBeenCalled()
     expect(update).toHaveBeenCalledTimes(1)
+  })
+
+  it('a draft save that fails while a publish waits does not unpublish the review', async () => {
+    let failSave: (e: Error) => void = () => {}
+    const { hook, type, settle, update } = setup({ existingReview: review() })
+    update.mockImplementationOnce(() => new Promise((_, reject) => { failSave = reject }))
+    type({ rating: 9, comment: 'final' })
+    act(() => { void hook.result.current.autosave.flush() }) // e.g. Save draft
+    await settle()
+
+    let published: Promise<unknown> = Promise.resolve()
+    act(() => { published = hook.result.current.autosave.publish({ rating: 9, comment: 'final' }) })
+    await act(async () => { failSave(new Error('offline')) })
+    await settle()
+    await act(async () => { await published })
+    await act(async () => hook.unmount()) // before a re-render shows the review as published
+
+    expect(update).toHaveBeenCalledTimes(2)
+    expect(update.mock.calls[1][0].data.is_draft).toBe(false)
   })
 
   it('a failed publish rejects and keeps the draft for autosave', async () => {
