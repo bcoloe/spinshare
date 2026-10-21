@@ -20,6 +20,10 @@ export default function ReviewForm({ albumId, existingReview, reviewLoaded = tru
   const isDraft = !!existingReview?.is_draft
   const isPublished = !!existingReview && !isDraft
   const [editing, setEditing] = useState(false)
+  // The buttons' own loading states, never the mutations': autosave shares those,
+  // and a background save disabling Submit mid-click swallows the click (#186).
+  const [submitting, setSubmitting] = useState(false)
+  const [savingDraft, setSavingDraft] = useState(false)
 
   const [rating, setRating] = useState<number | null>(existingReview?.rating ?? null)
   const [comment, setComment] = useState(existingReview?.comment ?? '')
@@ -70,11 +74,13 @@ export default function ReviewForm({ albumId, existingReview, reviewLoaded = tru
   }
 
   const handleSaveDraft = async () => {
-    autosave.markDirty() // an explicit save always goes to the server
+    setSavingDraft(true)
+    autosave.markDirty() // an explicit save always goes to the server (if anything changed)
     const result = await autosave.flush()
+    setSavingDraft(false)
     if (result === 'failed') {
       notifications.show({ color: 'red', message: 'Could not save draft' })
-    } else if (result === 'saved') {
+    } else if (result === 'saved' || result === 'clean') { // not 'empty': no draft exists
       notifications.show({ color: 'teal', message: 'Draft saved' })
     }
   }
@@ -84,29 +90,22 @@ export default function ReviewForm({ albumId, existingReview, reviewLoaded = tru
       notifications.show({ color: 'red', message: 'Please set a rating' })
       return
     }
+    setSubmitting(true)
     try {
-      if (existingReview) {
-        await updateReview.mutateAsync({
-          reviewId: existingReview.id,
-          data: { rating, comment: comment || undefined, is_draft: false },
-        })
-      } else {
-        await submitReview.mutateAsync({ rating, comment: comment || undefined })
-      }
-      autosave.clearLocal()
+      await autosave.publish({ rating, comment })
       if (editing) setEditing(false)
       notifications.show({ color: 'green', message: existingReview ? 'Review updated' : 'Review submitted' })
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Could not submit review'
       notifications.show({ color: 'red', message })
+    } finally {
+      setSubmitting(false)
     }
   }
-
-  const isLoading = submitReview.isPending || updateReview.isPending
   const title = isDraft ? 'Your draft review' : isPublished ? 'Edit your review' : 'Your review'
 
   return (
-    <Stack gap="md" onBlur={autosave.onBlur}>
+    <Stack gap="md">
       <Text size="sm" fw={600}>{title}</Text>
       <div>
         <Group justify="space-between" mb={4}>
@@ -136,15 +135,15 @@ export default function ReviewForm({ albumId, existingReview, reviewLoaded = tru
       <Group justify="space-between" align="center">
         <Group gap="xs">
           {!isPublished && (
-            <Button variant="default" onClick={handleSaveDraft} loading={isLoading}>
+            <Button variant="default" onClick={handleSaveDraft} loading={savingDraft} disabled={submitting}>
               Save draft
             </Button>
           )}
-          <Button onClick={handleSubmit} loading={isLoading} disabled={rating === null}>
+          <Button onClick={handleSubmit} loading={submitting} disabled={rating === null}>
             {isPublished ? 'Save' : 'Submit review'}
           </Button>
           {editing && (
-            <Button variant="subtle" color="gray" onClick={() => setEditing(false)} disabled={isLoading}>
+            <Button variant="subtle" color="gray" onClick={() => setEditing(false)} disabled={submitting}>
               Cancel
             </Button>
           )}
