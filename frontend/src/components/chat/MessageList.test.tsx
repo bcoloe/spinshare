@@ -161,9 +161,19 @@ describe('MessageList', () => {
   })
 
   describe('tombstones', () => {
-    it('renders a deleted message as a tombstone', () => {
+    it('hides a deleted message entirely', () => {
+      const { container } = renderList([
+        makeMessage({ id: 1, body: 'kept' }),
+        makeMessage({ id: 2, is_deleted: true, body: '' }),
+      ])
+      expect(screen.getByText('kept')).toBeInTheDocument()
+      expect(container.querySelectorAll('.chat-message')).toHaveLength(1)
+      expect(screen.queryByText('[message deleted]')).not.toBeInTheDocument()
+    })
+
+    it('shows the empty state when every message is deleted', () => {
       renderList([makeMessage({ is_deleted: true, body: '' })])
-      expect(screen.getByText('[message deleted]')).toBeInTheDocument()
+      expect(screen.getByText('No messages yet')).toBeInTheDocument()
     })
 
     it('renders a departed author as [deleted user]', () => {
@@ -190,11 +200,6 @@ describe('MessageList', () => {
       renderList([makeMessage({ user_id: 2, username: 'bob' })], { canModerate: true })
       expect(screen.getByLabelText('Delete message')).toBeInTheDocument()
     })
-
-    it('hides delete on an already-deleted message', () => {
-      renderList([makeMessage({ user_id: 1, is_deleted: true })], { canModerate: true })
-      expect(screen.queryByLabelText('Delete message')).not.toBeInTheDocument()
-    })
   })
 
   describe('editing', () => {
@@ -204,11 +209,6 @@ describe('MessageList', () => {
         makeMessage({ id: 2, user_id: 2, username: 'bob' }),
       ], { canModerate: true })
       expect(screen.getAllByLabelText('Edit message')).toHaveLength(1)
-    })
-
-    it('hides edit on a deleted message', () => {
-      renderList([makeMessage({ user_id: 1, is_deleted: true })])
-      expect(screen.queryByLabelText('Edit message')).not.toBeInTheDocument()
     })
 
     it('starts editing from the pencil', async () => {
@@ -296,11 +296,6 @@ describe('MessageList', () => {
       await userEvent.click(screen.getByLabelText('Add reaction'))
       await userEvent.click(await screen.findByLabelText('React 🔥'))
       expect(onToggleReaction).not.toHaveBeenCalled()
-    })
-
-    it('offers no reactions on a deleted message', () => {
-      renderList([makeMessage({ is_deleted: true })])
-      expect(screen.queryByLabelText('Add reaction')).not.toBeInTheDocument()
     })
 
     it('reveals the actions when the message is tapped', async () => {

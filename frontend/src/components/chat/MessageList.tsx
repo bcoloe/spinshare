@@ -69,6 +69,9 @@ export default function MessageList({
   // the one whose reaction picker is open — its bar must not vanish under it.
   const [activeId, setActiveId] = useState<number | null>(null)
   const [pickerId, setPickerId] = useState<number | null>(null)
+  // Deleted messages stay in the cache as tombstones (so live delete events and
+  // paging still line up) but are simply dropped from view.
+  const visibleMessages = useMemo(() => messages.filter((m) => !m.is_deleted), [messages])
   const usernames = useMemo(
     () => new Map(members.map((m) => [m.user_id, m.username])),
     [members],
@@ -116,7 +119,7 @@ export default function MessageList({
     }
   }, [messages])
 
-  if (messages.length === 0) {
+  if (visibleMessages.length === 0) {
     return (
       <Stack align="center" justify="center" h="100%" gap={4}>
         <Text size="sm" c="dimmed">
@@ -148,16 +151,15 @@ export default function MessageList({
           </Text>
         ) : null}
 
-        {messages.map((message) => {
+        {visibleMessages.map((message) => {
           const day = formatDay(message.created_at)
           const showDay = day !== lastDay
           lastDay = day
 
           const isMine = message.user_id !== null && message.user_id === currentUserId
-          const canDelete = !message.is_deleted && (isMine || canModerate)
-          const canEdit = !message.is_deleted && isMine
+          const canDelete = isMine || canModerate
+          const canEdit = isMine
           const isEditing = canEdit && editingId === message.id
-          const canReact = !message.is_deleted
           const mentionsMe =
             currentUserId !== undefined &&
             message.mentions.some((m) => m.user_id === currentUserId)
@@ -224,7 +226,7 @@ export default function MessageList({
                     <Text size="xs" c="dimmed">
                       {formatTime(message.created_at)}
                     </Text>
-                    {message.edited_at && !message.is_deleted && (
+                    {message.edited_at && (
                       <Tooltip label={`Edited ${formatDay(message.edited_at)}, ${formatTime(message.edited_at)}`}>
                         <Text size="xs" c="dimmed">
                           (edited)
@@ -233,11 +235,7 @@ export default function MessageList({
                     )}
                   </Group>
 
-                  {message.is_deleted ? (
-                    <Text size="sm" c="dimmed" fs="italic">
-                      [message deleted]
-                    </Text>
-                  ) : isEditing ? (
+                  {isEditing ? (
                     <MessageEditor
                       initialBody={message.body}
                       members={members}
@@ -255,18 +253,16 @@ export default function MessageList({
                     </Text>
                   )}
 
-                  {!message.is_deleted && (
-                    <ReactionChips
-                      reactions={message.reactions}
-                      currentUserId={currentUserId}
-                      usernames={usernames}
-                      onToggle={(emoji, remove) => onToggleReaction(message.id, emoji, remove)}
-                    />
-                  )}
+                  <ReactionChips
+                    reactions={message.reactions}
+                    currentUserId={currentUserId}
+                    usernames={usernames}
+                    onToggle={(emoji, remove) => onToggleReaction(message.id, emoji, remove)}
+                  />
                 </Stack>
 
                 <Group gap={2} wrap="nowrap" className="chat-message-actions">
-                  {canReact && !isEditing && (
+                  {!isEditing && (
                     <ReactionPicker
                       onReact={(emoji) => {
                         const already = message.reactions.some(
