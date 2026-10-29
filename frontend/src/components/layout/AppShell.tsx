@@ -6,6 +6,7 @@ import {
   AppShell as MantineAppShell,
   Avatar,
   Badge,
+  Box,
   Burger,
   Button,
   Divider,
@@ -51,6 +52,7 @@ import { useFavoriteGroup } from '../../context/FavoriteGroupContext'
 import { useUnreadNotifications, useMarkNotificationRead, useMarkAllNotificationsRead, useNotificationHistory } from '../../hooks/useNotifications'
 import { useFooterOffset } from '../../hooks/useFooterOffset'
 import { useOpenLinkReportCount } from '../../hooks/useAdmin'
+import { useChatSocket } from '../../hooks/useChat'
 import { notificationTarget } from '../../utils/notificationTarget'
 import { ApiError } from '../../services/apiClient'
 import CreateGroupModal from '../groups/CreateGroupModal'
@@ -84,6 +86,7 @@ export default function AppShell({ children }: AppShellProps) {
   const [sidebarFilter, setSidebarFilter] = useState('')
   const { data: pendingInvitations = [] } = useMyPendingInvitations(!!user)
   const { data: unreadNotifications = [] } = useUnreadNotifications(!!user)
+  const { unreadByGroup } = useChatSocket()
   const acceptInvitation = useAcceptInvitation()
   const declineInvitation = useDeclineInvitation()
   const markNotificationRead = useMarkNotificationRead()
@@ -430,7 +433,23 @@ export default function AppShell({ children }: AppShellProps) {
                 .map((g) => (
                   <NavLink
                     key={g.id}
-                    label={g.name}
+                    label={
+                      // Bold name plus a dot, so new chat in another group is
+                      // visible without opening it.
+                      unreadByGroup[g.id] ? (
+                        <Group gap={6} wrap="nowrap">
+                          <Text size="sm" fw={700} truncate>{g.name}</Text>
+                          <Box
+                            w={8}
+                            h={8}
+                            bg="violet"
+                            style={{ borderRadius: '50%', flexShrink: 0 }}
+                            role="img"
+                            aria-label="New messages"
+                          />
+                        </Group>
+                      ) : g.name
+                    }
                     component={Link}
                     to={`/groups/${g.id}`}
                     active={

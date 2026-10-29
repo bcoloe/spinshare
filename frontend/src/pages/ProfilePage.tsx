@@ -28,6 +28,7 @@ import { useMyGroups } from '../hooks/useGroups'
 import { apiFetch, ApiError } from '../services/apiClient'
 import { getSpotifyConnectUrl, disconnectSpotify } from '../services/streamingService'
 import { usePlayer } from '../context/PlayerContext'
+import { isChatSoundEnabled, setChatSoundEnabled } from '../utils/chatSound'
 
 interface EditFormValues {
   username: string
@@ -60,6 +61,7 @@ export default function ProfilePage() {
   const { hasAppleMusic, connectAppleMusic, disconnectAppleMusic, preferredService, setPreferredService } = usePlayer()
   const [connectingSpotify, setConnectingSpotify] = useState(false)
   const [disconnectingSpotify, setDisconnectingSpotify] = useState(false)
+  const [chatSound, setChatSound] = useState(isChatSoundEnabled)
   const [connectingApple, setConnectingApple] = useState(false)
   const [disconnectingApple, setDisconnectingApple] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -385,6 +387,22 @@ export default function ProfilePage() {
               </div>
             )}
           </Stack>
+        </div>
+
+        <Divider />
+
+        <div>
+          <Title order={5} mb="md">Notifications</Title>
+          <Switch
+            label="Chat sound"
+            description="Play a short chime when a new chat message arrives. Applies to this device only."
+            checked={chatSound}
+            onChange={(e) => {
+              const enabled = e.currentTarget.checked
+              setChatSoundEnabled(enabled)
+              setChatSound(enabled)
+            }}
+          />
         </div>
 
         <Divider />

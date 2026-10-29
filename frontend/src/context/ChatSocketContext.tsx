@@ -10,6 +10,7 @@ import type {
 } from '../types/message'
 import { chatKeys } from '../hooks/chatKeys'
 import { applyReactions, withNewerReactions } from '../hooks/chatCache'
+import { playChatDing, unlockChatSoundOnGesture } from '../utils/chatSound'
 
 // The socket opens once per session at the app shell, not per chat panel, so
 // presence dots work anywhere in the app without the chat drawer being open.
@@ -161,12 +162,17 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
           // have already counted makes a duplicate delivery harmless.
           const alreadyCounted = message.id <= (countedThroughRef.current[message.group_id] ?? 0)
 
-          if (!isMine && !alreadyCounted && activeGroupRef.current !== message.group_id) {
+          if (!isMine && !alreadyCounted) {
             countedThroughRef.current[message.group_id] = message.id
-            queryClient.setQueryData<Record<number, number>>(
-              chatKeys.unread(),
-              (prev) => ({ ...prev, [message.group_id]: (prev?.[message.group_id] ?? 0) + 1 }),
-            )
+            const watching = activeGroupRef.current === message.group_id
+            if (!watching) {
+              queryClient.setQueryData<Record<number, number>>(
+                chatKeys.unread(),
+                (prev) => ({ ...prev, [message.group_id]: (prev?.[message.group_id] ?? 0) + 1 }),
+              )
+            }
+            // An open conversation in a background tab is not being watched.
+            if (!watching || document.hidden) playChatDing()
           }
           break
         }
@@ -326,6 +332,13 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
       setPresenceByGroup({})
     }
   }, [user, connect, clearStableTimer])
+
+  // Audio can only start inside a user gesture, so the chime needs the user's
+  // first click or keypress to arm it before any message arrives.
+  useEffect(() => {
+    if (!user) return
+    return unlockChatSoundOnGesture()
+  }, [user])
 
   // A socket that dropped while the tab was backgrounded should come back as
   // soon as the user returns, rather than waiting out the remaining backoff.

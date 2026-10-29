@@ -360,10 +360,13 @@ export default function GroupPage() {
                   reads on another device. */}
               <Indicator
                 disabled={!hasUnreadChat}
-                size={12}
-                offset={5}
+                size={16}
+                offset={6}
                 color="violet"
                 withBorder
+                // The pulse is what actually catches the eye — a static dot
+                // beside the page's other violet controls was easy to miss.
+                processing
               >
                 <ActionIcon
                   size="xl"

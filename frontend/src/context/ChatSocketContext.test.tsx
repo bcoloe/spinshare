@@ -1,10 +1,13 @@
+import { useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { act, render } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatSocketProvider } from './ChatSocketContext'
 import { chatKeys } from '../hooks/chatKeys'
+import { useChatSocket } from '../hooks/useChat'
 import type { MessageResponse } from '../types/message'
+import { playChatDing } from '../utils/chatSound'
 
 // One stable object, because the provider's connect effect keys off `user`
 // identity. AuthContext holds it in state, so it only changes on a real login or
@@ -21,6 +24,11 @@ vi.mock('../services/messageService', () => ({
     createTicket: vi.fn().mockResolvedValue({ ticket: 'ticket-abc' }),
     getUnreadCounts: vi.fn().mockResolvedValue({}),
   },
+}))
+
+vi.mock('../utils/chatSound', () => ({
+  playChatDing: vi.fn(),
+  unlockChatSoundOnGesture: vi.fn(() => () => {}),
 }))
 
 /** Minimal stand-in for the browser WebSocket, driven by the test. */
@@ -263,5 +271,92 @@ describe('ChatSocketProvider message events', () => {
     await send({ type: 'message.edited', message: { ...base, body: 'the', reactions, reactions_version: 5 } })
 
     expect(cached()[0].reactions).toEqual(reactions)
+  })
+})
+
+describe('ChatSocketProvider chat sound', () => {
+  const message: MessageResponse = {
+    id: 7,
+    group_id: 1,
+    user_id: 2,
+    username: 'bob',
+    body: 'hi',
+    created_at: '2026-01-01T00:00:00Z',
+    edited_at: null,
+    is_deleted: false,
+    mentions: [],
+    reactions: [],
+    reactions_version: 0,
+  }
+
+  /** Stands in for an open chat panel. */
+  function Watching({ groupId }: { groupId: number }) {
+    const { setActiveGroup } = useChatSocket()
+    useEffect(() => setActiveGroup(groupId), [setActiveGroup, groupId])
+    return null
+  }
+
+  async function connect(watchingGroupId?: number) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ChatSocketProvider>
+          {watchingGroupId !== undefined && <Watching groupId={watchingGroupId} />}
+        </ChatSocketProvider>
+      </QueryClientProvider>,
+    )
+    await flush()
+    const socket = FakeSocket.instances[FakeSocket.instances.length - 1]
+    await act(async () => socket.open())
+    return (m: MessageResponse) =>
+      act(async () => socket.onmessage?.({ data: JSON.stringify({ type: 'message.new', message: m }) }))
+  }
+
+  beforeEach(() => {
+    FakeSocket.instances = []
+    vi.stubGlobal('WebSocket', FakeSocket)
+    vi.mocked(playChatDing).mockClear()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("dings for someone else's message", async () => {
+    const send = await connect()
+    await send(message)
+    expect(playChatDing).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays quiet for your own message', async () => {
+    const send = await connect()
+    await send({ ...message, user_id: USER.id, username: USER.username })
+    expect(playChatDing).not.toHaveBeenCalled()
+  })
+
+  it('dings once for a duplicate delivery', async () => {
+    const send = await connect()
+    await send(message)
+    await send(message)
+    expect(playChatDing).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays quiet for the chat you are watching', async () => {
+    const send = await connect(message.group_id)
+    await send(message)
+    expect(playChatDing).not.toHaveBeenCalled()
+  })
+
+  it('dings for the chat you are watching when the tab is hidden', async () => {
+    // Restored by hand: restoreAllMocks would also strip the module mocks'
+    // implementations, and with them the ticket the socket needs.
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true)
+    try {
+      const send = await connect(message.group_id)
+      await send(message)
+      expect(playChatDing).toHaveBeenCalledTimes(1)
+    } finally {
+      hidden.mockRestore()
+    }
   })
 })
