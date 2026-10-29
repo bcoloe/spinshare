@@ -444,6 +444,7 @@ export default function AppShell({ children }: AppShellProps) {
                             h={8}
                             bg="violet"
                             style={{ borderRadius: '50%', flexShrink: 0 }}
+                            role="img"
                             aria-label="New messages"
                           />
                         </Group>

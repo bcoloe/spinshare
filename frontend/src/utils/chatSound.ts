@@ -36,9 +36,12 @@ export function playChatDing(): void {
   try {
     context ??= new AudioContext()
     // Browsers start an AudioContext suspended until the page has had a user
-    // gesture. Resuming is harmless either way; if it is refused, the ding is
-    // silently skipped — the unread dot still carries the news.
-    if (context.state === 'suspended') void context.resume()
+    // gesture. Sound scheduled on a suspended clock would queue and fire all at
+    // once on resume, so skip this ding — the unread dot still carries the news.
+    if (context.state !== 'running') {
+      context.resume().catch(() => {})
+      return
+    }
 
     const t = context.currentTime
     const gain = context.createGain()

@@ -1,9 +1,11 @@
+import { useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { act, render } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatSocketProvider } from './ChatSocketContext'
 import { chatKeys } from '../hooks/chatKeys'
+import { useChatSocket } from '../hooks/useChat'
 import type { MessageResponse } from '../types/message'
 import { playChatDing } from '../utils/chatSound'
 
@@ -284,11 +286,20 @@ describe('ChatSocketProvider chat sound', () => {
     reactions_version: 0,
   }
 
-  async function connect() {
+  /** Stands in for an open chat panel. */
+  function Watching({ groupId }: { groupId: number }) {
+    const { setActiveGroup } = useChatSocket()
+    useEffect(() => setActiveGroup(groupId), [setActiveGroup, groupId])
+    return null
+  }
+
+  async function connect(watchingGroupId?: number) {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(
       <QueryClientProvider client={queryClient}>
-        <ChatSocketProvider>{null}</ChatSocketProvider>
+        <ChatSocketProvider>
+          {watchingGroupId !== undefined && <Watching groupId={watchingGroupId} />}
+        </ChatSocketProvider>
       </QueryClientProvider>,
     )
     await flush()
@@ -325,5 +336,24 @@ describe('ChatSocketProvider chat sound', () => {
     await send(message)
     await send(message)
     expect(playChatDing).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays quiet for the chat you are watching', async () => {
+    const send = await connect(message.group_id)
+    await send(message)
+    expect(playChatDing).not.toHaveBeenCalled()
+  })
+
+  it('dings for the chat you are watching when the tab is hidden', async () => {
+    // Restored by hand: restoreAllMocks would also strip the module mocks'
+    // implementations, and with them the ticket the socket needs.
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true)
+    try {
+      const send = await connect(message.group_id)
+      await send(message)
+      expect(playChatDing).toHaveBeenCalledTimes(1)
+    } finally {
+      hidden.mockRestore()
+    }
   })
 })
