@@ -27,6 +27,30 @@ export function setChatSoundEnabled(enabled: boolean): void {
   } catch {}
 }
 
+/**
+ * Unlock audio on the user's next click or keypress. Returns a cleanup.
+ *
+ * Safari only lets an AudioContext start from inside a user gesture, and a
+ * socket message is never one — so without this the chime would never play
+ * there. Elsewhere it saves the first ding after the page loads.
+ */
+export function unlockChatSoundOnGesture(): () => void {
+  const events = ['pointerdown', 'keydown'] as const
+  const remove = () => events.forEach((e) => window.removeEventListener(e, unlock, true))
+  function unlock() {
+    if (!isChatSoundEnabled()) return
+    try {
+      context ??= new AudioContext()
+      if (context.state === 'running') remove()
+      else context.resume().then(remove, () => {})
+    } catch {
+      remove()
+    }
+  }
+  events.forEach((e) => window.addEventListener(e, unlock, true))
+  return remove
+}
+
 export function playChatDing(): void {
   if (!isChatSoundEnabled()) return
   const now = Date.now()

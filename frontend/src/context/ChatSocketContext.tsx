@@ -10,7 +10,7 @@ import type {
 } from '../types/message'
 import { chatKeys } from '../hooks/chatKeys'
 import { applyReactions, withNewerReactions } from '../hooks/chatCache'
-import { playChatDing } from '../utils/chatSound'
+import { playChatDing, unlockChatSoundOnGesture } from '../utils/chatSound'
 
 // The socket opens once per session at the app shell, not per chat panel, so
 // presence dots work anywhere in the app without the chat drawer being open.
@@ -335,6 +335,11 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
 
   // A socket that dropped while the tab was backgrounded should come back as
   // soon as the user returns, rather than waiting out the remaining backoff.
+  useEffect(() => {
+    if (!user) return
+    return unlockChatSoundOnGesture()
+  }, [user])
+
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return

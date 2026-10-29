@@ -26,7 +26,10 @@ vi.mock('../services/messageService', () => ({
   },
 }))
 
-vi.mock('../utils/chatSound', () => ({ playChatDing: vi.fn() }))
+vi.mock('../utils/chatSound', () => ({
+  playChatDing: vi.fn(),
+  unlockChatSoundOnGesture: vi.fn(() => () => {}),
+}))
 
 /** Minimal stand-in for the browser WebSocket, driven by the test. */
 class FakeSocket {
