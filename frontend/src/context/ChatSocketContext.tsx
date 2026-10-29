@@ -333,13 +333,15 @@ export function ChatSocketProvider({ children }: { children: ReactNode }) {
     }
   }, [user, connect, clearStableTimer])
 
-  // A socket that dropped while the tab was backgrounded should come back as
-  // soon as the user returns, rather than waiting out the remaining backoff.
+  // Audio can only start inside a user gesture, so the chime needs the user's
+  // first click or keypress to arm it before any message arrives.
   useEffect(() => {
     if (!user) return
     return unlockChatSoundOnGesture()
   }, [user])
 
+  // A socket that dropped while the tab was backgrounded should come back as
+  // soon as the user returns, rather than waiting out the remaining backoff.
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return
