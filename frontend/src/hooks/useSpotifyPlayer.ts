@@ -140,7 +140,7 @@ export function useSpotifyPlayer(enabled: boolean): UseSpotifyPlayerResult {
               tokenRef.current = token
               cb(token)
             } catch (err) {
-              if (err instanceof ApiError && err.status === 401) {
+              if (err instanceof ApiError && err.status === 409) {
                 setStatus('reconnect_required')
               } else if (err instanceof ApiError && err.status === 404) {
                 setStatus('not_connected')
@@ -215,7 +215,7 @@ export function useSpotifyPlayer(enabled: boolean): UseSpotifyPlayerResult {
         if (!cancelled) {
           if (err instanceof ApiError && err.status === 404) {
             setStatus('not_connected')
-          } else if (err instanceof ApiError && err.status === 401) {
+          } else if (err instanceof ApiError && err.status === 409) {
             setStatus('reconnect_required')
           } else {
             setStatus('error')

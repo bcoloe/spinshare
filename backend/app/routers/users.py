@@ -275,7 +275,7 @@ def get_spotify_token(
 ):
     """Return a valid Spotify access token for the current user, refreshing if needed.
 
-    Returns 404 if no Spotify connection exists, 401 if the connection has expired
+    Returns 404 if no Spotify connection exists, 409 if the connection has expired
     and requires the user to reconnect.
     """
     token = user_service.get_valid_spotify_token(current_user.id)

@@ -198,7 +198,9 @@ def refresh_access_token(refresh_token: str) -> dict:
     Returns a dict with: access_token, expires_at, and optionally a new refresh_token.
 
     Raises:
-        HTTPException 401: If Spotify rejects the refresh token (revoked/expired).
+        HTTPException 409: If Spotify rejects the refresh token (revoked/expired). Not
+            401: the client reads 401 as "your SpinShare session is invalid" and logs
+            the user out, when only the Spotify link needs reconnecting.
         HTTPException 502: On unexpected Spotify API errors.
     """
     settings = get_settings()
@@ -209,11 +211,15 @@ def refresh_access_token(refresh_token: str) -> dict:
         timeout=10,
     )
     if resp.status_code in (400, 401):
+        # Spotify's body says why (e.g. "invalid_grant: Refresh token revoked"),
+        # which is the only way to tell a revoked grant from a lost rotation.
+        log.warning("Spotify rejected a token refresh (%d): %s", resp.status_code, resp.text[:500])
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_409_CONFLICT,
             detail="Spotify connection expired — please reconnect",
         )
     if not resp.is_success:
+        log.error("Spotify token refresh failed (%d): %s", resp.status_code, resp.text[:500])
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Spotify token refresh failed",

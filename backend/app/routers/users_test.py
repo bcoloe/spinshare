@@ -84,13 +84,13 @@ class TestSpotifyToken:
         resp = client.get("/users/spotify/token")
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_401_when_token_expired(self, client, mock_user_service):
+    def test_409_when_token_expired(self, client, mock_user_service):
         mock_user_service.get_valid_spotify_token.side_effect = HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_409_CONFLICT,
             detail="Spotify connection expired — please reconnect",
         )
         resp = client.get("/users/spotify/token")
-        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+        assert resp.status_code == status.HTTP_409_CONFLICT
 
 
 class TestSpotifyConnectUrl:
