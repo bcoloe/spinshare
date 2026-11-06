@@ -932,7 +932,7 @@ class UserService:
 
         Raises:
             HTTPException 404: If user has no Spotify connection.
-            HTTPException 401: If the refresh token has been revoked (propagated from spotify_client).
+            HTTPException 409: If the refresh token has been revoked (propagated from spotify_client).
         """
         from app.utils import spotify_client
 

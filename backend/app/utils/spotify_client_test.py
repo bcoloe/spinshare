@@ -6,8 +6,14 @@
 from unittest.mock import MagicMock, call, patch
 
 import pytest
+from fastapi import HTTPException
 
-from app.utils.spotify_client import _normalized_title, get_albums_batch, search_albums
+from app.utils.spotify_client import (
+    _normalized_title,
+    get_albums_batch,
+    refresh_access_token,
+    search_albums,
+)
 
 
 class TestNormalizedTitle:
@@ -240,3 +246,44 @@ class TestGetAlbumsBatch:
 
         mock_sleep.assert_called_once_with(1)
         assert len(results) == 1
+
+
+class TestRefreshAccessToken:
+    def _make_response(self, status_code: int, text: str) -> MagicMock:
+        mock = MagicMock()
+        mock.status_code = status_code
+        mock.is_success = 200 <= status_code < 300
+        mock.text = text
+        return mock
+
+    @pytest.mark.parametrize("spotify_status", [400, 401])
+    def test_rejected_refresh_raises_409_not_401(self, spotify_status):
+        # A 401 here would read to the client as a dead SpinShare session and log
+        # the user out; only the Spotify link needs reconnecting.
+        resp = self._make_response(spotify_status, '{"error":"invalid_grant"}')
+
+        with patch("httpx.post", return_value=resp):
+            with pytest.raises(HTTPException) as exc_info:
+                refresh_access_token("dead-refresh-token")
+
+        assert exc_info.value.status_code == 409
+
+    def test_rejected_refresh_logs_spotify_reason(self, caplog):
+        body = '{"error":"invalid_grant","error_description":"Refresh token revoked"}'
+        resp = self._make_response(400, body)
+
+        with patch("httpx.post", return_value=resp), caplog.at_level("WARNING"):
+            with pytest.raises(HTTPException):
+                refresh_access_token("dead-refresh-token")
+
+        assert "Refresh token revoked" in caplog.text
+
+    def test_unexpected_failure_raises_502_and_logs(self, caplog):
+        resp = self._make_response(503, "upstream unavailable")
+
+        with patch("httpx.post", return_value=resp), caplog.at_level("ERROR"):
+            with pytest.raises(HTTPException) as exc_info:
+                refresh_access_token("refresh-token")
+
+        assert exc_info.value.status_code == 502
+        assert "upstream unavailable" in caplog.text
