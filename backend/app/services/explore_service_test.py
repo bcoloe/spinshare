@@ -176,6 +176,76 @@ class TestGetExploreAlbums:
         assert item.avg_rating is None
 
 
+# ==================== get_explore_artists ====================
+
+
+class TestGetExploreArtists:
+    def test_excludes_artists_without_nominations(self, explore_service, db_session):
+        group = _make_group(db_session, name="G1")
+        nominated = _make_album(db_session, title="T1", artist="Nominated")
+        _make_album(db_session, title="T2", artist="Never Nominated")
+        _nominate(db_session, group=group, album=nominated)
+
+        page = explore_service.get_explore_artists()
+        assert [a.artist for a in page.items] == ["Nominated"]
+
+    def test_alphabetical_case_insensitive_by_default(self, explore_service, db_session):
+        group = _make_group(db_session, name="G1")
+        for artist in ["zeta", "Alpha", "beta"]:
+            _nominate(db_session, group=group, album=_make_album(db_session, title=artist, artist=artist))
+
+        page = explore_service.get_explore_artists()
+        assert [a.artist for a in page.items] == ["Alpha", "beta", "zeta"]
+
+    def test_groups_case_variants_and_counts(self, explore_service, db_session):
+        g1 = _make_group(db_session, name="G1")
+        g2 = _make_group(db_session, name="G2")
+        a1 = _make_album(db_session, title="T1", artist="Radiohead")
+        a2 = _make_album(db_session, title="T2", artist="radiohead")
+        _nominate(db_session, group=g1, album=a1)
+        _nominate(db_session, group=g2, album=a1)
+        _nominate(db_session, group=g1, album=a2)
+
+        page = explore_service.get_explore_artists()
+        assert len(page.items) == 1
+        item = page.items[0]
+        assert item.artist.lower() == "radiohead"
+        assert item.album_count == 2
+        assert item.nomination_count == 3
+
+    def test_sort_by_most_nominated(self, explore_service, db_session):
+        g1 = _make_group(db_session, name="G1")
+        g2 = _make_group(db_session, name="G2")
+        niche = _make_album(db_session, title="T1", artist="Aardvark")
+        popular = _make_album(db_session, title="T2", artist="Zebra")
+        _nominate(db_session, group=g1, album=niche)
+        _nominate(db_session, group=g1, album=popular)
+        _nominate(db_session, group=g2, album=popular)
+
+        page = explore_service.get_explore_artists(sort_by="most_nominated")
+        assert [a.artist for a in page.items] == ["Zebra", "Aardvark"]
+
+    def test_q_filters_case_insensitive(self, explore_service, db_session):
+        group = _make_group(db_session, name="G1")
+        _nominate(db_session, group=group, album=_make_album(db_session, title="T1", artist="Miles Davis"))
+        _nominate(db_session, group=group, album=_make_album(db_session, title="T2", artist="Radiohead"))
+
+        page = explore_service.get_explore_artists(q="MILES")
+        assert [a.artist for a in page.items] == ["Miles Davis"]
+
+    def test_pagination(self, explore_service, db_session):
+        group = _make_group(db_session, name="G1")
+        for i in range(5):
+            _nominate(db_session, group=group, album=_make_album(db_session, title=f"T{i}", artist=f"Artist {i}"))
+
+        first = explore_service.get_explore_artists(offset=0, limit=3)
+        assert len(first.items) == 3
+        assert first.next_offset == 3
+        second = explore_service.get_explore_artists(offset=3, limit=3)
+        assert [a.artist for a in second.items] == ["Artist 3", "Artist 4"]
+        assert second.next_offset is None
+
+
 # ==================== get_explore_groups ====================
 
 

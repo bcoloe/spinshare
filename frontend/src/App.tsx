@@ -43,6 +43,7 @@ const AlbumPage = lazy(() => import('./pages/AlbumPage'))
 const ArtistPage = lazy(() => import('./pages/ArtistPage'))
 const SearchPage = lazy(() => import('./pages/SearchPage'))
 const ExploreAlbumsPage = lazy(() => import('./pages/explore/ExploreAlbumsPage'))
+const ExploreArtistsPage = lazy(() => import('./pages/explore/ExploreArtistsPage'))
 const ExploreGroupsPage = lazy(() => import('./pages/explore/ExploreGroupsPage'))
 const ExploreUsersPage = lazy(() => import('./pages/explore/ExploreUsersPage'))
 const ExploreStatsPage = lazy(() => import('./pages/explore/ExploreStatsPage'))
@@ -70,6 +71,7 @@ const router = createBrowserRouter([
   { path: '/artists/:artistName', element: <ArtistPage /> },
   { path: '/explore', element: <Navigate to="/explore/albums" replace /> },
   { path: '/explore/albums', element: <ExploreAlbumsPage /> },
+  { path: '/explore/artists', element: <ExploreArtistsPage /> },
   { path: '/explore/groups', element: <ExploreGroupsPage /> },
   { path: '/explore/stats', element: <ExploreStatsPage /> },
   {

@@ -3,6 +3,8 @@ import { exploreService } from '../services/exploreService'
 import type {
   ExploreAlbumsPage,
   ExploreAlbumsParams,
+  ExploreArtistsPage,
+  ExploreArtistsParams,
   ExploreGroupsPage,
   ExploreGroupsParams,
   ExploreUsersPage,
@@ -22,6 +24,15 @@ export function useExploreAlbums(params: Omit<ExploreAlbumsParams, 'offset'> = {
       exploreService.getAlbums({ ...params, offset: pageParam }),
     initialPageParam: 0,
     getNextPageParam: (lastPage: ExploreAlbumsPage) => lastPage.next_offset ?? undefined,
+  })
+}
+
+export function useExploreArtists(params: Omit<ExploreArtistsParams, 'offset'> = {}) {
+  return useInfiniteQuery({
+    queryKey: ['explore', 'artists', params.sort_by ?? 'name', params.q ?? null],
+    queryFn: ({ pageParam }) => exploreService.getArtists({ ...params, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage: ExploreArtistsPage) => lastPage.next_offset ?? undefined,
   })
 }
 

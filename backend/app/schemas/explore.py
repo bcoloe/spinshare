@@ -60,6 +60,20 @@ class ExploreGroupsPage(BaseModel):
     next_offset: int | None = None
 
 
+# ==================== ARTISTS ====================
+
+
+class ExploreArtistItem(BaseModel):
+    artist: str  # display name (artists are matched case-insensitively)
+    album_count: int  # distinct nominated albums by this artist
+    nomination_count: int  # GroupAlbum rows across all groups
+
+
+class ExploreArtistsPage(BaseModel):
+    items: list[ExploreArtistItem]
+    next_offset: int | None = None
+
+
 # ==================== STATS ====================
 
 

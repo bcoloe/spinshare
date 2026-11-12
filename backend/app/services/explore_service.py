@@ -12,6 +12,8 @@ from app.schemas.explore import (
     ArtistNominationItem,
     ExploreAlbumItem,
     ExploreAlbumsPage,
+    ExploreArtistItem,
+    ExploreArtistsPage,
     ExploreGroupItem,
     ExploreGroupsPage,
     ExploreUserItem,
@@ -164,6 +166,66 @@ class ExploreService:
         ]
 
         return ExploreAlbumsPage(
+            items=items,
+            next_offset=offset + limit if has_more else None,
+        )
+
+    # ==================== ARTISTS ====================
+
+    def get_explore_artists(
+        self,
+        offset: int = 0,
+        limit: int = _PAGE_SIZE,
+        q: str | None = None,
+        sort_by: str = "name",
+    ) -> ExploreArtistsPage:
+        """Return a paginated page of artists who have at least one nominated album.
+
+        Artists are grouped case-insensitively by name, matching how the artist
+        overview page resolves them; the display name is a deterministic pick
+        (min) among the spellings stored.
+
+        sort_by options:
+            name           — artist name A→Z (case-insensitive)
+            most_nominated — nomination_count DESC, then name
+
+        q filters by case-insensitive partial match on artist name.
+        """
+        artist_key = func.lower(Album.artist)
+        nomination_count_col = func.count(GroupAlbum.id).label("nomination_count")
+        album_count_col = func.count(func.distinct(Album.id)).label("album_count")
+
+        db_q = (
+            self.db.query(
+                func.min(Album.artist).label("artist"),
+                album_count_col,
+                nomination_count_col,
+            )
+            .join(GroupAlbum, GroupAlbum.album_id == Album.id)
+            .group_by(artist_key)
+        )
+
+        if q:
+            db_q = db_q.filter(Album.artist.ilike(f"%{q}%"))
+
+        if sort_by == "most_nominated":
+            db_q = db_q.order_by(nomination_count_col.desc(), artist_key)
+        else:
+            db_q = db_q.order_by(artist_key)
+
+        rows = db_q.offset(offset).limit(limit + 1).all()
+
+        has_more = len(rows) > limit
+        items = [
+            ExploreArtistItem(
+                artist=row.artist,
+                album_count=int(row.album_count),
+                nomination_count=int(row.nomination_count),
+            )
+            for row in rows[:limit]
+        ]
+
+        return ExploreArtistsPage(
             items=items,
             next_offset=offset + limit if has_more else None,
         )

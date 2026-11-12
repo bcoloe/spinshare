@@ -82,3 +82,23 @@ export interface SiteStatsResponse {
   most_nominated_artists: ArtistNominationItem[]
   most_nominated_albums: ExploreAlbumItem[]
 }
+
+export interface ExploreArtistItem {
+  artist: string
+  album_count: number
+  nomination_count: number
+}
+
+export interface ExploreArtistsPage {
+  items: ExploreArtistItem[]
+  next_offset: number | null
+}
+
+export type ExploreArtistsSort = 'name' | 'most_nominated'
+
+export interface ExploreArtistsParams {
+  offset?: number
+  limit?: number
+  sort_by?: ExploreArtistsSort
+  q?: string | null
+}

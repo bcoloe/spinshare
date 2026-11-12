@@ -1,6 +1,6 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Tabs } from '@mantine/core'
-import { IconChartBar, IconDisc, IconUsers, IconUsersGroup } from '@tabler/icons-react'
+import { IconChartBar, IconDisc, IconMicrophone2, IconUsers, IconUsersGroup } from '@tabler/icons-react'
 
 export default function ExploreNavTabs() {
   const navigate = useNavigate()
@@ -8,17 +8,22 @@ export default function ExploreNavTabs() {
 
   const activeTab = pathname.startsWith('/explore/groups')
     ? 'groups'
-    : pathname.startsWith('/explore/users')
-      ? 'users'
-      : pathname.startsWith('/explore/stats')
-        ? 'stats'
-        : 'albums'
+    : pathname.startsWith('/explore/artists')
+      ? 'artists'
+      : pathname.startsWith('/explore/users')
+        ? 'users'
+        : pathname.startsWith('/explore/stats')
+          ? 'stats'
+          : 'albums'
 
   return (
     <Tabs value={activeTab} onChange={(v) => v && navigate(`/explore/${v}`)} mb="md">
       <Tabs.List>
         <Tabs.Tab value="albums" leftSection={<IconDisc size={14} />}>
           Albums
+        </Tabs.Tab>
+        <Tabs.Tab value="artists" leftSection={<IconMicrophone2 size={14} />}>
+          Artists
         </Tabs.Tab>
         <Tabs.Tab value="groups" leftSection={<IconUsersGroup size={14} />}>
           Groups

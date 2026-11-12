@@ -43,6 +43,7 @@ import RichTextarea from '../common/RichTextarea'
 import { useCheckGuess, useGuessOptions, useUpdateReview } from '../../hooks/useDailySpin'
 import { useUnseenReviews } from '../../context/UnseenReviewsContext'
 import { ApiError } from '../../services/apiClient'
+import ArtistLink from '../albums/ArtistLink'
 import { NominatorLinks, NominatorSummary } from '../albums/Nominators'
 import GuessResult from '../spin/GuessResult'
 import ReviewAndGuessForm from '../spin/ReviewAndGuessForm'
@@ -310,9 +311,7 @@ function UnreviewedRow({ ga, groupId, members: _members, isExpanded, onToggle, a
           </Text>
         </Table.Td>
         <Table.Td>
-          <Text size="sm" c="dimmed" lineClamp={1}>
-            {album.artist}
-          </Text>
+          <ArtistLink artist={album.artist} size="sm" lineClamp={1} />
         </Table.Td>
         <Table.Td>
           <Text size="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
@@ -598,7 +597,7 @@ function ReviewedCard({ ga, review, nominators, allowGuessing, guessResult, curr
         <CoverCell src={album.cover_url} />
         <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
           <Text size="sm" fw={500} lineClamp={1}>{album.title}</Text>
-          <Text size="xs" c="dimmed" lineClamp={1}>{album.artist}</Text>
+          <ArtistLink artist={album.artist} size="xs" lineClamp={1} />
           <Group gap={6}>
             {groupAvg !== null && (
               <Text size="xs" c="dimmed">
@@ -918,7 +917,7 @@ export default function ReviewHistory({ groupId, albums, members, isLoading, all
                   }
                   <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
                     <Text size="sm" fw={600} lineClamp={1}>{album.title}</Text>
-                    <Text size="xs" c="dimmed" lineClamp={1}>{album.artist}</Text>
+                    <ArtistLink artist={album.artist} size="xs" lineClamp={1} />
                     <Text size="xs" c="dimmed">{formatReleaseDate(album.release_date)}</Text>
                   </Stack>
                   {ga.avg_rating !== null && (

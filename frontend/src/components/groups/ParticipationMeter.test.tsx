@@ -117,6 +117,21 @@ describe('ParticipationMeter picker', () => {
     expect(screen.queryByText('Eat the Light')).not.toBeInTheDocument()
   })
 
+  it('lists nominations alphabetically by artist, then title', async () => {
+    const user = userEvent.setup()
+    renderMeter()
+    await user.click(screen.getByRole('button', { name: /choose priority album/i }))
+    await screen.findByLabelText('Filter nominations')
+
+    const titles = ['Eat the Light', 'Kid A', 'OK Computer']
+    const positions = titles.map((t) => screen.getByText(t))
+    for (let i = 1; i < positions.length; i++) {
+      expect(
+        positions[i - 1].compareDocumentPosition(positions[i]) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+    }
+  })
+
   it('says so when nothing matches', async () => {
     const user = userEvent.setup()
     renderMeter()
