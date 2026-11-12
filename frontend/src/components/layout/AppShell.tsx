@@ -30,6 +30,7 @@ import {
   IconChartBar,
   IconCheck,
   IconDisc,
+  IconMicrophone2,
   IconInfoCircle,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -391,6 +392,13 @@ export default function AppShell({ children }: AppShellProps) {
             to="/explore/albums"
             leftSection={<IconDisc size={14} />}
             active={location.pathname.startsWith('/explore/albums')}
+          />
+          <NavLink
+            label="Artists"
+            component={Link}
+            to="/explore/artists"
+            leftSection={<IconMicrophone2 size={14} />}
+            active={location.pathname.startsWith('/explore/artists')}
           />
           <NavLink
             label="Groups"
