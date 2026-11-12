@@ -2,6 +2,7 @@ import { Anchor, Badge, Group, Image, Overlay, Stack, Text, Title } from '@manti
 import { Link } from 'react-router-dom'
 import { useAlbumNominationCounts } from '../../hooks/useAlbums'
 import type { AlbumResponse } from '../../types/album'
+import ArtistLink from '../albums/ArtistLink'
 import NominationBadge from '../albums/NominationBadge'
 
 interface Props {
@@ -49,7 +50,7 @@ export default function AlbumCard({ album, groupId, showGroupCount = false, mask
           <Anchor component={Link} to={`/albums/${album.id}`} underline="hover" c="inherit">
             <Title order={3} lineClamp={2}>{album.title}</Title>
           </Anchor>
-          <Text size="lg" c="dimmed">{album.artist}</Text>
+          <ArtistLink artist={album.artist} size="lg" display="block" w="fit-content" />
           {year && <Text size="sm" c="dimmed">{year}</Text>}
         </div>
         {album.genres.length > 0 && (

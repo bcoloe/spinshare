@@ -29,6 +29,7 @@ import {
   IconPlaylistAdd,
 } from '@tabler/icons-react'
 import AppShell from '../components/layout/AppShell'
+import ArtistLink from '../components/albums/ArtistLink'
 import AlbumRatingSummary from '../components/albums/AlbumRatingSummary'
 import AlbumReviewsTable from '../components/albums/AlbumReviewsTable'
 import LinkRepairControl from '../components/albums/LinkRepairControl'
@@ -445,15 +446,7 @@ export default function AlbumPage() {
               <>
                 <Title order={2} lineClamp={2}>{album?.title}</Title>
                 {album?.artist && (
-                  <Anchor
-                    component={Link}
-                    to={`/artists/${encodeURIComponent(album.artist)}`}
-                    size="lg"
-                    c="dimmed"
-                    style={{ width: 'fit-content' }}
-                  >
-                    {album.artist}
-                  </Anchor>
+                  <ArtistLink artist={album.artist} size="lg" w="fit-content" />
                 )}
                 <Group gap="xs" mt={4}>
                   {releaseYear && (

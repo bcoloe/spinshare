@@ -2,6 +2,8 @@ import { apiFetch } from './apiClient'
 import type {
   ExploreAlbumsPage,
   ExploreAlbumsParams,
+  ExploreArtistsPage,
+  ExploreArtistsParams,
   ExploreGroupsPage,
   ExploreGroupsParams,
   ExploreUsersPage,
@@ -19,6 +21,16 @@ export const exploreService = {
     if (sort_by) qs.set('sort_by', sort_by)
     if (q) qs.set('q', q)
     return apiFetch(`/explore/albums?${qs}`)
+  },
+
+  getArtists(params: ExploreArtistsParams = {}): Promise<ExploreArtistsPage> {
+    const { offset = 0, limit = 20, sort_by, q } = params
+    const qs = new URLSearchParams()
+    qs.set('offset', String(offset))
+    qs.set('limit', String(limit))
+    if (sort_by) qs.set('sort_by', sort_by)
+    if (q) qs.set('q', q)
+    return apiFetch(`/explore/artists?${qs}`)
   },
 
   getGroups(params: ExploreGroupsParams = {}): Promise<ExploreGroupsPage> {

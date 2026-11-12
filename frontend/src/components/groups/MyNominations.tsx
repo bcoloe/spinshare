@@ -7,6 +7,7 @@ import {
   Button,
   Group,
   Image,
+  SegmentedControl,
   Skeleton,
   Stack,
   Table,
@@ -25,6 +26,7 @@ import {
   IconTrash,
 } from '@tabler/icons-react'
 import AlbumSearchModal from '../albums/AlbumSearchModal'
+import ArtistLink from '../albums/ArtistLink'
 import { notifications } from '@mantine/notifications'
 import { useGroupAlbums, useNominationCount, useRemoveGroupAlbum } from '../../hooks/useAlbums'
 import { useGroup } from '../../hooks/useGroups'
@@ -34,6 +36,14 @@ import type { GroupAlbumResponse } from '../../types/album'
 
 type SortField = 'title' | 'artist' | 'year' | 'status'
 type SortDir = 'asc' | 'desc'
+type StatusFilter = 'all' | GroupAlbumResponse['status']
+
+const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'selected', label: 'Selected' },
+  { value: 'reviewed', label: 'Reviewed' },
+]
 
 const STATUS_COLOR = {
   pending: 'blue',
@@ -100,6 +110,7 @@ export default function MyNominations({ groupId }: Props) {
     (ROLE_RANK[group.current_user_role] ?? 99) <= (ROLE_RANK[minRoleToNominate] ?? 99) &&
     !dailyLimitReached
   const [filter, setFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [sortField, setSortField] = useState<SortField>('title')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [nominateOpened, { open: openNominate, close: closeNominate }] = useDisclosure(false)
@@ -109,15 +120,27 @@ export default function MyNominations({ groupId }: Props) {
     [allAlbums, user],
   )
 
+  const statusCounts = useMemo(() => {
+    const counts: Record<StatusFilter, number> = {
+      all: myNominations.length,
+      pending: 0,
+      selected: 0,
+      reviewed: 0,
+    }
+    for (const ga of myNominations) counts[ga.status] += 1
+    return counts
+  }, [myNominations])
+
   const filtered = useMemo(() => {
     const q = filter.toLowerCase()
-    if (!q) return myNominations
     return myNominations.filter(
       (ga) =>
-        ga.album.title.toLowerCase().includes(q) ||
-        ga.album.artist.toLowerCase().includes(q),
+        (statusFilter === 'all' || ga.status === statusFilter) &&
+        (!q ||
+          ga.album.title.toLowerCase().includes(q) ||
+          ga.album.artist.toLowerCase().includes(q)),
     )
-  }, [myNominations, filter])
+  }, [myNominations, filter, statusFilter])
 
   const sorted = useMemo(
     () =>
@@ -191,6 +214,17 @@ export default function MyNominations({ groupId }: Props) {
         </Tooltip>
       </Group>
 
+      <SegmentedControl
+        size="xs"
+        value={statusFilter}
+        onChange={(v) => setStatusFilter(v as StatusFilter)}
+        data={STATUS_FILTERS.map(({ value, label }) => ({
+          value,
+          label: `${label} (${statusCounts[value]})`,
+        }))}
+        aria-label="Filter by status"
+      />
+
       {sorted.length === 0 ? (
         <Text c="dimmed" size="sm">
           {myNominations.length === 0
@@ -240,7 +274,7 @@ export default function MyNominations({ groupId }: Props) {
                   </Anchor>
                 </Table.Td>
                 <Table.Td>
-                  <Text size="sm" c="dimmed">{ga.album.artist}</Text>
+                  <ArtistLink artist={ga.album.artist} size="sm" />
                 </Table.Td>
                 <Table.Td>
                   <Text size="sm" c="dimmed">{getYear(ga.album.release_date)}</Text>

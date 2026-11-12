@@ -248,6 +248,7 @@ UNPROFILED_GETS: dict[str, str] = {
     "/artists/overview": _TODO,
     "/chat/unread": _TODO,
     "/explore/albums": _TODO,
+    "/explore/artists": _TODO,
     "/explore/groups": _TODO,
     "/explore/stats": _TODO,
     "/explore/users": _TODO,

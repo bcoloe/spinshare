@@ -12,6 +12,8 @@ from app.schemas.explore import (
     ArtistNominationItem,
     ExploreAlbumItem,
     ExploreAlbumsPage,
+    ExploreArtistItem,
+    ExploreArtistsPage,
     ExploreGroupItem,
     ExploreGroupsPage,
     SiteStatsResponse,
@@ -179,6 +181,46 @@ class TestExploreGroups:
         )
         resp = client.get("/explore/groups")
         assert resp.json()["items"][0]["is_global"] is True
+
+
+# ==================== GET /explore/artists ====================
+
+class TestExploreArtists:
+    def _page(self) -> ExploreArtistsPage:
+        return ExploreArtistsPage(
+            items=[ExploreArtistItem(artist="Radiohead", album_count=3, nomination_count=7)],
+            next_offset=20,
+        )
+
+    def test_returns_200_with_items(self, client, mock_explore_service):
+        mock_explore_service.get_explore_artists.return_value = self._page()
+        resp = client.get("/explore/artists")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["items"][0] == {"artist": "Radiohead", "album_count": 3, "nomination_count": 7}
+        assert data["next_offset"] == 20
+
+    def test_params_forwarded(self, client, mock_explore_service):
+        mock_explore_service.get_explore_artists.return_value = self._page()
+        client.get("/explore/artists?offset=20&limit=10&q=radio&sort_by=most_nominated")
+        mock_explore_service.get_explore_artists.assert_called_once_with(
+            offset=20, limit=10, q="radio", sort_by="most_nominated"
+        )
+
+    def test_empty_q_treated_as_none(self, client, mock_explore_service):
+        mock_explore_service.get_explore_artists.return_value = self._page()
+        client.get("/explore/artists?q=")
+        assert mock_explore_service.get_explore_artists.call_args.kwargs["q"] is None
+
+    def test_invalid_sort_by_falls_back_to_name(self, client, mock_explore_service):
+        mock_explore_service.get_explore_artists.return_value = self._page()
+        client.get("/explore/artists?sort_by=bogus")
+        assert mock_explore_service.get_explore_artists.call_args.kwargs["sort_by"] == "name"
+
+    def test_works_without_authentication(self, unauthed_client, mock_explore_service):
+        mock_explore_service.get_explore_artists.return_value = self._page()
+        resp = unauthed_client.get("/explore/artists")
+        assert resp.status_code == 200
 
 
 # ==================== GET /explore/users ====================

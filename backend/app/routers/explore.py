@@ -2,7 +2,13 @@
 
 from app.dependencies import get_current_user, get_current_user_optional, get_explore_service
 from app.models import User
-from app.schemas.explore import ExploreAlbumsPage, ExploreGroupsPage, ExploreUsersPage, SiteStatsResponse
+from app.schemas.explore import (
+    ExploreAlbumsPage,
+    ExploreArtistsPage,
+    ExploreGroupsPage,
+    ExploreUsersPage,
+    SiteStatsResponse,
+)
 from app.services.explore_service import ExploreService
 from fastapi import APIRouter, Depends, Query
 
@@ -10,6 +16,7 @@ router = APIRouter(prefix="/explore", tags=["explore"])
 
 _VALID_SORT_OPTIONS = {"top_rated", "bottom_rated", "most_reviewed", "most_nominated", "recent"}
 _VALID_GROUP_TYPES = {"all", "human", "bot"}
+_VALID_ARTIST_SORT_OPTIONS = {"name", "most_nominated"}
 
 
 @router.get("/albums", response_model=ExploreAlbumsPage)
@@ -34,6 +41,27 @@ def explore_albums(
     return svc.get_explore_albums(
         offset=offset, limit=limit, min_reviews=min_reviews, sort_by=sort_by, q=q or None
     )
+
+
+@router.get("/artists", response_model=ExploreArtistsPage)
+def explore_artists(
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=100),
+    sort_by: str = Query(default="name"),
+    q: str | None = Query(default=None),
+    current_user: User | None = Depends(get_current_user_optional),
+    svc: ExploreService = Depends(get_explore_service),
+):
+    """Browse artists with at least one nominated album. Publicly readable —
+    no authentication required.
+
+    q filters by partial artist-name match (case-insensitive).
+    sort_by: name | most_nominated
+    Results are paginated via offset/limit for infinite-scroll clients.
+    """
+    if sort_by not in _VALID_ARTIST_SORT_OPTIONS:
+        sort_by = "name"
+    return svc.get_explore_artists(offset=offset, limit=limit, q=q or None, sort_by=sort_by)
 
 
 @router.get("/groups", response_model=ExploreGroupsPage)

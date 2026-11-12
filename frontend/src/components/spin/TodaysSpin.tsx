@@ -22,6 +22,7 @@ import {
 } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
+import ArtistLink from '../albums/ArtistLink'
 import LinkRepairControl from '../albums/LinkRepairControl'
 import { IconBrandApple, IconBrandSpotify, IconBrandWikipedia, IconBrandYoutube, IconCheck, IconClock, IconDice1, IconDice2, IconDice3, IconDice4, IconDice5, IconDice6, IconExternalLink, IconHistory, IconInfoCircle, IconMusic, IconPlus } from '@tabler/icons-react'
 import AlbumCard from './AlbumCard'
@@ -546,7 +547,7 @@ function SelectTodayPanel({ groupId }: { groupId: number }) {
               />
               <div style={{ minWidth: 0 }}>
                 <Text size="sm" fw={500} lineClamp={1}>{ga.album.title}</Text>
-                <Text size="xs" c="dimmed" lineClamp={1}>{ga.album.artist}</Text>
+                <ArtistLink artist={ga.album.artist} size="xs" lineClamp={1} />
               </div>
             </Group>
             <Button

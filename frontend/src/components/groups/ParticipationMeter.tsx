@@ -54,6 +54,9 @@ function ordinal(n: number): string {
  * front of the daily draw. A promoted pick is shown as "Next up" and stays
  * locked until the next draw renders it.
  */
+const compareText = (a: string, b: string) =>
+  a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true })
+
 export default function ParticipationMeter({ groupId }: Props) {
   const { user } = useAuth()
   const { data: participation } = useParticipation(groupId)
@@ -68,14 +71,22 @@ export default function ParticipationMeter({ groupId }: Props) {
     open()
   }
 
+  // Listed alphabetically by artist (then title) so a member's albums by the same
+  // artist sit together and any one is quick to find.
   const myPending = useMemo(
     () =>
-      allAlbums.filter(
-        (ga) =>
-          ga.status === 'pending' &&
-          user?.id !== undefined &&
-          ga.nominator_user_ids.includes(user.id),
-      ),
+      allAlbums
+        .filter(
+          (ga) =>
+            ga.status === 'pending' &&
+            user?.id !== undefined &&
+            ga.nominator_user_ids.includes(user.id),
+        )
+        .sort(
+          (a, b) =>
+            compareText(a.album.artist, b.album.artist) ||
+            compareText(a.album.title, b.album.title),
+        ),
     [allAlbums, user],
   )
 
