@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { EMOJI, emojiFor, replaceShortcodes, searchEmoji } from './emoji'
+import { ALIASES, EMOJI, emojiFor, replaceShortcodes, searchEmoji } from './emoji'
 
 describe('emojiFor', () => {
   it('resolves a canonical shortcode', () => {
@@ -112,6 +112,28 @@ describe('the emoji table itself', () => {
     // never match the substitution regex on the way back out.
     for (const { slug } of EMOJI) {
       expect(slug).toMatch(/^[a-z0-9_+-]{1,32}$/)
+    }
+  })
+})
+
+describe('common additions', () => {
+  it('has a goat', () => {
+    expect(replaceShortcodes('this album is the :goat:')).toBe('this album is the 🐐')
+  })
+
+  it("resolves chef's kiss to pinched fingers", () => {
+    expect(emojiFor('chefs_kiss')).toBe('🤌')
+    expect(emojiFor('chef_kiss')).toBe('🤌')
+  })
+})
+
+describe('aliases', () => {
+  it('every alias resolves to a real entry', () => {
+    // A typo'd canonical slug would make the alias silently do nothing.
+    const slugs = new Set(EMOJI.map((e) => e.slug))
+    for (const [alias, canonical] of Object.entries(ALIASES)) {
+      expect(slugs.has(canonical), `${alias} -> ${canonical}`).toBe(true)
+      expect(alias).toMatch(/^[a-z0-9_+-]{1,32}$/)
     }
   })
 })
